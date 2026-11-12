@@ -101,9 +101,12 @@ describe('the door says what it is and what it offers', () => {
        to, when the person did not ask: an item in their Inbox they take or
        dismiss, which moves nothing — see `test/offer-jump.test.ts`. And one
        proposes where a tracker item no epic names belongs, which the person
-       confirms or not, and adopts nothing — see `test/adoption.test.ts`. */
+       confirms or not, and adopts nothing — see `test/adoption.test.ts`. And one
+       edits the tree of spaces through the writer the space picker uses, the
+       parts' writer one level up and down — see `test/spaces.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
+      'edit_space',
       'fold_modules',
       'jump',
       'kehikko_skills',

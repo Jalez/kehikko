@@ -5,9 +5,10 @@ import { storageText, type StorageReport } from '../src/host/storage.ts'
 import { settingsText, type SettingsAnswer, type SettingsListed } from '../src/host/moduleSettings.ts'
 import type { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
-import { DISPOSITIONS, HEADER_MENUS, LIMITS, addressRefusal, isSkillName, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
+import { DISPOSITIONS, HEADER_MENUS, LIMITS, spaceAt, spaceSaid, type SpaceNode, addressRefusal, isSkillName, meterSaid, methodParams, PACKAGE_VERSION, type FooterItem, type HeaderItem, type SharedAddress, type SharedLocation, type TrackerRow } from 'kehikot-module-protocol'
 
-import { listCanvases, editCanvas, readSubject, type Canvas, type Placement } from './canvases.ts'
+import { listCanvases, editCanvas, readSubject, setSubject, spaceOfSubject, type Canvas, type Placement } from './canvases.ts'
+import { editSpaces, spaceEditIn } from './spaces.ts'
 import type { TrackerDoor } from './answers.ts'
 import { setDisposition } from './dispositions.ts'
 import { createEpic, editParts, epicsIn, listEpics, readParts, readStepsAnswer } from './holdings.ts'
@@ -391,6 +392,7 @@ export const TOOL_NAMES = [
   'place_modules',
   'create_epic',
   'set_parts',
+  'edit_space',
   'mark_disposition',
   'read_tracker',
   'set_tracker_source',
@@ -1344,6 +1346,39 @@ function tools() {
       },
     },
     {
+      name: 'edit_space',
+      description:
+        'Make ONE edit to the tree of spaces of the project a kehikko is standing in: create a space, rename one, '
+        + 'move one, or remove one. A space can hold spaces to any depth; the top-level spaces are what were epics '
+        + '(same ids as their slugs) and the spaces right under them what were parts (same ids). Each space has its '
+        + 'own kehikot like any other. A space is named by its path of ids from the top, e.g. ["auth", "login", '
+        + '"errors"], which read_canvas prints. create: { parent: [] for a top-level space or the path of the space '
+        + 'to make it in, name, after? }. rename: { path, name }. move: { path, after?, parent? } — after: the id it '
+        + 'goes right after among its siblings, null for first; parent moves a space deeper than the second level '
+        + 'under another such space. remove: { path, confirm } — without confirm: true the answer only says what '
+        + 'would go; ask the person first. It never changes which space somebody is looking at. create_epic and '
+        + 'set_parts still work and are this tool at the top two levels.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          create: {
+            type: 'object',
+            properties: { parent: { type: 'array', items: { type: 'string' } }, name: { type: 'string' }, after: { type: ['string', 'null'] } },
+            required: ['name'],
+          },
+          rename: { type: 'object', properties: { path: { type: 'array', items: { type: 'string' } }, name: { type: 'string' } }, required: ['path', 'name'] },
+          move: {
+            type: 'object',
+            properties: { path: { type: 'array', items: { type: 'string' } }, after: { type: ['string', 'null'] }, parent: { type: 'array', items: { type: 'string' } } },
+            required: ['path'],
+          },
+          remove: { type: 'object', properties: { path: { type: 'array', items: { type: 'string' } }, confirm: { type: 'boolean' } }, required: ['path'] },
+        },
+        required: [],
+      },
+    },
+    {
       name: 'create_epic',
       description:
         'Make a new epic in the project a kehikko is standing in: one file, .kehikot/host/epics/<slug>.json, with the '
@@ -1827,6 +1862,7 @@ export async function call(
   if (name === 'open_address') return openAddressOn(canvas, where.how, args, door)
   if (name === 'create_epic') return createEpicAt(canvas, args, door)
   if (name === 'set_parts') return setPartsAt(canvas, args, door)
+  if (name === 'edit_space') return editSpaceAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
   if (name === 'propose_adoption') return proposeAt(canvas, args, door)
@@ -2965,6 +3001,51 @@ const AGENT = 'agent (MCP)'
  * know which agent; a module asking for a fold would be signed with its name.
  */
 const SIGNED = 'an agent'
+
+/**
+ * `edit_space`: one edit of the project's tree of spaces, through the one writer (`editSpaces`), as the
+ * person's space picker makes it. A project standing in a space that is removed moves up to what holds it.
+ */
+function editSpaceAt(canvas: Canvas, args: Record<string, unknown>, door: Door): { text: string; failed: boolean } {
+  const project = canvas.project === null ? null : projectById(door.db, canvas.project)
+  if (!project) return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project, so it has no spaces. Name a kehikko that is in one.\n\n${roster(door.db)}`, failed: true }
+  if (project.missing) return { text: missingSaid(project), failed: true }
+  const edit = spaceEditIn(args)
+  if (!edit) return { text: 'nothing was changed — name exactly one of create: { parent, name, after? }, rename: { path, name }, move: { path, after?, parent? }, remove: { path, confirm }.', failed: true }
+  const done = editSpaces(project.path, edit)
+  if (done.outcome === 'confirm') return { text: done.why, failed: false }
+  if (done.outcome !== 'changed') return { text: done.outcome === 'unchanged' ? 'Already so; nothing was changed.' : `nothing was changed — ${done.why}`, failed: done.outcome !== 'unchanged' }
+  if ('remove' in edit) {
+    const now = readSubject(door.db, project.id)
+    const here = now ? spaceOfSubject(now) : null
+    const gone = edit.remove.path
+    if (here && gone.every((id, at) => here.ids[at] === id)) {
+      const up = gone.slice(0, -1)
+      setSubject(door.db, project.id, up.length ? { space: { ids: up } } : { epic: null })
+      keep(door.db, project.id)
+    }
+  }
+  door.epicsChanged(project.id)
+  const top = 'create' in edit ? (done.path ?? edit.create.parent)[0] : ('rename' in edit ? edit.rename.path : 'move' in edit ? edit.move.path : edit.remove.path)[0]
+  if (top) door.epicWritten?.(project.id, top)
+  const said = done.path ? spaceAt(done.tree, done.path) : null
+  return {
+    text: `${'remove' in edit ? `Removed ${edit.remove.path.join('/')}` : `Done: ${said ? `${spaceSaid(said)} (${done.path!.join('/')})` : done.path?.join('/')}`}. The spaces of ${project.name} now:\n${spacesText(done.tree)}`,
+    failed: false,
+  }
+}
+
+/** A tree of spaces as lines an agent reads: one space a line, indented by depth, with its path of ids. */
+export function spacesText(tree: readonly SpaceNode[], above: string[] = [], depth = 0): string {
+  if (!tree.length && depth === 0) return '(no spaces)'
+  return tree
+    .map((node) => {
+      const path = [...above, node.id]
+      const line = `${'  '.repeat(depth)}- ${node.name} [${path.join('/')}]`
+      return node.children.length ? `${line}\n${spacesText(node.children, path, depth + 1)}` : line
+    })
+    .join('\n')
+}
 
 function createEpicAt(
   canvas: Canvas,

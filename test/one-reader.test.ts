@@ -485,6 +485,7 @@ describe('only one file opens an epic', () => {
     'server/folders.ts': 'asks whether the directory exists',
     'server/content.ts': 'watches the directory for changes; reads no epic',
     'server/server.ts': 'names one file to the content watch after writing it; reads no epic',
+    'server/spaces.ts': 'lists the epic files to copy them aside once, before the first spaces.json; reads no epic',
   }
 
   function sources(dir: string): string[] {
@@ -514,7 +515,8 @@ describe('only one file opens an epic', () => {
       .filter((path) => /import \{[^}]*\b(readEpic|readSteps|listEpics)\b[^}]*\} from '\.\.?\/holdings\.ts'/.test(readFileSync(path, 'utf8')))
       .map((path) => relative(HERE, path))
       .sort()
-    expect(importing).toEqual(['server/answers.ts', 'server/inboxText.ts', 'server/mcp.ts', 'server/pinnedPlaces.ts', 'server/server.ts', 'server/trackers/reading.ts'])
+    /* `spaces.ts` lists the epics (titles and parts) as the top two levels of the tree of spaces. */
+    expect(importing).toEqual(['server/answers.ts', 'server/inboxText.ts', 'server/mcp.ts', 'server/pinnedPlaces.ts', 'server/server.ts', 'server/spaces.ts', 'server/trackers/reading.ts'])
   })
 
   test('and only the reader opens the Journeys module’s file, through the protocol', () => {

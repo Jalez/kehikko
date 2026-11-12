@@ -1,5 +1,10 @@
 import { z } from 'zod'
 
+import { standIn, type HeldSpace } from './spaces.ts'
+
+/* A subject's space as the server sends it (`Subject.space`), absent from an older server. */
+const spaceRow = z.object({ ids: z.array(z.string()).min(1).max(32), picked: z.array(z.string()).max(128).default([]) }).optional().catch(undefined)
+
 /**
  * What a project is about, on the page's side: one epic, and the refs picked
  * out of it.
@@ -41,6 +46,8 @@ export interface ProjectSubject {
   /** Part ids picked out of the epic. Empty is the whole epic. */
   parts: string[]
   selection: string[]
+  /** The space when epic and parts cannot say it (deeper than a part); absent otherwise. See `src/host/spaces.ts`. */
+  space?: HeldSpace
 }
 
 /** Every project's subject, by project id. */
@@ -62,6 +69,7 @@ export const subjectsSchema = z
       /* Defaulted, so a server from before parts answers "the whole epic". */
       parts: z.array(z.string()).max(64).default([]),
       selection: z.array(z.string()).max(64).default([]),
+      space: spaceRow,
     }),
   )
   .default([])
@@ -72,10 +80,11 @@ export const subjectsSchema = z
   })
 
 /** One subject as the server spells it, with "All epics" holding no epic and no parts. */
-function subjectFrom(row: { epic: string | null; scope?: 'epic' | 'project'; parts: string[]; selection: string[] }): ProjectSubject {
-  return row.scope === 'project'
-    ? { epic: null, scope: 'project', parts: [], selection: row.selection }
-    : { epic: row.epic, parts: row.parts, selection: row.selection }
+function subjectFrom(row: { epic: string | null; scope?: 'epic' | 'project'; parts: string[]; selection: string[]; space?: HeldSpace }): ProjectSubject {
+  if (row.scope === 'project') return { epic: null, scope: 'project', parts: [], selection: row.selection }
+  const out: ProjectSubject = { epic: row.epic, parts: row.parts, selection: row.selection }
+  if (row.space && row.space.ids[0] === row.epic) out.space = { ids: row.space.ids, picked: row.space.picked }
+  return out
 }
 
 /** Whether a project is on "All epics". */
@@ -95,6 +104,8 @@ export interface SubjectEdit {
   epic?: string | null
   parts?: string[]
   selection?: string[]
+  /** Stand in this space (its path of ids, and children picked in it): sets epic and parts, and wins over them. */
+  space?: { ids: string[]; picked?: string[] } | null
 }
 
 /**
@@ -104,12 +115,21 @@ export interface SubjectEdit {
  * epic has no parts.
  */
 export function edited(was: ProjectSubject, edit: SubjectEdit): ProjectSubject {
+  let keep: HeldSpace | undefined
+  if (edit.space !== undefined) {
+    const stood = edit.space ? standIn(edit.space.ids, edit.space.picked ?? []) : { epic: null, parts: [] as string[] }
+    edit = { ...edit, scope: edit.scope ?? 'epic', epic: stood.epic, parts: stood.parts }
+    keep = 'space' in stood ? stood.space : undefined
+  } else if (edit.epic === undefined && edit.parts === undefined && edit.scope === undefined) {
+    keep = was.space
+  }
   const scope = scopeAfter(was, edit)
   const epic = scope === 'project' ? null : edit.epic !== undefined ? edit.epic : was.epic
   const moved = movesEpic(was, edit)
   const selection = edit.selection !== undefined ? [...edit.selection] : moved ? [] : was.selection
   const parts = epic === null ? [] : edit.parts !== undefined ? [...edit.parts] : moved ? [] : was.parts
-  return scope === 'project' ? { epic, scope, parts, selection } : { epic, parts, selection }
+  if (scope === 'project') return { epic, scope, parts, selection }
+  return keep && keep.ids[0] === epic ? { epic, parts, selection, space: keep } : { epic, parts, selection }
 }
 
 /**
@@ -118,6 +138,10 @@ export function edited(was: ProjectSubject, edit: SubjectEdit): ProjectSubject {
  * for. Picking parts within the same epic does neither.
  */
 export function movesEpic(was: Pick<ProjectSubject, 'epic' | 'scope'>, edit: SubjectEdit): boolean {
+  if (edit.space !== undefined) {
+    const epic = edit.space ? (standIn(edit.space.ids, edit.space.picked ?? []).epic) : null
+    return epic !== was.epic || (was.scope ?? 'epic') !== (edit.scope ?? 'epic')
+  }
   const scope = scopeAfter(was, edit)
   const epic = scope === 'project' ? null : edit.epic !== undefined ? edit.epic : was.epic
   return epic !== was.epic || scope !== (was.scope ?? 'epic')
@@ -157,6 +181,7 @@ export async function editSubject(project: number, edit: SubjectEdit): Promise<P
         scope: z.enum(['epic', 'project']).optional(),
         parts: z.array(z.string()).default([]),
         selection: z.array(z.string()),
+        space: spaceRow,
       }),
     })
     .parse(await response.json())

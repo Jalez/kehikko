@@ -18,6 +18,7 @@ import {
   type SharedAddress,
   type SharedLocation,
   type TrackerSignal,
+  type Space,
 } from 'kehikot-module-protocol'
 
 import { sameChoice } from './filters.ts'
@@ -115,6 +116,12 @@ import type { Project } from './projects.ts'
 
 export interface Subject {
   epic: string | null
+  /**
+   * The space the person stands in, with names (protocol 2.89.0), for `context.space`. Its first step
+   * is `epic`; a space naming another epic is not sent. Absent or null: none, which an older caller
+   * that knows only epics passes.
+   */
+  space?: Space | null
   /**
    * `'project'` when the person chose "All epics": every epic of the project at
    * once, which goes out as `context.scope: 'project'` with `epic` null and no
@@ -391,6 +398,7 @@ export function toWireContext(
     tracker,
     content,
     parts: whole ? [] : divided,
+    space: !whole && subject.space && subject.space.path[0]?.id === subject.epic ? subject.space : null,
   })
   if (parsed.success) return withBaseBranch(parsed.data, told.project)
 

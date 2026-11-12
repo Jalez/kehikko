@@ -14,6 +14,7 @@ import { InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
+import { SpacePicker, type SpacePickerProps } from './SpacePicker.tsx'
 import { Hint } from './Hint.tsx'
 import { ModuleList, type IntroAbout } from './Modules.tsx'
 import { Updates } from './Updates.tsx'
@@ -101,6 +102,7 @@ export function Bar({
   onRefreshTrackers = () => {},
   inbox = null,
   pinned = null,
+  spaces = null,
 }: {
   registry: RegistryView | null
   /** This project's kehikot, and no others. See `inProject`. */
@@ -137,6 +139,8 @@ export function Bar({
   onCreate(): void
   onDelete(id: number): void
   onSubject(subject: Subject): void
+  /** The space picker (`SpacePicker.tsx`): when given, it stands in the bar in place of the epic and parts pickers. */
+  spaces?: Omit<SpacePickerProps, 'project'> | null
   /** The parts the open epic is divided into. Empty when it has none, and when no epic is open. */
   parts: readonly Part[]
   /** The ids of the ones the project is pointed at. Empty is the whole epic. */
@@ -229,6 +233,10 @@ export function Bar({
          * it had no project to read one from; now it has, and a field next to a
          * list of what exists is a way to make a typo authoritative.
          */}
+        {spaces ? (
+          <SpacePicker {...spaces} project={project ? { id: project.id, name: project.name } : null} />
+        ) : (
+        <>
         <Epics
           epic={subject.epic}
           allEpics={subject.scope === 'project'}
@@ -266,6 +274,8 @@ export function Bar({
             epic={subject.epic}
             onEdit={onEditParts}
           />
+        )}
+        </>
         )}
 
         <span className="bg-border mx-1 h-4 w-px shrink-0 max-[480px]:hidden" />
