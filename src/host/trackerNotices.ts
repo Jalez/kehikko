@@ -47,6 +47,21 @@ import {
 export const TRACKER_NOTICES_MODULE = 'kehikko.trackers'
 export const TRACKER_NOTICES_BY = 'Tracker'
 
+/** What a notice of a ref no epic names says for its place, before the tracker's host. */
+export const NOT_IN_AN_EPIC = 'Not in any epic'
+
+/** The tracker's host an item id names (`itemId`: `<tracker>:<host>/<repo>…`); null for a hashed one. */
+export function noticeHostOf(id: string): string | null {
+  const m = /^(?:github|gitlab):([^/\s]+)\//.exec(id)
+  return m ? m[1]! : null
+}
+
+/** A notice's place in words when no epic names its ref: "Not in any epic · gitlab.example.org". */
+export function notInAnEpic(id: string): string {
+  const host = noticeHostOf(id)
+  return host ? `${NOT_IN_AN_EPIC} · ${host}` : NOT_IN_AN_EPIC
+}
+
 export const NOTICE_EVENTS = [
   'review-requested',
   'changes-requested',
