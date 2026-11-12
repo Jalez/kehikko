@@ -212,6 +212,8 @@ export interface JumpOrder {
   kehikko?: string
   epic?: string
   parts?: string[]
+  /** The space by its path of ids, when it is deeper than epic and parts say (protocol 2.89.0); its first id is `epic`. */
+  space?: string[]
   step?: number
   /** The step's title, when the server could read it, for the mark. */
   title?: string

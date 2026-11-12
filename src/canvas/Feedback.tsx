@@ -254,7 +254,7 @@ export function FeedbackDialog({
             <>
               This will be posted as a GitHub issue in{' '}
             {repo ? <span className="font-mono">{repo}</span> : "this module's repository"} under your account, with a
-            line saying which module version, kehikko and epic it came from.
+            line saying which module version, kehikko and space it came from.
             </>
           }
           descriptionClassName="text-sm leading-relaxed"

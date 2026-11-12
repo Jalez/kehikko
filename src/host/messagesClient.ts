@@ -74,12 +74,12 @@ export function onMessagesChanged(then: (project: number) => void): () => void {
 export function toWords(to: AgentMessage['to'], nameOf: (module: string) => string = (module) => module): string {
   if (to.session) return `one ${nameOf(to.session.module)} session (${to.session.session.slice(0, 12)})`
   if (to.module) return `every ${nameOf(to.module)} session`
-  if (to.place) return [to.place.epic ? `epic ${to.place.epic}` : '', to.place.kehikko ? `kehikko ${to.place.kehikko}` : ''].filter(Boolean).join(' on ')
+  if (to.place) return [to.place.epic ? `space ${to.place.epic}` : '', to.place.kehikko ? `kehikko ${to.place.kehikko}` : ''].filter(Boolean).join(' on ')
   return 'everyone in the project'
 }
 
 /** Where the sender was, in a few words. */
 export function fromWords(message: AgentMessage): string {
   const place = message.from.place
-  return [place.epic ? `epic ${place.epic}` : 'no epic', place.kehikko ? `kehikko ${place.kehikko}` : ''].filter(Boolean).join(' on ')
+  return [place.epic ? `space ${place.epic}` : 'no space', place.kehikko ? `kehikko ${place.kehikko}` : ''].filter(Boolean).join(' on ')
 }

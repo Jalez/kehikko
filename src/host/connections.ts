@@ -77,9 +77,9 @@ export const KIND_SAID: Record<ConnectionKind, string> = {
   selection: 'Picked references',
   location: 'A place in a change’s code',
   address: 'Web pages to show',
-  steps: 'The epic’s steps',
+  steps: 'The space’s steps',
   extension: 'Published results',
-  parts: 'The picked parts',
+  parts: 'The picked sub-spaces',
   skill: 'Skills',
   agent: 'Tools for agent sessions',
   tracker: 'The tracker reading',
@@ -88,7 +88,7 @@ export const KIND_SAID: Record<ConnectionKind, string> = {
 
 /** Why a drawn connection has no switch. */
 const FIXED_WHY: Partial<Record<ConnectionKind, string>> = {
-  parts: 'The parts are the epic’s list, whoever edited it; the host cannot hold back one module’s edits.',
+  parts: 'The sub-spaces are the space’s list, whoever edited it; the host cannot hold back one module’s edits.',
   tracker: 'The tracker reading is the project’s, kept by Kehikot, not a module’s to withhold.',
   inbox: 'What a module says it is doing goes to the Inbox, which is the person’s record; it is never withheld.',
 }
@@ -278,7 +278,7 @@ function sentences(kind: ConnectionKind, a: string, b: string, about: string): {
   case 'address':
     return { said: `${b} shows the pages ${a} opens.`, offSaid: `${b} doesn’t show ${of(a)} pages here; with nobody else showing them, the person is offered them.` }
   case 'steps':
-    return { said: `${b} reads the epic’s steps ${a} keeps.`, offSaid: `${b} isn’t given ${of(a)} steps here.` }
+    return { said: `${b} reads the space’s steps ${a} keeps.`, offSaid: `${b} isn’t given ${of(a)} steps here.` }
   case 'extension':
     return about === 'kehikot.notifications@1'
       ? { said: `${b} shows ${of(a)} notifications.`, offSaid: `${b} doesn’t get ${of(a)} notifications here.` }
@@ -289,8 +289,8 @@ function sentences(kind: ConnectionKind, a: string, b: string, about: string): {
     return { said: `${of(b)} agent sessions are handed ${of(a)} tools.`, offSaid: `${of(b)} sessions aren’t handed ${of(a)} tools here.` }
   case 'parts':
     return a === HOST_NODE_NAME
-      ? { said: `${b} narrows to the parts picked in the bar.`, offSaid: `${b} shows the whole epic here, whatever parts are picked.` }
-      : { said: `${a} edits the epic’s parts, which ${b} narrows to.`, offSaid: '' }
+      ? { said: `${b} narrows to the sub-spaces picked in the bar.`, offSaid: `${b} shows the whole space here, whatever sub-spaces are picked.` }
+      : { said: `${a} edits the space’s sub-spaces, which ${b} narrows to.`, offSaid: '' }
   case 'tracker':
     return { said: `${b} reads the tracker ${a} keeps.`, offSaid: '' }
   case 'inbox':

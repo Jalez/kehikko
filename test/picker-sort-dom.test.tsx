@@ -161,11 +161,11 @@ describe('the sort switch in each dropdown', () => {
       <Epics epic="b" held={held} hasProject project={1} onPick={noop} onPickAll={noop} onRetitle={async () => true} onCreate={async () => true} onDelete={noop} />,
     )
     await openMenu('the epic this project is on')
-    expect(rows()[0]).toContain('All epics')
+    expect(rows()[0]).toContain('All spaces')
     expect(firstWords(rows().slice(1, 4))).toEqual(['Apricot', 'Banana', 'Cherry'])
     expect(rows().some((text) => text.includes('no epic'))).toBe(true)
     await press(choice('Recent'))
-    expect(rows()[0]).toContain('All epics')
+    expect(rows()[0]).toContain('All spaces')
     expect(firstWords(rows().slice(1, 4))).toEqual(['Cherry', 'Apricot', 'Banana'])
     expect(rows().some((text) => text.includes('no epic'))).toBe(true)
     expect(rows().findIndex((text) => text.includes('no epic'))).toBeGreaterThan(3)

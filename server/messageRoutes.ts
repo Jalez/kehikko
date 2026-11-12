@@ -123,7 +123,7 @@ const clip = (text: string): string => (text.length > LIMITS.REASON ? `${text.sl
 
 /** The session a resolved place is, as a reader. */
 export function readerOf(here: Here, token: string): Reader {
-  return { module: here.module ?? '', session: sessionIdOf(here.conversation, token), epic: here.epic, kehikko: here.key, parts: here.parts }
+  return { module: here.module ?? '', session: sessionIdOf(here.conversation, token), epic: here.epic, kehikko: here.key, parts: here.parts, space: here.space ?? null }
 }
 
 export function messageDesk(deps: MessageDeps) {

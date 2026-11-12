@@ -8,6 +8,7 @@ import { LIMITS, ignoresKehikot, withKehikotIgnored, withoutKehikotIgnored } fro
 import { createCanvas, listCanvases } from './canvases.ts'
 import { baseBranchOf, readBaseBranch } from './baseBranch.ts'
 import { epicsDir, migrateHostData } from './hostData.ts'
+import { migrateSpaces } from './spaces.ts'
 import { scratchHost } from './machineDirs.ts'
 import { bookmarks, type Bookmarks } from './bookmarks.ts'
 import { isHome, projectFileTracked, readProjectId, sayIdentity, writeProjectId } from './projectIdentity.ts'
@@ -611,7 +612,10 @@ export function addProject(
   /* A legacy `data/epics` / `data/state` moves under `.kehikot/host/` the
      moment the folder becomes (or is re-added as) a project — see
      `hostData.ts`. Never overwrites; a folder with both keeps both. */
-  if (chosen) migrateHostData(real)
+  if (chosen) {
+    migrateHostData(real)
+    migrateSpaces(real)
+  }
 
   /* Already open. Not an error and not a second row: the person picked the
      folder they are already in, most likely because they could not tell from
@@ -624,6 +628,7 @@ export function addProject(
     if (chosen) {
       db.query('update projects set picked = 1 where id = ? and picked is null').run(standing.id)
       migrateHostData(real)
+      migrateSpaces(real)
     }
     identify(db, standing.id)
     keepBookmark(db, standing.id)
@@ -743,7 +748,11 @@ export function adopt(
   /* Every project this host already knows gets its legacy epics and state brought
      under `.kehikot/host/` at startup, so a project added before the move
      reads the same epics after it. See `hostData.ts`. */
-  for (const project of projects) if (!project.missing) migrateHostData(project.path)
+  for (const project of projects) {
+    if (project.missing) continue
+    migrateHostData(project.path)
+    migrateSpaces(project.path)
+  }
   /* Every project's id, oldest first, so that of two folders carrying one id
      the project added first keeps it. See `identify`. */
   identifyAll(db)

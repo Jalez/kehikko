@@ -71,15 +71,15 @@ export const PINNED_SAYS = {
   unpinRow: (label: string) => `Unpin ${label}`,
   upRow: (label: string) => `Move ${label} up`,
   downRow: (label: string) => `Move ${label} down`,
-  allEpics: 'All epics',
-  noEpic: 'no epic',
+  allEpics: 'All spaces',
+  noEpic: 'no space',
   projectGone: (name: string) => `${name} is no longer a project here.`,
   folderGone: (name: string) => `The folder of ${name} is gone.`,
   kehikkoGone: (name: string) => `The kehikko ${name} is gone.`,
-  epicGone: (name: string) => `The epic ${name} is gone.`,
-  allPartsGone: (names: readonly string[]) => `${listed(names)} ${names.length === 1 ? 'is' : 'are'} gone from the epic.`,
+  epicGone: (name: string) => `The space ${name} is gone.`,
+  allPartsGone: (names: readonly string[]) => `${listed(names)} ${names.length === 1 ? 'is' : 'are'} gone from the space.`,
   somePartsGone: (names: readonly string[]) =>
-    `${listed(names)} ${names.length === 1 ? 'is' : 'are'} gone from the epic; the rest are kept.`,
+    `${listed(names)} ${names.length === 1 ? 'is' : 'are'} gone from the space; the rest are kept.`,
   noPlace: 'Open a project to pin a place.',
 } as const
 

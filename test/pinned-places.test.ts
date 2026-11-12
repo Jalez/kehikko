@@ -43,7 +43,7 @@ describe('the rules', () => {
     expect(labelOf({ scope: 'epic', epic: 'thesis', parts: ['methods'], kehikko: 'k1' }, names)).toBe('CS-DEGREE › thesis › methods · Wide')
     expect(labelOf({ scope: 'epic', epic: 'thesis', parts: ['methods', 'results'], kehikko: 'k1' }, names)).toBe('CS-DEGREE › thesis › methods, results · Wide')
     expect(labelOf({ scope: 'epic', epic: 'thesis', parts: [], kehikko: null }, names)).toBe('CS-DEGREE › thesis')
-    expect(labelOf({ scope: 'project', epic: null, parts: [], kehikko: 'k1' }, names)).toBe('CS-DEGREE › All epics · Wide')
+    expect(labelOf({ scope: 'project', epic: null, parts: [], kehikko: 'k1' }, names)).toBe('CS-DEGREE › All spaces · Wide')
     expect(labelOf({ scope: 'epic', epic: null, parts: [], kehikko: 'k1' }, names)).toBe('CS-DEGREE · Wide')
     /* A name not kept is said by its id. */
     expect(labelOf({ scope: 'epic', epic: 'x', parts: ['p'], kehikko: 'k9' }, { project: 'P', kehikko: null, epic: null, parts: {} })).toBe('P › x › p · k9')
@@ -142,16 +142,16 @@ describe('the rules', () => {
       expect(now.label).toBe('CS-DEGREE › Thesis › Methods, Results · Wide')
     })
     test('the epic gone', () => {
-      expect(resolvePin(stored, facts({ epics: new Map(), parts: null })).stale).toBe('The epic Thesis is gone.')
+      expect(resolvePin(stored, facts({ epics: new Map(), parts: null })).stale).toBe('The space Thesis is gone.')
     })
     test('some parts gone: the rest kept, and said', () => {
       const now = resolvePin(stored, facts({ parts: new Map([['results', 'Results']]) }))
       expect(now.stale).toBeNull()
       expect(now.target.parts).toEqual(['results'])
-      expect(now.note).toBe('Methods is gone from the epic; the rest are kept.')
+      expect(now.note).toBe('Methods is gone from the space; the rest are kept.')
     })
     test('every part gone: stale', () => {
-      expect(resolvePin(stored, facts({ parts: new Map() })).stale).toBe('Methods and Results are gone from the epic.')
+      expect(resolvePin(stored, facts({ parts: new Map() })).stale).toBe('Methods and Results are gone from the space.')
     })
     test('a project found again under a new id keeps the pin', () => {
       expect(resolvePin(stored, facts({ project: { id: 9, name: 'CS-DEGREE', missing: false } })).target.project).toBe(9)
@@ -214,7 +214,7 @@ describe('the store', () => {
     pin(draft())
     pin({ project: a.id, kehikko: 'wide', epic: null, scope: 'project', parts: [] })
     const pinned = pin(thesis(['methods']))
-    expect(pinned.map((one) => one.label)).toEqual(['CS-DEGREE › All epics · Wide', 'Paper › Draft · Main', 'CS-DEGREE › thesis › methods · Wide'])
+    expect(pinned.map((one) => one.label)).toEqual(['CS-DEGREE › All spaces · Wide', 'Paper › Draft · Main', 'CS-DEGREE › thesis › methods · Wide'])
   })
 
   test('unpin removes that one and only that one', () => {
@@ -265,7 +265,7 @@ describe('the store', () => {
     test('an epic deleted', () => {
       pin(thesis())
       unlinkSync(join(epicsDir(a.path), 'thesis.json'))
-      expect(readPinnedPlaces(db)[0]!.stale).toBe('The epic thesis is gone.')
+      expect(readPinnedPlaces(db)[0]!.stale).toBe('The space thesis is gone.')
     })
 
     test('one part removed keeps the other', () => {
@@ -274,7 +274,7 @@ describe('the store', () => {
       const [now] = readPinnedPlaces(db)
       expect(now!.stale).toBeNull()
       expect(now!.target.parts).toEqual(['results'])
-      expect(now!.note).toBe('methods is gone from the epic; the rest are kept.')
+      expect(now!.note).toBe('methods is gone from the space; the rest are kept.')
       expect(now!.label).toBe('CS-DEGREE › thesis › methods, results · Wide')
     })
 

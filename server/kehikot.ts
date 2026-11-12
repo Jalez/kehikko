@@ -346,7 +346,7 @@ export const PORTABLE_CANVAS_FIELDS = ['key', 'name', 'connections'] as const sa
  * What a project is about — every field of it is personal since the split: it
  * is in `view.json`, and the shared file says nothing about it.
  */
-export const PERSONAL_SUBJECT_FIELDS = ['epic', 'scope', 'parts', 'selection'] as const satisfies readonly (keyof Subject)[]
+export const PERSONAL_SUBJECT_FIELDS = ['epic', 'scope', 'parts', 'selection', 'space'] as const satisfies readonly (keyof Subject)[]
 
 type UntaughtSubjectField = Exclude<keyof Subject, (typeof PERSONAL_SUBJECT_FIELDS)[number]>
 /* The same device as the placements': a field added to `Subject` and not to
@@ -982,6 +982,7 @@ export function syncProject(db: Database, project: { id: number; path: string })
         epic: view.subject.epic,
         parts: view.subject.parts,
         selection: view.subject.selection,
+        ...(view.subject.space ? { space: view.subject.space } : {}),
       })
       changed = true
     }

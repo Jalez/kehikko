@@ -13,12 +13,12 @@ describe('the tour’s steps', () => {
   test('a new user sets up first, then has the whole top bar explained', () => {
     expect(walk(NO_FACTS)).toEqual([
       ['project', 'Pick a project to start'],
-      ['epic', 'Create your first epic'],
-      ['parts', 'Divide it into parts — if you like'],
+      ['space', 'Create your first space'],
+      ['sub-space', 'Spaces hold spaces — if you like'],
       ['kehikko', 'Your kehikot live here'],
       ['project-bar', 'Your projects'],
-      ['epic-bar', 'The epic'],
-      ['parts-bar', 'Its parts'],
+      ['space-bar', 'Where you are'],
+      ['sub-space-bar', 'Spaces inside spaces'],
       ['kehikko-bar', 'Your kehikot'],
       ['kehikko-skills', 'Kehikko settings'],
       ['pinned', 'Pinned places'],
@@ -35,12 +35,12 @@ describe('the tour’s steps', () => {
     ])
   })
 
-  test('an existing user with a project, an epic and a kehikko gets the explanations, never the setup', () => {
+  test('an existing user with a project, a space and a kehikko gets the explanations, never the setup', () => {
     const steps = walk({ project: true, projects: 10, epic: true, parts: false, kehikko: true })
     expect(steps.map(([id]) => id)).toEqual([
       'project-bar',
-      'epic-bar',
-      'parts-bar',
+      'space-bar',
+      'sub-space-bar',
       'kehikko-bar',
       'kehikko-skills',
       'pinned',
@@ -69,8 +69,8 @@ describe('the tour’s steps', () => {
     expect(typeof fold.body === 'string' ? fold.body : '').toContain('Settings › Appearance')
   })
 
-  test('someone with a project and an epic but no kehikko still sets that up before the bar', () => {
-    expect(walk({ project: true, projects: 1, epic: true, parts: false, kehikko: false }).slice(0, 3).map(([id]) => id)).toEqual(['parts', 'kehikko', 'project-bar'])
+  test('someone with a project and a space but no kehikko still sets that up before the bar', () => {
+    expect(walk({ project: true, projects: 1, epic: true, parts: false, kehikko: false }).slice(0, 3).map(([id]) => id)).toEqual(['sub-space', 'kehikko', 'project-bar'])
   })
 
   test('every explanation is one or two short sentences', () => {
@@ -81,5 +81,20 @@ describe('the tour’s steps', () => {
         expect(body.length).toBeLessThan(260)
       }
     }
+  })
+
+  test('says space, never epic or part, and points at the space picker', () => {
+    const facts: Facts[] = [NO_FACTS, { project: true, projects: 1, epic: true, parts: true, kehikko: true }]
+    for (const step of TOUR_STEPS) {
+      for (const frame of step.frames) {
+        for (const one of facts) {
+          const said = `${frame.title} ${typeof frame.body === 'function' ? frame.body(one) : frame.body} ${step.pass ?? ''}`
+          expect(said).not.toMatch(/\bepics?\b|\bparts?\b/i)
+        }
+        for (const selector of frame.selectors) expect(selector).not.toMatch(/epic|parts/)
+      }
+    }
+    const pointed = TOUR_STEPS.flatMap((step) => step.frames.flatMap((frame) => frame.selectors))
+    for (const hook of ['space', 'new-space', 'space-form', 'space-add']) expect(pointed).toContain(`[data-tour="${hook}"]`)
   })
 })

@@ -39,8 +39,8 @@ export const TRACKER_NEWS_FROM = { module: 'kehikot.host', name: 'Trackers' } as
 /** The person's switch, in Settings › Trackers and on the news itself. */
 export const TRACKER_NEWS_WORDS = {
   title: 'Tracker news to agents',
-  lead: 'Tell the agent sessions at an epic when somebody else reviews, comments, pushes, merges or closes one of its issues or changes, or its CI fails or recovers. Your own actions are never told.',
-  on: 'Agents working on an epic hear of new activity on its items, in this project.',
+  lead: 'Tell the agent sessions in a space when somebody else reviews, comments, pushes, merges or closes one of its issues or changes, or its CI fails or recovers. Your own actions are never told.',
+  on: 'Agents working in a space hear of new activity on its items, in this project.',
   off: 'Off: agents are told nothing from the trackers in this project.',
 } as const
 
@@ -158,7 +158,7 @@ export function newsLine(ref: string, title: string, events: readonly NewsEvent[
 
 /** One message to one place: an epic, or some of its parts. */
 export interface NewsTell {
-  place: { epic: string; parts?: string[] }
+  place: { epic: string; parts?: string[]; space?: string[] }
   body: string
 }
 
@@ -179,7 +179,14 @@ export function newsTells(items: readonly { line: string; places: readonly EpicP
       else perEpic.set(one.epic, new Set([...(was ?? []), ...one.parts]))
     }
     for (const [epic, parts] of perEpic) {
-      const place = parts === null ? { epic } : { epic, parts: [...parts].sort().slice(0, LIMITS.PARTS) }
+      /* With the space it is about (protocol 2.89.0): news for a space reaches the sessions in that space or above
+         it. Several parts are no one space, and are told as before (the sessions at any of them, or the whole epic). */
+      const place =
+        parts === null
+          ? { epic, space: [epic] }
+          : parts.size === 1
+            ? { epic, parts: [...parts], space: [epic, ...parts] }
+            : { epic, parts: [...parts].sort().slice(0, LIMITS.PARTS) }
       const key = JSON.stringify(place)
       const at = byPlace.get(key) ?? { place, body: '', lines: [] }
       at.lines.push(item.line)

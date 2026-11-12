@@ -4,6 +4,8 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   LIMITS,
+  epicPartsOf,
+  spaceAgrees,
   MODULE_ID,
   REFRESH_EVERY_MAX,
   REFRESH_EVERY_MIN,
@@ -14,6 +16,7 @@ import {
 import { STORED_GROUPS } from '../src/host/filters.ts'
 import { CANVAS_ROWS, COLUMNS, COLUMNS_BEFORE, finer, ROWS_BEFORE, wider } from '../src/host/fit.ts'
 import { partIdsIn } from '../src/host/parts.ts'
+import { deepSpace, heldSpaceOf } from '../src/host/spaces.ts'
 /* The one rule for when a write leaves "All epics", shared with the page. */
 import { scopeAfter } from '../src/host/subject.ts'
 import { frameDbFile } from './machineDirs.ts'
@@ -529,6 +532,15 @@ export interface Subject {
   scope?: 'project'
   parts: string[]
   selection: string[]
+  /**
+   * The space the project is on when `epic` and `parts` cannot say it (protocol 2.89.0): its path of
+   * ids, deeper than a part, and `picked`, the children picked out together inside a space deeper than
+   * the top. ABSENT whenever epic and parts say it all — a top-level space, one part, several parts —
+   * so a subject from before spaces reads and compares exactly as it did. `epic` and `parts` are always
+   * filled from it by `epicPartsOf`, and a stored space that no longer agrees with them (an older host
+   * moved the project meanwhile) is dropped on the way out. See `spaceOfSubject`.
+   */
+  space?: { ids: string[]; picked: string[] }
 }
 
 /** What a project's subject may be changed to. Absent means unchanged; `null` means cleared. */
@@ -544,6 +556,12 @@ export interface SubjectEdit {
   /** The part ids picked out. `[]` is the whole epic. */
   parts?: string[]
   selection?: string[]
+  /**
+   * The space to be on, by its path of ids and the children picked in it (2.89.0). Sets `epic` and
+   * `parts` by `epicPartsOf` and wins over them; `null` is no space. An edit that names `epic` or
+   * `parts` and no `space` leaves the space to what those say.
+   */
+  space?: { ids: string[]; picked?: string[] } | null
 }
 
 const NAME_MAX = 60
@@ -770,6 +788,10 @@ export function open(file = databaseFile()): Database {
   /* "All epics" — see `Subject.scope`. `'epic'` by default, which is what every
      project was before the column: one epic, or none. */
   add(db, 'projects', 'scope', "text not null default 'epic'")
+  /* The space a project is on when epic and parts cannot say it (`Subject.space`), as JSON; NULL for
+     every project before spaces, and whenever epic and parts say it all. An older host never reads it,
+     and a space that no longer agrees with the columns it wrote is dropped on read. */
+  add(db, 'projects', 'space', 'text')
   /*
    * A project's permanent id (protocol 2.1.0), the one in its own
    * `.kehikot/project.json` — see `projectIdentity.ts`. The path is where the
@@ -1290,8 +1312,8 @@ export function ensureCanvases(db: Database, project: number | null = null): Can
  */
 export function readSubject(db: Database, project: number): Subject | null {
   const row = db
-    .query<{ epic: string | null; scope: string | null; parts: string | null; selection: string | null }, [number]>(
-      'select epic, scope, parts, selection from projects where id = ?',
+    .query<{ epic: string | null; scope: string | null; parts: string | null; selection: string | null; space: string | null }, [number]>(
+      'select epic, scope, parts, selection, space from projects where id = ?',
     )
     .get(project)
   return row ? subjectFrom(row) : null
@@ -1302,16 +1324,42 @@ export function readSubject(db: Database, project: number): Subject | null {
  * columns say — the rule `setSubject` writes by, applied again on the way out
  * to a database somebody may have edited.
  */
-function subjectFrom(row: { epic: string | null; scope: string | null; parts: string | null; selection: string | null }): Subject {
+function subjectFrom(row: { epic: string | null; scope: string | null; parts: string | null; selection: string | null; space?: string | null }): Subject {
   if (row.scope === 'project') return { epic: null, scope: 'project', parts: [], selection: refsFrom(row.selection) }
-  return { epic: subject(row.epic), parts: partsFrom(row.parts), selection: refsFrom(row.selection) }
+  const out: Subject = { epic: subject(row.epic), parts: partsFrom(row.parts), selection: refsFrom(row.selection) }
+  const space = storedSpace(row.space)
+  /* Kept only while it still says what the columns say: an older host that moved the project left it behind. */
+  if (space && spaceAgrees({ path: space.ids.map((id) => ({ id })), picked: space.picked }, out.epic, out.parts)) out.space = space
+  return out
+}
+
+/** A stored space, bounded: ids only, at least three deep or with children picked below the top. */
+function storedSpace(raw: string | null | undefined): { ids: string[]; picked: string[] } | null {
+  if (!raw) return null
+  try {
+    const said = JSON.parse(raw) as { ids?: unknown; picked?: unknown }
+    const ids = partIdsIn(said.ids)
+    const picked = partIdsIn(said.picked)
+    if (!ids.length || ids.length > LIMITS.SPACE_DEPTH) return null
+    return deepSpace(ids, picked) ? { ids, picked } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The space a subject is on, whatever said it: its stored space, else the one its epic and parts make.
+ * Null for no space and for "All spaces". The page's rule, shared (`heldSpaceOf`).
+ */
+export function spaceOfSubject(subject: Pick<Subject, 'epic' | 'scope' | 'parts' | 'space'>): { ids: string[]; picked: string[] } | null {
+  return heldSpaceOf(subject)
 }
 
 /** Every project's subject, by project id. For the page, which holds them all. */
 export function listSubjects(db: Database): ({ project: number } & Subject)[] {
   return db
-    .query<{ id: number; epic: string | null; scope: string | null; parts: string | null; selection: string | null }, []>(
-      'select id, epic, scope, parts, selection from projects order by rank, id',
+    .query<{ id: number; epic: string | null; scope: string | null; parts: string | null; selection: string | null; space: string | null }, []>(
+      'select id, epic, scope, parts, selection, space from projects order by rank, id',
     )
     .all()
     .map((row) => ({ project: row.id, ...subjectFrom(row) }))
@@ -1337,6 +1385,17 @@ export function listSubjects(db: Database): ({ project: number } & Subject)[] {
 export function setSubject(db: Database, project: number, edit: SubjectEdit): Subject | null {
   const before = readSubject(db, project)
   if (!before) return null
+  /* A space says the epic and the parts (`epicPartsOf`), and is kept itself only when they cannot say it. */
+  let keepSpace: { ids: string[]; picked: string[] } | null = null
+  if (edit.space !== undefined) {
+    const ids = edit.space ? partIdsIn(edit.space.ids).slice(0, LIMITS.SPACE_DEPTH) : []
+    const picked = edit.space ? partIdsIn(edit.space.picked ?? []) : []
+    const said = epicPartsOf({ path: ids.map((id) => ({ id })), picked })
+    edit = { ...edit, scope: edit.scope ?? 'epic', epic: said.epic, parts: said.parts }
+    if (ids.length && deepSpace(ids, picked)) keepSpace = { ids, picked }
+  } else if (edit.epic === undefined && edit.parts === undefined && edit.scope === undefined && before.space) {
+    keepSpace = before.space
+  }
   const scope = scopeAfter(before, edit)
   /* "All epics" holds no one epic. */
   const epic = scope === 'project' ? null : edit.epic !== undefined ? subject(edit.epic) : before.epic
@@ -1345,14 +1404,17 @@ export function setSubject(db: Database, project: number, edit: SubjectEdit): Su
   /* No epic has no parts, whatever the edit says: there is nothing for an id
      to be a part of. "All epics" is no ONE epic, and has none either. */
   const parts = epic === null ? [] : edit.parts !== undefined ? partIdsIn(edit.parts) : moved ? [] : before.parts
-  db.query('update projects set epic = ?, scope = ?, parts = ?, selection = ?, subject_pending = 0 where id = ?').run(
+  const space = scope !== 'project' && keepSpace && keepSpace.ids[0] === epic ? keepSpace : null
+  db.query('update projects set epic = ?, scope = ?, parts = ?, selection = ?, space = ?, subject_pending = 0 where id = ?').run(
     epic,
     scope,
     JSON.stringify(parts),
     JSON.stringify(selection),
+    space ? JSON.stringify(space) : null,
     project,
   )
-  return scope === 'project' ? { epic, scope, parts, selection } : { epic, parts, selection }
+  if (scope === 'project') return { epic, scope, parts, selection }
+  return space ? { epic, parts, selection, space } : { epic, parts, selection }
 }
 
 /**

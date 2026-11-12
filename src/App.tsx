@@ -3,7 +3,9 @@ import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClien
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
-import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, own, type ModuleScope } from 'kehikot-module-protocol'
+import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, type Space } from 'kehikot-module-protocol'
+import { spaceHere } from './host/spaces.ts'
+import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
 import type { Build, ContentChange, Disposition, ExpandResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
@@ -97,6 +99,8 @@ import {
   type TrackerState,
   editParts,
   fetchEpics,
+  editSpaces,
+  treeOf,
   fetchProjects,
   forgetProject,
   pickedFrom,
@@ -1479,9 +1483,18 @@ export function App() {
    * below it, so that a re-render for any other reason does not look like a
    * context change and re-point every frame.
    */
+  /* The project's tree of spaces (the epics and their parts at the top two levels), and the space it stands in, with names. */
+  const spaceTree = useMemo(() => (held !== null && heldProject === projectId ? treeOf(held) : []), [held, heldProject, projectId])
+  const spaceNow = useMemo(() => spaceHere(spaceTree, about), [spaceTree, about])
+  const spaceText = JSON.stringify(spaceNow)
   const subject = useMemo<Subject>(
-    () => ({ epic: about.epic, ...(about.scope === 'project' ? { scope: 'project' as const } : {}), project }),
-    [about.epic, about.scope, project],
+    () => ({
+      epic: about.epic,
+      ...(about.scope === 'project' ? { scope: 'project' as const } : {}),
+      project,
+      space: spaceText === 'null' ? null : (JSON.parse(spaceText) as Space),
+    }),
+    [about.epic, about.scope, project, spaceText],
   )
 
   /**
@@ -3168,6 +3181,28 @@ export function App() {
    * `context.content`. A refusal is the server's own sentence on the error
    * line, and the picker's name box is left standing.
    */
+  /**
+   * One edit of the project's spaces from the space picker (`POST /host/spaces`). The tree is read
+   * again on success; the answer, refusal sentence included, goes back to the picker, which shows it.
+   * A space the person created is where they go.
+   */
+  const onEditSpaces = useCallback(
+    async (edit: SpaceEditAsked): Promise<SpaceEditAnswer> => {
+      if (projectId === null) return { outcome: 'declined', why: 'No project is open.', path: null }
+      try {
+        const done = await editSpaces(projectId, edit)
+        if (done.outcome === 'changed') {
+          setHeld(await fetchEpics(projectId))
+          if ('create' in edit && done.path) changeSubjectRef.current({ space: { ids: done.path } })
+        }
+        return done
+      } catch (error) {
+        return { outcome: 'declined', why: (error as Error).message, path: null }
+      }
+    },
+    [projectId],
+  )
+
   const onEditParts = useCallback(
     async (edit: PartsEdit): Promise<boolean> => {
       const epic = about.epic
@@ -3561,6 +3596,7 @@ export function App() {
           epic: about.epic,
           ...(about.scope === 'project' ? { scope: 'project' as const } : {}),
           parts: [...about.parts],
+          ...(about.space ? { space: [...about.space.ids] } : {}),
           step: standingStep.current && standingStep.current.kehikko === openId && standingStep.current.epic === about.epic ? standingStep.current.step : null,
         }
   const placeRef = useRef(placeNow)
@@ -3629,7 +3665,7 @@ export function App() {
         changeSubjectRef.current(target.scope === 'project' ? { scope: 'project' } : { epic: null })
         return { outcome: 'moved', epic: null, why: '' }
       }
-      return gotoHereRef.current({ epic: target.epic, parts: target.parts, ...(target.kehikko !== null ? { kehikko: target.kehikko } : {}) })
+      return gotoHereRef.current({ epic: target.epic, parts: target.parts, ...(target.space ? { space: target.space } : {}), ...(target.kehikko !== null ? { kehikko: target.kehikko } : {}) })
     }
     let went: GotoAnswer
     if (target.project !== start.project) {
@@ -3803,7 +3839,7 @@ export function App() {
   /* The move within the open project: what `view.goto` always did, and what
      the Inbox's press uses. With a `show` (2.28.0), the show is handed to the
      kehikko the move ended on once it moved. */
-  const gotoHere = ({ epic, parts, kehikko: key, show }: GotoCall, from?: string): GotoAnswer => {
+  const gotoHere = ({ epic, parts, kehikko: key, show, space }: GotoCall & { space?: string[] }, from?: string): GotoAnswer => {
     const now = about.epic
     const row = held?.epics.find((one) => one.slug === epic)
     if (held === null) {
@@ -3819,8 +3855,16 @@ export function App() {
     if (key !== undefined && canvas === null) {
       return { outcome: 'no-such-target', epic: now, why: `This project has no kehikko ${key}.` }
     }
+    /* A space deeper than a part (protocol 2.89.0): it must be in the tree, and it is where the project stands. */
+    if (space && space[0] === epic && !nodeAt(spaceTree, space)) {
+      return { outcome: 'no-such-target', epic: now, why: `This project has no space ${space.join('/')}.` }
+    }
     if (canvas !== null) setOpenId(canvas.id)
-    changeSubjectRef.current({ epic, selection: [], ...(parts ? { parts: [...new Set(parts)] } : {}) })
+    changeSubjectRef.current(
+      space && space[0] === epic
+        ? { space: { ids: space }, selection: [] }
+        : { epic, selection: [], ...(parts ? { parts: [...new Set(parts)] } : {}) },
+    )
     const id = projectRef.current
     if (id !== null) setSelectedByRef.current((was) => (was[id] === null ? was : { ...was, [id]: null }))
     const landed = canvas?.id ?? openId
@@ -4921,6 +4965,14 @@ export function App() {
         onRefreshTrackers={onRefreshTrackers}
         inbox={inboxCount}
         pinned={pinned}
+        spaces={{
+          tree: spaceTree,
+          here: subject.space ?? null,
+          all: about.scope === 'project',
+          onPick: (ids, picked) => changeSubject({ space: { ids, picked: picked ?? [] } }),
+          onPickAll: () => changeSubject({ scope: 'project' }),
+          onEdit: project && !project.missing ? onEditSpaces : null,
+        }}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */

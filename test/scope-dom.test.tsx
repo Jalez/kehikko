@@ -130,7 +130,7 @@ describe('the settings window', () => {
     expect(control.querySelector('h3')?.textContent).toContain('Scope')
     const options = [...control.querySelectorAll<HTMLElement>('[data-scope-option]')]
     expect(options.map((one) => one.getAttribute('data-scope-option'))).toEqual(['epic', 'project'])
-    expect(options[0]!.textContent).toContain('Epic(default)')
+    expect(options[0]!.textContent).toContain('Space(default)')
     expect(options[0]!.textContent).toContain('the open epic’s issues and changes')
     expect(options[1]!.textContent).not.toContain('(default)')
     expect(options[1]!.textContent).toContain('every epic’s issues and changes, each labelled')
@@ -196,13 +196,13 @@ describe('the modules menu', () => {
     const chips = [...document.querySelectorAll<HTMLElement>('[data-testid="module-scope"]')]
     expect(chips.map((one) => [one.getAttribute('data-scope'), one.textContent])).toEqual(
       expect.arrayContaining([
-        ['epic', 'Epic'],
+        ['epic', 'Space'],
         ['project', 'Project'],
       ]),
     )
     for (const chip of chips) expect(chip.querySelector('svg')).not.toBeNull()
     const kanbanChip = chips.find((one) => one.getAttribute('data-scope') === 'epic')!
-    expect(kanbanChip.getAttribute('aria-label')).toBe('Scope: Epic. The open epic’s issues and changes. Can also work for: Project.')
+    expect(kanbanChip.getAttribute('aria-label')).toBe('Scope: Space. The open epic’s issues and changes. Can also work for: Project.')
     expect(kanbanChip.tabIndex).toBe(0)
   })
 })

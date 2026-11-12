@@ -98,7 +98,7 @@ if (inChild) {
     expect(empty.host.querySelector('[data-message] a')).toBeNull()
     expect(items[0]!.textContent).toContain('<b>bold</b>')
     expect(items[0]!.textContent).toContain('Alpha')
-    expect(items[0]!.textContent).toContain('→ epic methods')
+    expect(items[0]!.textContent).toContain('→ space methods')
     empty.root.unmount()
   })
 

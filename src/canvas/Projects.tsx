@@ -99,7 +99,7 @@ export function Projects({
             open
               ? open.missing
                 ? `project — ${open.path}: ${MISSING_SAID}`
-                : `project — ${open.path}${open.epics ? '' : ' (no epics yet)'}`
+                : `project — ${open.path}${open.epics ? '' : ' (no spaces yet)'}`
               : 'no project is open'
           }
           align="start"
@@ -184,7 +184,7 @@ export function Projects({
               ) : project.epics ? (
                 <Layers className="text-muted-foreground size-3 shrink-0" />
               ) : (
-                <span className="text-muted-foreground shrink-0 text-[10px]">no epics</span>
+                <span className="text-muted-foreground shrink-0 text-[10px]">no spaces</span>
               )}
             </DropdownMenuItem>
           ))}
@@ -415,7 +415,7 @@ export function Browser({
           description={description ?? (
               <>
                 A project is a folder — a repository, a git worktree, or any folder with work in it. It does
-                not need epics to be a project; you can make them once it is open.
+                not need spaces to be a project; you can make them once it is open.
               </>
             )}
           descriptionClassName="text-sm leading-relaxed"
@@ -521,7 +521,7 @@ function Row({
         ) : null}
         {entry.epics ? (
           <span className="text-muted-foreground inline-flex shrink-0 items-center gap-0.5 text-[10px]">
-            <Layers className="size-3" /> epics
+            <Layers className="size-3" /> spaces
           </span>
         ) : null}
       </button>

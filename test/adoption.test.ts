@@ -196,6 +196,16 @@ describe('adopting, bringing along, Undo and untrack', () => {
     expect(inbox.all(project).find((one) => one.id === id)!.place).toEqual({ epic: 'auth' })
   })
 
+  test('adopting into a space deeper than a part: the ref goes where refs are kept, the conversation under the space itself', async () => {
+    const f = fakes([{ session: 's1', title: 'Fix login', match: 'created', reason: 'created !4721', lastActive: 5 }])
+    const got = await make(f).adopt(project, TRACKER_NOTICES_MODULE, id, 'auth', [], 'k1', null, [], ['auth', 'login', 'errors'])
+    expect(got.outcome).toBe('adopted')
+    /* Refs are kept at the top two levels: the depth-2 space that holds the chosen one. */
+    expect(edits).toEqual(['+auth:!4721:login'])
+    const bring = f.calls.find((one) => one.path === '/api/bring')!
+    expect(bring.body).toMatchObject({ to: { epic: 'auth', parts: ['login'], kehikko: 'k1', space: ['auth', 'login', 'errors'] } })
+  })
+
   test('a weak match is not brought; one filed under another place is not moved, and said', async () => {
     const f = fakes([
       { session: 'weak', title: 'Some work', match: 'folder', reason: 'worked in this repository', lastActive: 9 },

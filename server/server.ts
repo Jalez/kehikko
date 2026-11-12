@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { AGENT_TASKS, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
@@ -34,6 +35,7 @@ import {
   readKept,
   readState,
   readSubject,
+  spaceOfSubject,
   setSubject,
   type Canvas,
   type CanvasEdit,
@@ -481,6 +483,30 @@ function epicWritten(root: string, slug: string): void {
 function partsEdited(root: string, slug: string, edit: PartsEdit): PartsEdited {
   const done = editParts(root, slug, edit)
   if (done.written) epicWritten(root, slug)
+  return done
+}
+
+/**
+ * One edit of a project's spaces (`server/spaces.ts`), made and told: every page in the project reads
+ * its spaces again (`epicsChanged`), every container showing the top-level space is told (as for an
+ * epic), and a project standing in a space that was removed moves up to what holds it.
+ */
+function spacesEdited(project: { id: number; path: string }, edit: SpaceEdit): SpaceEdited {
+  const done = editSpaces(project.path, edit)
+  if (done.outcome !== 'changed') return done
+  const about = 'create' in edit ? (done.path ?? edit.create.parent) : 'rename' in edit ? edit.rename.path : 'move' in edit ? edit.move.path : edit.remove.path
+  if ('remove' in edit) {
+    const now = readSubject(db, project.id)
+    const here = now ? spaceOfSubject(now) : null
+    const gone = edit.remove.path
+    if (here && gone.every((id, at) => here.ids[at] === id)) {
+      const up = gone.slice(0, -1)
+      setSubject(db, project.id, up.length ? { space: { ids: up } } : { epic: null })
+      keep(db, project.id)
+    }
+  }
+  wakes.epicsChanged(project.id)
+  if (about[0]) epicWritten(project.path, about[0])
   return done
 }
 
@@ -4379,7 +4405,7 @@ async function answerRequest(request: Request): Promise<Response> {
      */
     if (url.pathname === '/host/subject' && request.method === 'PATCH') {
       const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; scope?: unknown; epic?: unknown; parts?: unknown; selection?: unknown }
+        | { project?: unknown; scope?: unknown; epic?: unknown; parts?: unknown; selection?: unknown; space?: unknown }
         | null
       if (!body || typeof body.project !== 'number') {
         return json({ error: 'A change to what a project is about names the project.' }, 400)
@@ -4390,6 +4416,12 @@ async function answerRequest(request: Request): Promise<Response> {
         ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
         ...(Array.isArray(body.parts) ? { parts: body.parts as string[] } : {}),
         ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
+        /* A space by its path of ids and the children picked in it; it says the epic and the parts too. */
+        ...(body.space === null
+          ? { space: null }
+          : body.space && typeof body.space === 'object' && Array.isArray((body.space as { ids?: unknown }).ids)
+            ? { space: { ids: (body.space as { ids: string[] }).ids, picked: Array.isArray((body.space as { picked?: unknown }).picked) ? ((body.space as { picked: string[] }).picked) : [] } }
+            : {}),
       })
       if (!said) return json({ error: 'There is no project with that id.' }, 404)
       keep(db, body.project)
@@ -4475,7 +4507,24 @@ async function answerRequest(request: Request): Promise<Response> {
       const project = Number.isInteger(asked) ? projectById(db, asked) : null
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
       const dir = epicsIn(project.path)
-      return json({ holds: dir !== null, epics: dir ? listEpics(dir) : [] })
+      const epics = dir ? listEpics(dir) : []
+      /* The tree of spaces beside the epics it is made from (`server/spaces.ts`), read off the same listing. */
+      return json({ holds: dir !== null, epics, spaces: dir ? spaceTree(project.path, epics) : [] })
+    }
+
+    /*
+     * One edit of the project's spaces, from the space picker in the bar: `{ project, create | rename |
+     * move | remove }` (`spaceEditIn`). The one writer is `editSpaces`; the door's space tools come to
+     * the same function. A remove without `confirm` is answered `confirm` with what would go.
+     */
+    if (url.pathname === '/host/spaces' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as ({ project?: unknown } & Record<string, unknown>) | null
+      if (!body || typeof body.project !== 'number') return json({ error: 'An edit of the spaces names one project and one change.' }, 400)
+      const project = projectById(db, body.project)
+      if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      const edit = spaceEditIn(body)
+      if (!edit) return json({ error: 'One change at a time: create, rename, move or remove, each with its path.' }, 400)
+      return json(spacesEdited(project, edit))
     }
 
     /*

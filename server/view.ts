@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { LIMITS, MODULE_ID, PART_ID, type FilterChoice } from 'kehikot-module-protocol'
+import { LIMITS, MODULE_ID, PART_ID, spaceAgrees, type FilterChoice } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
 import type { Canvas, Subject } from './canvases.ts'
@@ -104,6 +104,11 @@ const fileSchema = z.object({
   scope: z.enum(['epic', 'project']).catch('epic').default('epic'),
   parts: z.array(z.string().regex(PART_ID)).max(LIMITS.PARTS).catch([]).default([]),
   selection: z.array(z.string().min(1).max(LIMITS.REF)).max(LIMITS.REFS).catch([]).default([]),
+  /* The space when epic and parts cannot say it (`Subject.space`); absent otherwise, and to an older host. */
+  space: z
+    .object({ ids: z.array(z.string().regex(PART_ID)).min(1).max(LIMITS.SPACE_DEPTH), picked: z.array(z.string().regex(PART_ID)).max(LIMITS.PARTS).default([]) })
+    .optional()
+    .catch(undefined),
   kehikot: z
     .record(z.string().min(1).max(32), z.record(z.string().regex(MODULE_ID), containerSchema).catch({}))
     .default({}),
@@ -154,6 +159,7 @@ export function serializeView(view: View): string {
     ...(subject.scope === 'project' ? ['  "scope": "project",'] : []),
     ...(subject.parts.length ? [`  "parts": ${JSON.stringify(subject.parts)},`] : []),
     `  "selection": ${JSON.stringify(subject.selection)},`,
+    ...(subject.space ? [`  "space": ${JSON.stringify({ ids: subject.space.ids, picked: subject.space.picked })},`] : []),
   ]
   const kehikot = [...view.kehikot]
     .map(([key, containers]) => {
@@ -190,7 +196,14 @@ export function parseView(text: string): View | null {
   const subject: Subject =
     d.scope === 'project'
       ? { epic: null, scope: 'project', parts: [], selection: d.selection }
-      : { epic: d.epic, parts: d.epic === null ? [] : partIdsIn(d.parts), selection: d.selection }
+      : {
+          epic: d.epic,
+          parts: d.epic === null ? [] : partIdsIn(d.parts),
+          selection: d.selection,
+          ...(d.space && d.space.ids[0] === d.epic && spaceAgrees({ path: d.space.ids.map((id) => ({ id })), picked: d.space.picked }, d.epic, d.epic === null ? [] : partIdsIn(d.parts))
+            ? { space: { ids: d.space.ids, picked: d.space.picked } }
+            : {}),
+        }
   const kehikot = new Map<string, Map<string, ContainerView>>()
   for (const [key, containers] of Object.entries(d.kehikot)) {
     kehikot.set(key, new Map(Object.entries(containers).map(([module, one]) => [module, one as ContainerView])))

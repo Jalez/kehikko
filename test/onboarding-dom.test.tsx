@@ -12,7 +12,7 @@ import { forgetEveryRead } from '../src/host/hostRead.ts'
  */
 
 const inChild = process.env.ONBOARDING_DOM === '1'
-const TESTS = 24
+const TESTS = 29
 
 if (!inChild) {
   test('the introduction, the tour and the layout picker, rendered in a process of their own', () => {
@@ -152,7 +152,7 @@ function recorder() {
 
 /** The fake host's onboarding row, changed by what the page posts. */
 function remembering(start: Partial<OnboardingState> = {}) {
-  let state: OnboardingState = { ...onboarding.NOT_STARTED, intro: onboarding.INTRO_VERSION, ...start }
+  let state: OnboardingState = { ...onboarding.NOT_STARTED, intro: onboarding.INTRO_VERSION, spaces: 'taught', ...start }
   answer = (url, method, body) => {
     if (url.startsWith('/host/onboarding')) {
       if (method === 'POST') state = onboarding.edited(state, body as never)
@@ -202,7 +202,7 @@ describe('the introduction', () => {
     expect(Intro.INTRO_SLIDES[0]!.title).toBe('Welcome to Kehikot')
     expect(dialog()?.getAttribute('data-intro')).toBe('welcome')
     expect(dialog()?.textContent).toContain('Welcome to Kehikot')
-    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'scope', 'containers', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'settings', 'yours'])
+    expect(Intro.INTRO_SLIDES.map((one) => one.id)).toEqual(['welcome', 'together', 'spaces', 'scope', 'containers', 'keep-working', 'ways', 'agents', 'inbox', 'modules', 'settings', 'yours'])
     expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(Intro.INTRO_SLIDES.length)
     /* It pitches; it does not explain controls — that is the tour's job. */
     const words = Intro.INTRO_SLIDES.map((one) => one.body).join(' ').toLowerCase()
@@ -210,7 +210,7 @@ describe('the introduction', () => {
     /* Scope, as a term: what a module's content belongs to, its five names, and that it shows on the module. */
     const scoped = Intro.INTRO_SLIDES.find((one) => one.id === 'scope')!
     expect(scoped.title).toBe('Every module says what it belongs to')
-    for (const name of ['This computer', 'Project', 'Epic', 'Part', 'Kehikko']) expect(scoped.body).toContain(name)
+    for (const name of ['This computer', 'Project', 'Space', 'Sub-space', 'Kehikko']) expect(scoped.body).toContain(name)
     expect(scoped.body).toContain('menu says its scope')
     /* The host names no module and no vendor (`module-agnostic-text.test.ts`). */
     expect(words).not.toMatch(/claude|codex|\/journey|\/factory|test runs|queue of heavy work/)
@@ -308,12 +308,136 @@ describe('the introduction', () => {
   })
 })
 
+describe('Introducing: Spaces', () => {
+  if (!inChild) return
+
+  const ALL_SET: Facts = { project: true, projects: 1, epic: true, parts: false, kehikko: true }
+  const posted = () => asked.filter((one) => one.method === 'POST' && one.url === '/host/onboarding').map((one) => one.body as Record<string, unknown>)
+  const shownId = () => document.querySelector('[data-intro]')?.getAttribute('data-intro') ?? null
+
+  test('a person who used the app before gets the card by itself, once; Help keeps it at the head of the Introduction', async () => {
+    const store = remembering({ intro: onboarding.INTRO_VERSION, spaces: 'unseen', tour: { step: null, paused: false, finished: true } })
+    await render(host())
+    await settle()
+    expect(shownId()).toBe('spaces-news')
+    const dialog = document.querySelector('[data-intro]')!
+    expect(dialog.textContent).toContain('Introducing: Spaces')
+    expect(dialog.textContent).toContain('Epics and parts are now spaces')
+    expect(dialog.textContent).toContain('Nothing was lost')
+    expect(dialog.textContent).toContain('breadcrumb in the bar')
+    expect(document.querySelector('[data-intro-retake]')?.textContent).toContain('Retake the tour')
+    /* The same picture as the introduction's Spaces slide. */
+    for (const frame of ['before', 'tree', 'deeper', 'deepest', 'kehikko', 'breadcrumb']) expect(dialog.querySelector(`[data-spaces-frame="${frame}"]`)).not.toBeNull()
+    /* Followed by the introduction itself. */
+    expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(Intro.INTRO_SLIDES.length + 1)
+    await press(document.querySelector('[data-intro-close]'))
+    await settle()
+    expect(shownId()).toBeNull()
+    expect(posted().at(-1)).toEqual({ spaces: 'news' })
+    expect(store.state.spaces).toBe('news')
+
+    /* The next start: not by itself again. */
+    act(() => unmount?.())
+    forgetEveryRead()
+    document.body.innerHTML = ''
+    await render(host())
+    await settle()
+    expect(shownId()).toBeNull()
+    /* Help → Introduction starts on it. */
+    await act(async () => onboarding.openIntro())
+    expect(shownId()).toBe('spaces-news')
+  })
+
+  test('a new user gets the introduction, which explains spaces with the same picture, and never the card', async () => {
+    const store = remembering({ intro: 0, spaces: 'unseen' })
+    await render(host())
+    await settle()
+    expect(shownId()).toBe('welcome')
+    expect(document.querySelectorAll('[data-intro-dot]')).toHaveLength(Intro.INTRO_SLIDES.length)
+    expect(document.body.textContent).not.toContain('Introducing: Spaces')
+    const spaces = Intro.INTRO_SLIDES.find((one) => one.id === 'spaces')!
+    expect(spaces.body).toContain('a space can hold spaces of its own')
+    expect(spaces.body).toContain('breadcrumb')
+    /* How spaces work, not what changed. */
+    expect(spaces.body.toLowerCase()).not.toMatch(/\bepics?\b|\bparts?\b|now|changed|used to/)
+    await press(document.querySelector('[data-intro-next]'))
+    await press(document.querySelector('[data-intro-next]'))
+    expect(shownId()).toBe('spaces')
+    expect(document.querySelector('[data-spaces-frame="tree"]')).not.toBeNull()
+    /* No slide of the introduction says epic or part any more. */
+    for (const one of Intro.INTRO_SLIDES) expect(`${one.title} ${one.body}`).not.toMatch(/\bepics?\b|\bparts?\b/i)
+    await press(document.querySelector('[data-intro-close]'))
+    await settle()
+    expect(posted().at(-1)).toEqual({ intro: 'seen', spaces: 'taught' })
+    expect(store.state.spaces).toBe('taught')
+    await act(async () => onboarding.openIntro())
+    expect(shownId()).toBe('welcome')
+    expect(onboarding.spacesDue(store.state)).toBe(false)
+  })
+
+  test('Retake the tour closes the card and starts the tour', async () => {
+    remembering({ intro: 2, spaces: 'unseen' })
+    const rec = recorder()
+    await render(
+      <>
+        <button data-tour="project">p</button>
+        <button data-tour="space">s</button>
+        {host({ drawer: rec.drawer, facts: ALL_SET })}
+      </>,
+    )
+    await settle()
+    expect(shownId()).toBe('spaces-news')
+    await press(document.querySelector('[data-intro-retake]'))
+    await settle(150)
+    expect(shownId()).toBeNull()
+    expect(posted()).toContainEqual({ intro: 'seen', spaces: 'news' })
+    /* From the first thing not done: for someone set up, the bar — then the breadcrumb. */
+    expect(rec.last?.title).toBe('Your projects')
+    rec.last!.onNext()
+    expect(rec.last?.title).toBe('Where you are')
+  })
+
+  test('the tour says space, never epic or part', () => {
+    const facts: Facts[] = [tour.NO_FACTS, { ...ALL_SET, parts: true }]
+    const said = tour.TOUR_STEPS.flatMap((step) => step.frames.flatMap((frame) => facts.map((one) => `${frame.title} ${tour.bodyOf(frame, one)} ${step.pass ?? ''}`)))
+    expect(said.length).toBeGreaterThan(tour.TOUR_STEPS.length)
+    for (const one of said) expect(one).not.toMatch(/\bepics?\b|\bparts?\b/i)
+    expect(said.join(' ')).toContain('space')
+    for (const words of [tour.PAUSED, tour.EXPLORING]) expect(`${words.title} ${words.body}`).not.toMatch(/\bepics?\b|\bparts?\b/i)
+  })
+
+  test('with reduced motion the spaces picture stands at its last frame', async () => {
+    const was = window.matchMedia
+    remembering({ intro: 3, spaces: 'unseen' })
+    try {
+      window.matchMedia = ((query: string) => ({ matches: query.includes('reduce'), media: query, addEventListener: nothing, removeEventListener: nothing })) as never
+      await render(host())
+      await settle()
+      expect(shownId()).toBe('spaces-news')
+      expect(document.querySelector('[data-intro]')?.getAttribute('data-motion')).toBe('still')
+    } finally {
+      window.matchMedia = was
+    }
+    /* Each part's own style is the final frame: no "before", the tree, the kehikko in its space, the breadcrumb. */
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    const rule = (name: string) => css.slice(css.indexOf(`.intro-art .${name} {`), css.indexOf('}', css.indexOf(`.intro-art .${name} {`)))
+    expect(rule('ia-sp-old')).toContain('opacity: 0')
+    for (const name of ['ia-sp-tree', 'ia-sp-deep', 'ia-sp-deeper', 'ia-sp-card', 'ia-sp-crumb']) {
+      expect(rule(name)).toContain('animation: ia-sp-')
+      expect(rule(name)).not.toMatch(/opacity: 0|transform/)
+    }
+    /* Loopable, about nine seconds. */
+    expect(rule('ia-sp-card')).toContain('9s ease-in-out infinite')
+    expect(css).toContain("[data-motion='still'] .intro-art *")
+  })
+})
+
 describe('the help menu', () => {
   if (!inChild) return
 
   test('the introduction, the tour, What’s new and Feedback, Continue only while paused, and no layouts', async () => {
     const { HelpMenu } = await import('../src/canvas/Help.tsx')
-    let state: OnboardingState = { intro: 2, tour: { step: null, paused: false, finished: false } }
+    let state: OnboardingState = { intro: 2, spaces: 'news', tour: { step: null, paused: false, finished: false } }
     await render(<HelpMenu read={async () => state} />)
     const items = () => [...document.querySelectorAll('[data-help]')].map((one) => one.getAttribute('data-help'))
     await openMenu(document.querySelector('[data-tour="help"]'))
@@ -322,7 +446,7 @@ describe('the help menu', () => {
     expect(document.querySelector('[data-help-menu]')?.textContent?.toLowerCase()).not.toContain('layout')
     await escape()
 
-    state = { intro: 2, tour: { step: 'epic', paused: true, finished: false } }
+    state = { intro: 2, spaces: 'news', tour: { step: 'space', paused: true, finished: false } }
     await openMenu(document.querySelector('[data-tour="help"]'))
     expect(items()).toEqual(['intro', 'continue', 'restart', 'notes', 'feedback'])
     expect(document.querySelector('[data-help="continue"]')?.textContent).toContain('Continue tour')
@@ -335,8 +459,7 @@ function page(...extra: string[]) {
   document.body.innerHTML = `
     <div id="bar">
       <button data-tour="project">p</button>
-      <button data-tour="epic">e</button>
-      <button data-tour="parts">parts</button>
+      <button data-tour="space">space</button>
       <button data-tour="kehikko">k</button>
       <button data-tour="pinned">pinned</button>
       <button data-tour="pin">pin</button>
@@ -379,11 +502,11 @@ function guide(facts: Facts) {
   return { one, rec, said }
 }
 
-/** The stops an existing user (a project, an epic and a kehikko) is walked through, in order, with everything on screen. */
+/** The stops an existing user (a project, a space and a kehikko) is walked through, in order, with everything on screen. */
 const EXISTING_USER = [
   'project-bar',
-  'epic-bar',
-  'parts-bar',
+  'space-bar',
+  'sub-space-bar',
   'kehikko-bar',
   'kehikko-skills',
   'pinned',
@@ -401,10 +524,21 @@ const EXISTING_USER = [
 
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** The bar's space picker, for the renders of the whole bar: one space with one inside it. */
+const SPACES = {
+  tree: [{ id: 'one', name: 'One', children: [{ id: 'a', name: 'A', children: [] }] }],
+  here: null,
+  all: false,
+  onPick: () => {},
+  onPickAll: () => {},
+  onEdit: async () => ({ outcome: 'changed', why: '', path: null }),
+  store: null,
+}
+
 describe('the tour waits for the person', () => {
   if (!inChild) return
 
-  test('the project, the epic, the parts and the kehikko each move on only when done, following the menus as they open', async () => {
+  test('the project, the space, a space inside it and the kehikko each move on only when done, following the menus as they open', async () => {
     page()
     const facts = { ...tour.NO_FACTS }
     const { one, rec, said } = guide(facts)
@@ -432,16 +566,16 @@ describe('the tour waits for the person', () => {
     facts.project = true
     one.refresh()
     await tick()
-    expect(one.step).toBe('epic')
-    expect(rec.last).toMatchObject({ title: 'Create your first epic', next: 'Skip for now' })
-    const form = add('<div data-tour="epic-form">new epic</div>')
+    expect(one.step).toBe('space')
+    expect(rec.last).toMatchObject({ title: 'Create your first space', next: 'Skip for now' })
+    const form = add('<div data-tour="space-form">new space</div>')
     await tick()
-    expect(rec.last?.title).toBe('Name your epic')
+    expect(rec.last?.title).toBe('Name your space')
     form.remove()
     facts.epic = true
     one.refresh()
     await tick()
-    expect(one.step).toBe('parts')
+    expect(one.step).toBe('sub-space')
     expect(rec.last?.next).toBe('Next')
     rec.last!.onNext()
     expect(one.step).toBe('kehikko')
@@ -466,7 +600,7 @@ describe('the tour waits for the person', () => {
     await tick()
     expect(one.step).toBe('project-bar')
     expect(rec.last).toMatchObject({ mode: 'show', next: 'Next', back: false })
-    expect(said.steps).toEqual(['project', 'epic', 'parts', 'kehikko', 'project-bar'])
+    expect(said.steps).toEqual(['project', 'space', 'sub-space', 'kehikko', 'project-bar'])
   })
 
   test('the explanations: Next and Back over what is on screen, Done finishes', async () => {
@@ -486,7 +620,7 @@ describe('the tour waits for the person', () => {
     expect(one.running).toBe('idle')
   })
 
-  test('skips what is done: everything done is the explanations only; a project and an epic start at the parts', async () => {
+  test('skips what is done: everything done is the explanations only; a project and a space start at a space inside it', async () => {
     page(CONTAINER)
     const all = guide({ project: true, projects: 2, epic: true, parts: false, kehikko: true })
     all.one.start(null)
@@ -495,12 +629,12 @@ describe('the tour waits for the person', () => {
 
     const some = guide({ project: true, projects: 1, epic: true, parts: false, kehikko: false })
     some.one.start(null)
-    expect(some.one.step).toBe('parts')
+    expect(some.one.step).toBe('sub-space')
     some.one.stop()
 
     const none = guide({ project: true, projects: 1, epic: false, parts: false, kehikko: false })
     none.one.start(null)
-    expect(none.one.step).toBe('epic')
+    expect(none.one.step).toBe('space')
     /* With projects to pick from, the menu's words say so. */
     expect(tour.bodyOf(tour.TOUR_STEPS[0]!.frames[1]!, { ...tour.NO_FACTS, projects: 3 })).toContain('Pick one of your projects')
   })
@@ -510,9 +644,9 @@ describe('the tour waits for the person', () => {
     const facts = { project: true, projects: 1, epic: false, parts: false, kehikko: false }
     const { one, rec, said } = guide(facts)
     one.start(null)
-    expect(one.step).toBe('epic')
+    expect(one.step).toBe('space')
     rec.last!.onPause()
-    expect(said.paused).toEqual(['epic'])
+    expect(said.paused).toEqual(['space'])
     expect(rec.last).toMatchObject({ title: 'Tour paused!', gotThis: false, next: 'Got it' })
     expect(rec.last?.body).toBe('If you’d like to continue where you left off, open the Help menu and click Continue tour.')
     expect(rec.last?.element.getAttribute('data-tour')).toBe('help')
@@ -523,22 +657,22 @@ describe('the tour waits for the person', () => {
     help.remove()
 
     /* Continue: the same step. */
-    one.start('epic')
-    expect(one.step).toBe('epic')
-    expect(rec.last?.title).toBe('Create your first epic')
+    one.start('space')
+    expect(one.step).toBe('space')
+    expect(rec.last?.title).toBe('Create your first space')
     /* Escape pauses the same way — unless a menu or window is open, which Escape is closing. */
     const menu = add('<div role="menu"></div>')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    expect(said.paused).toEqual(['epic'])
+    expect(said.paused).toEqual(['space'])
     menu.remove()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    expect(said.paused).toEqual(['epic', 'epic'])
+    expect(said.paused).toEqual(['space', 'space'])
     expect(rec.last?.title).toBe('Tour paused!')
 
     /* Restart: from the first thing not done. */
     facts.epic = true
     one.start(null)
-    expect(one.step).toBe('parts')
+    expect(one.step).toBe('sub-space')
   })
 
   test('drawn by driver.js: every step has the “I’ve got this” box, and ticking it pauses', async () => {
@@ -573,8 +707,7 @@ describe('the tour in the app', () => {
     return (
       <>
         <button data-tour="project">p</button>
-        <button data-tour="epic">e</button>
-        <button data-tour="parts">parts</button>
+        <button data-tour="space">space</button>
         <button data-tour="kehikko">k</button>
         <button data-tour="help">?</button>
         {host({ drawer, facts })}
@@ -590,22 +723,22 @@ describe('the tour in the app', () => {
     await settle()
     await act(async () => onboarding.openTour('over'))
     await settle()
-    expect(store.state.tour).toEqual({ step: 'epic', paused: false, finished: false })
-    /* The epic is made: the app's facts move, the tour with them. */
+    expect(store.state.tour).toEqual({ step: 'space', paused: false, finished: false })
+    /* The space is made: the app's facts move, the tour with them. */
     await again(controls({ ...facts, epic: true }, rec.drawer))
     await settle()
-    expect(store.state.tour.step).toBe('parts')
+    expect(store.state.tour.step).toBe('sub-space')
     await act(async () => rec.last!.onPause())
     await settle()
-    expect(store.state.tour).toEqual({ step: 'parts', paused: true, finished: false })
+    expect(store.state.tour).toEqual({ step: 'sub-space', paused: true, finished: false })
     expect(rec.last?.title).toBe('Tour paused!')
     await act(async () => onboarding.openTour('resume'))
     await settle()
-    expect(rec.last?.title).toBe('Divide it into parts — if you like')
-    expect(store.state.tour).toEqual({ step: 'parts', paused: false, finished: false })
+    expect(rec.last?.title).toBe('Spaces hold spaces — if you like')
+    expect(store.state.tour).toEqual({ step: 'sub-space', paused: false, finished: false })
     await act(async () => onboarding.openTour('over'))
     await settle()
-    expect(store.state.tour.step).toBe('parts')
+    expect(store.state.tour.step).toBe('sub-space')
   })
 
   test('a tour left running picks up by itself when the page comes back', async () => {
@@ -650,6 +783,7 @@ describe('the tour in the app', () => {
           parts={[{ id: 'a', heading: 'A', refs: [], steps: 0 }]}
           pickedParts={[]}
           onParts={nothing}
+          spaces={SPACES}
           onPlace={nothing}
           onUnplace={nothing}
           pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
@@ -721,11 +855,14 @@ describe('the tour in the app', () => {
     await openMenu(document.querySelector('[data-tour="project"]'))
     expect(document.querySelector('[data-tour="add-project"]')?.textContent).toContain('add a project…')
     await escape()
-    await openMenu(document.querySelector('[data-tour="epic"]'))
-    expect(document.querySelector('[data-tour="new-epic"]')?.textContent).toContain('new epic…')
+    /* The space picker: its tree, + on a row for a space inside it, and new space… for one at the top. */
+    await press(document.querySelector('[data-tour="space"]'))
+    await settle()
+    expect(document.querySelector('[data-tour="space-add"]')).not.toBeNull()
+    expect(document.querySelector('[data-tour="new-space"]')?.textContent).toContain('new space…')
+    await press(document.querySelector('[data-tour="new-space"]'))
+    expect(document.querySelector('[data-tour="space-form"]')).not.toBeNull()
     await escape()
-    await openMenu(document.querySelector('[data-tour="parts"]'))
-    expect(document.querySelector('[data-tour="parts-menu"]')).not.toBeNull()
     await escape()
     await openMenu(document.querySelector('[data-tour="kehikko"]'))
     expect(document.querySelector('[data-tour="new-kehikko"]')?.textContent).toContain('new kehikko…')
@@ -758,6 +895,7 @@ describe('the tour in the app', () => {
         parts={[{ id: 'a', heading: 'A', refs: [], steps: 0 }]}
         pickedParts={[]}
         onParts={nothing}
+        spaces={SPACES}
         onPlace={nothing}
         onUnplace={nothing}
         pinned={{ places: [], here: null, canPin: true, onGo: nothing, onUnpin: nothing, onOrder: nothing, onToggle: nothing, onOpen: nothing }}
@@ -769,7 +907,9 @@ describe('the tour in the app', () => {
     )
     await settle()
     const bar = document.querySelector('[data-testid="bar"]')!
-    const stops = ['project-bar', 'epic-bar', 'parts-bar', 'kehikko-bar', 'pinned', 'settings', 'modules']
+    const stops = ['project-bar', 'space-bar', 'kehikko-bar', 'pinned', 'settings', 'modules']
+    /* Spaces inside spaces points at the + in the open picker, and at the breadcrumb while it is closed. */
+    expect(tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === 'sub-space-bar')!.frames[0]!, bar, false)?.getAttribute('data-tour')).toBe('space')
     const found = stops.map((id) => tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === id)!.frames[0]!, bar, false))
     expect(found.every((element) => element !== null)).toBe(true)
     /* Left to right, as the bar draws them (the tour takes the modules button right after Pinned: it is the way in to everything else). */

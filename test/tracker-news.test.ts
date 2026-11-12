@@ -1,3 +1,4 @@
+import { isFor } from '../server/agentMessages.ts'
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -107,10 +108,24 @@ describe('what agents are told of one item', () => {
       { line: 'c', places: [{ epic: 'auth', parts: [] }] },
     ])
     expect(tells).toEqual([
-      { place: { epic: 'auth' }, body: 'a\nc' },
-      { place: { epic: 'auth', parts: ['p2'] }, body: 'b' },
-      { place: { epic: 'ui' }, body: 'b' },
+      { place: { epic: 'auth', space: ['auth'] }, body: 'a\nc' },
+      { place: { epic: 'auth', parts: ['p2'], space: ['auth', 'p2'] }, body: 'b' },
+      { place: { epic: 'ui', space: ['ui'] }, body: 'b' },
     ])
+  })
+
+  test('news for a space reaches the sessions in that space or above it, never deeper or beside it', () => {
+    const to = { place: { epic: 'auth', parts: ['login'], space: ['auth', 'login'] } }
+    const at = (space: string[] | null, parts: string[] = []) => ({ module: 'm', session: 's', epic: space?.[0] ?? 'auth', kehikko: null, parts, space })
+    expect(isFor(to, at(['auth']))).toBe(true)
+    expect(isFor(to, at(null, ['login']))).toBe(true)
+    expect(isFor(to, at(['auth', 'login']))).toBe(true)
+    expect(isFor(to, at(['auth', 'login', 'errors'], ['login']))).toBe(false)
+    expect(isFor(to, at(['auth', 'signup']))).toBe(false)
+    /* Several parts picked: the whole of each, so news for one of them reaches it. */
+    expect(isFor(to, at(null, ['login', 'signup']))).toBe(true)
+    /* A message from before spaces, with no space, is told as it always was. */
+    expect(isFor({ place: { epic: 'auth', parts: ['login'] } }, at(['auth', 'login', 'errors'], ['login']))).toBe(true)
   })
 })
 
@@ -161,7 +176,7 @@ describe('told to the sessions at the epic', () => {
     const got = store.deliver(project, atAuth).messages
     expect(got).toHaveLength(1)
     expect(got[0]).toMatchObject({ from: { module: TRACKER_NEWS_FROM.module, name: 'Trackers', session: null }, kind: 'report', body: 'mona approved gh#1 — change 1' })
-    expect(got[0]!.to).toEqual({ place: { epic: 'auth' } })
+    expect(got[0]!.to).toEqual({ place: { epic: 'auth', space: ['auth'] } })
     expect(store.deliver(project, elsewhere).messages).toEqual([])
   })
 
@@ -251,7 +266,7 @@ describe('told to the sessions at the epic', () => {
     notices.landed(project, { rows: [gh(3, { pipeline: 'success' })], me, epics: new Map(), places: parted })
     clock += 600_000
     const out = notices.landed(project, { rows: [gh(3, { pipeline: 'failed' })], me, epics: new Map(), places: parted })
-    expect(out.news).toEqual([{ place: { epic: 'auth', parts: ['login'] }, body: 'CI failed on gh#3 — change 3' }])
+    expect(out.news).toEqual([{ place: { epic: 'auth', parts: ['login'], space: ['auth', 'login'] }, body: 'CI failed on gh#3 — change 3' }])
   })
 })
 

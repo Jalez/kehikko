@@ -1,7 +1,5 @@
 import {
   MODULE_SCOPES,
-  SCOPE_MEANS,
-  SCOPE_NAMES,
   activeScope,
   defaultScope,
   scopeNeedsEpic,
@@ -48,10 +46,32 @@ import {
  */
 
 /** What the cover says. One sentence and an instruction, with no module named: the container's header already names it. */
-export const ONE_EPIC_AT_A_TIME = 'This module works on one epic at a time. Pick an epic to use it.'
+export const ONE_EPIC_AT_A_TIME = 'This module works in one space at a time. Pick a space to use it.'
 
 /** What the epic picker calls the choice, and what its closed control says while it is chosen. */
-export const ALL_EPICS = 'All epics'
+export const ALL_EPICS = 'All spaces'
+
+/**
+ * What a person is shown for each scope. The wire values stay `epic` and
+ * `part` (a module still says them); the words are the host's, since epics
+ * and parts became spaces: a top-level space and a space inside it.
+ */
+export const SCOPE_NAMES = {
+  machine: 'This computer',
+  project: 'Project',
+  epic: 'Space',
+  part: 'Sub-space',
+  kehikko: 'Kehikko',
+} as const satisfies Record<ModuleScope, string>
+
+/** What each scope means, in one sentence, for a tooltip or a help page. */
+export const SCOPE_MEANS = {
+  machine: 'Shared across every project on this computer.',
+  project: 'The whole project, whatever space is open.',
+  epic: 'The open space.',
+  part: 'Each space inside the open space.',
+  kehikko: 'This kehikko: this arrangement of modules.',
+} as const satisfies Record<ModuleScope, string>
 
 /**
  * Whether a container is covered while the project is on "All epics": the

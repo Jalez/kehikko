@@ -112,9 +112,9 @@ export const DOOR_SAYS = {
   noProject: 'That names no project of yours.',
   noItem: 'That names no open item in the Inbox.',
   muteHost: 'Kehikot’s own lists are not muted here; they have their own settings.',
-  noAdopting: 'This Kehikot does not adopt items into epics.',
-  notAdoptable: 'That names no open item about a change that no epic names.',
-  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose the epic here.',
+  noAdopting: 'This Kehikot does not adopt items into spaces.',
+  notAdoptable: 'That names no open item about a change that no space names.',
+  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose the space here.',
 } as const
 
 /*

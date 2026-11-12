@@ -123,7 +123,7 @@ describe('derived from the manifests', () => {
       [HOST_NODE, id('notes'), true],
       [id('paper'), id('notes'), false],
     ])
-    expect(parts[2]!.why).toContain('epic’s list')
+    expect(parts[2]!.why).toContain('space’s list')
   })
 
   test('Kehikot as a node: the tracker it keeps, and its Inbox, neither switchable', () => {

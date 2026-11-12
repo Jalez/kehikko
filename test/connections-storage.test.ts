@@ -142,7 +142,7 @@ describe('read_canvas', () => {
     expect(read.text).toContain('connections between modules here')
     expect(read.text).toContain('[off] passage: Notes doesn’t follow Paper’s passage here.')
     expect(read.text).toContain('[on]  passage: Paper follows the passage Notes points at.')
-    expect(read.text).toContain('[off] parts: Notes shows the whole epic here, whatever parts are picked.')
+    expect(read.text).toContain('[off] parts: Notes shows the whole space here, whatever sub-spaces are picked.')
     /* There is no tool for it: the person decides. */
     const names: readonly string[] = TOOL_NAMES
     expect(names.some((name) => /connection/.test(name))).toBe(false)

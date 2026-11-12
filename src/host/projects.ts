@@ -9,6 +9,8 @@ import {
   type PartsSetResult,
   type TrackerRefreshResult,
   type TrackerSource,
+  spaceTreeSchema,
+  type SpaceNode,
 } from 'kehikot-module-protocol'
 import { partSchema, type PartsEdit } from './parts.ts'
 import { trackerEditedSchema, trackerListingSchema, type TrackerEdit, type TrackerEdited, type TrackerListing } from './trackerSources.ts'
@@ -246,13 +248,46 @@ export interface Epics {
   /** Whether the project has a `.kehikot/host/epics` at all. See `projectSchema.epics`. */
   holds: boolean
   epics: Epic[]
+  /**
+   * The project's tree of spaces (protocol 2.89.0): the epics and their parts as its top two levels,
+   * and every space deeper. `[]` from a server before spaces, which the picker then builds from `epics`
+   * (`treeOf`).
+   */
+  spaces?: SpaceNode[]
+}
+
+/** The tree the picker shows: the server's, or one built from the epics for a server before spaces. */
+export function treeOf(held: Epics | null): SpaceNode[] {
+  if (!held) return []
+  if (held.spaces && held.spaces.length) return held.spaces
+  return held.epics.map((epic) => ({
+    id: epic.slug,
+    name: epic.title ?? epic.slug,
+    children: epic.parts.map((part) => ({ id: part.id, name: part.heading || part.id, children: [] })),
+  }))
+}
+
+/** One edit of the project's spaces (`POST /host/spaces`): the server's answer, a refusal included. */
+export async function editSpaces(
+  project: number,
+  edit: object,
+): Promise<{ outcome: string; why: string; path: string[] | null }> {
+  const response = await fetch('/host/spaces', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project, ...edit }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return z
+    .object({ outcome: z.string(), why: z.string().default(''), path: z.array(z.string()).nullable().default(null) })
+    .parse(await response.json())
 }
 
 export async function fetchEpics(project: number, signal?: AbortSignal): Promise<Epics> {
   const response = await fetch(`/host/epics?project=${project}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(await reason(response))
   return z
-    .object({ holds: z.boolean(), epics: z.array(epicSchema) })
+    .object({ holds: z.boolean(), epics: z.array(epicSchema), spaces: spaceTreeSchema.optional().catch(undefined) })
     .parse(await response.json())
 }
 

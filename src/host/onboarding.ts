@@ -19,6 +19,22 @@ import { forgetRead, hostRead, keepRead } from './hostRead.ts'
 
 export const INTRO_VERSION = 3
 
+/**
+ * "Introducing: Spaces" — the card that tells a person who used the app before
+ * that epics and parts became spaces. Where the person stands with it:
+ *
+ *   - `unseen`: not met yet. A person who has met the app before (`metBefore`)
+ *     is shown the card once, by itself (`spacesDue`).
+ *   - `news`: shown the card. The Introduction from Help keeps it as its first
+ *     slide for them.
+ *   - `taught`: met spaces in the regular introduction as a new user, which
+ *     explains them; never shown the card.
+ *
+ * Additive: a row from before has no `spaces` and reads as `unseen`.
+ */
+export const SPACES_SEEN = ['news', 'taught'] as const
+export type SpacesSeen = (typeof SPACES_SEEN)[number]
+
 /** A tour step's id, as `src/host/tour.ts` names them. Kept as a string so a step added later reads in an older row. */
 const stepId = z.string().regex(/^[a-z][a-z-]{0,39}$/)
 
@@ -36,18 +52,21 @@ export type TourState = z.infer<typeof tourStateSchema>
 export const onboardingSchema = z.object({
   /** The introduction last seen (or skipped), 0 for none. */
   intro: z.number().int().min(0).catch(0).default(0),
+  /** "Introducing: Spaces": `unseen`, `news` (shown the card) or `taught` (a new user, told in the introduction). */
+  spaces: z.enum(['unseen', ...SPACES_SEEN]).catch('unseen').default('unseen'),
   /* A row from the first tour (`{ at, finished }`) reads as not started: its
      stops were numbered, and the numbers mean nothing now. */
   tour: tourStateSchema.default({ step: null, paused: false, finished: false }),
 })
 export type Onboarding = z.infer<typeof onboardingSchema>
 
-export const NOT_STARTED: Onboarding = { intro: 0, tour: { step: null, paused: false, finished: false } }
+export const NOT_STARTED: Onboarding = { intro: 0, spaces: 'unseen', tour: { step: null, paused: false, finished: false } }
 
 /** What may be changed in one POST: the introduction seen, and where the tour is. */
 export const onboardingEditSchema = z
   .object({
     intro: z.literal('seen').optional(),
+    spaces: z.enum(SPACES_SEEN).optional(),
     tour: z
       .object({ step: stepId.nullable(), paused: z.boolean().optional(), finished: z.boolean().optional() })
       .strict()
@@ -64,6 +83,8 @@ export type OnboardingEdit = z.infer<typeof onboardingEditSchema>
 export function edited(was: Onboarding, edit: OnboardingEdit): Onboarding {
   return {
     intro: edit.intro === 'seen' ? Math.max(was.intro, INTRO_VERSION) : was.intro,
+    /* Once met it stays met; only being shown the card later makes it `news`. */
+    spaces: edit.spaces === 'news' ? 'news' : was.spaces === 'unseen' && edit.spaces ? edit.spaces : was.spaces,
     tour: edit.tour
       ? { step: edit.tour.step, paused: edit.tour.paused ?? false, finished: edit.tour.finished ?? false }
       : was.tour,
@@ -83,6 +104,42 @@ export function underway(state: Onboarding | null): boolean {
 /** Should the introduction open by itself? Only when this one has not been seen. */
 export function introDue(state: Onboarding | null): boolean {
   return state !== null && state.intro < INTRO_VERSION
+}
+
+/**
+ * Has this person met the app before? Judged from this record alone, which the
+ * host has kept since the first introduction: they saw (or skipped) an
+ * introduction of any version, or started or finished the tour. Not from
+ * projects or epics on the machine — a fresh install can open on folders that
+ * already hold a `.kehikot`, and a person can have used the app without making
+ * either.
+ */
+export function metBefore(state: Onboarding | null): boolean {
+  return state !== null && (state.intro > 0 || state.tour.step !== null || state.tour.finished)
+}
+
+/** Should "Introducing: Spaces" open by itself? Once, for a person who met the app before spaces. */
+export function spacesDue(state: Onboarding | null): boolean {
+  return state !== null && state.spaces === 'unseen' && metBefore(state)
+}
+
+/** Does the Introduction carry the "Introducing: Spaces" card: due now, or shown before (Help keeps it). */
+export function spacesNews(state: Onboarding | null): boolean {
+  return spacesDue(state) || state?.spaces === 'news'
+}
+
+/**
+ * What closing the Introduction records: the introduction seen when it was due,
+ * and spaces met — as `news` when the deck carried the card, `taught` when the
+ * regular introduction told them. Null when there is nothing new to record.
+ */
+export function seenEdit(state: Onboarding | null, news: boolean): OnboardingEdit | null {
+  if (state === null) return { intro: 'seen' }
+  const edit: OnboardingEdit = {
+    ...(introDue(state) ? { intro: 'seen' as const } : {}),
+    ...(state.spaces === 'unseen' || (news && state.spaces !== 'news') ? { spaces: news ? ('news' as const) : ('taught' as const) } : {}),
+  }
+  return Object.keys(edit).length ? edit : null
 }
 
 /* The page's side. */

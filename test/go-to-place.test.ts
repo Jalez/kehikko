@@ -81,7 +81,7 @@ describe('planGo', () => {
   test('an epic the project no longer has is not gone to, and it is said', () => {
     const plan = planGo(claude({ epic: 'old', kehikko: 'k-design' }), here(), target())
     expect(plan.steps).toEqual([{ kind: 'highlight', module: 'kehikot.claude' }])
-    expect(plan.note).toContain('no epic old')
+    expect(plan.note).toContain('no space old')
   })
 
   test('a place of an epic alone: the epic, and the module where it is', () => {
