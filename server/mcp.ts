@@ -1,4 +1,5 @@
 import { connectionsOf, connectionsText, type ConnectionModule } from '../src/host/connections.ts'
+import { readLogs, readLogsText } from './readLogs.ts'
 import { coveredForScope, scopeOfContainer, type ContainerScope } from '../src/host/scope.ts'
 import type { ActivityRow } from '../src/host/activity.ts'
 import { storageText, type StorageReport } from '../src/host/storage.ts'
@@ -439,6 +440,7 @@ export const TOOL_NAMES = [
   'my_place',
   'set_my_place',
   'storage',
+  'read_logs',
   'module_settings',
   'kehikko_skills',
   'create_kehikko',
@@ -1158,6 +1160,31 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: { fresh: { type: 'boolean', description: 'Measure again rather than use a report from the last 30 seconds.' } },
+        required: [],
+      },
+    },
+    {
+      name: 'read_logs',
+      description:
+        'Read Kehikot’s own logs on this machine, to find out afterwards why something happened. which "host" is the '
+        + 'host’s log: what it printed, its errors, and a line at every start with its versions, pid and port. "page" is '
+        + 'the canvas page’s: its console warnings and errors, and the decisions it made — whether frames got their '
+        + 'stable /m/<id>/ addresses and how long that check took, which address each module’s frame was given and '
+        + 'why, a module reported silent or followed to a new address, a project or kehikko switch, a module start '
+        + 'or restart pressed. "module" is one module’s own output (with module). since is an ISO time or a span back '
+        + 'from now (30s, 15m, 2h, 1d); grep is plain text, matched without regard to case; lines is how many of the '
+        + 'last matching lines (1 to 400, default 100). Secrets are scrubbed. Read-only: nothing here writes, '
+        + 'clears or deletes a log.',
+      annotations: { title: 'Read the logs', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          which: { type: 'string', enum: ['host', 'page', 'module'], description: 'Which log. Default "host".' },
+          module: { type: 'string', description: 'With which "module": the module’s id as read_canvas prints it, e.g. "kehikot.<name>".' },
+          since: { type: 'string', description: 'Only lines from this time on: an ISO time, or 30s, 15m, 2h, 1d back from now.' },
+          grep: { type: 'string', description: 'Only lines containing this text (case does not matter). At most 200 characters.' },
+          lines: { type: 'number', description: 'How many of the last matching lines, 1 to 400. Default 100.' },
+        },
         required: [],
       },
     },
@@ -2075,6 +2102,8 @@ export async function call(
     if (args.fresh !== undefined && typeof args.fresh !== 'boolean') return { text: 'storage takes fresh: true or false.', failed: true }
     return { text: storageText(await door.storage(args.fresh === true)), failed: false }
   }
+  /* About this machine, so it names no kehikko. Read-only (`readLogs.ts`). */
+  if (name === 'read_logs') return readLogsText(readLogs(args))
   /* The page on screen, wherever it is: it names no kehikko of its own. */
   if (name === 'jump') return jumpOn(args, door)
   if (name === 'offer_jump') return offerJumpOn(args, door)

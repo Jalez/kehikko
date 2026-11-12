@@ -8,6 +8,10 @@ A host PR that changes what an agent session sees or may do — a tool on the ke
 is held to, a guard — adds a section at the top: `## <the next number>`, then one or two bullets in
 the agent's terms. Name no module and no vendor. Nothing else here is read.
 
+## 4
+
+- `read_logs` on the kehikko door reads Kehikot's own logs: the host's (`which: "host"`: what it printed, its errors, a start line with versions, pid and port), the canvas page's (`"page"`: its warnings and errors and its decisions — the stable-address check, which address each frame got and why, silent modules, switches, start/restart presses) and one module's output (`"module"`, with `module`). Filter with `since`, `grep`, `lines` (at most 400). Read-only; secrets are scrubbed.
+
 ## 3
 
 - A conversation not started from a place in Kehikot is no longer left unplaced, and the person is never asked which epic it is for: its first tool call on the kehikko door places it in its project (the epic only when the project has just one, otherwise the whole project) and says so. Call `set_my_place` when the work is about one epic.

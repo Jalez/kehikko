@@ -11,6 +11,12 @@ import './index.css'
 import { App } from './App.tsx'
 import { announce } from './host/theme.ts'
 import { tellStartup } from './host/startupReport.ts'
+import { capturePage, decide } from './host/pageLog.ts'
+import { addressOnly } from './host/logLine.ts'
+
+/* The page's console warnings and errors and its decisions, to the host's page log (`host/pageLog.ts`). */
+capturePage()
+decide('page', `page loaded at ${addressOnly(location.href)}`)
 
 /* The page's steps of a start, for the host's startup timeline (`host/startupReport.ts`). */
 tellStartup('page script')

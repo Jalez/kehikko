@@ -25,6 +25,8 @@ const MACHINE_LEVEL: Record<string, string> = {
   'versionRuns.ts: mkdirSync(home, { recursive: true })': 'the versions directory',
   'versionRuns.ts: mkdirSync(join(this.#root, id), { recursive: true })': 'the versions directory',
   'moduleLog.ts: mkdirSync(dirname(file), { recursive: true })': 'the logs directory',
+  'hostLog.ts: mkdirSync(dirname(this.file), { recursive: true })': 'the logs directory (host.log, page.log)',
+  'server.ts: mkdirSync(dir, { recursive: true })': 'the logs directory, made before it is opened for the person (/host/logs/open)',
   'installs.ts: mkdirSync(deps.root, { recursive: true })': 'the installed-modules directory',
   'installs.ts: mkdirSync(deps.registry, { recursive: true })': 'the module registry',
   "canvases.ts: if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })": 'frame.sqlite',

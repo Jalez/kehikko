@@ -4,8 +4,10 @@ import {
   Blocks,
   Check,
   CircleDot,
+  ClipboardCopy,
   ExternalLink,
   FolderGit2,
+  FolderOpen,
   Hammer,
   HardDrive,
   MessagesSquare,
@@ -1124,7 +1126,56 @@ function About({ onClose }: { onClose(): void }) {
           }}
         />
       </Rows>
+      <Diagnostics />
     </>
+  )
+}
+
+/**
+ * Kehikot's own logs, for when something went wrong: the folder they are in, and the last lines
+ * of the host's and the page's with the versions, copied to paste into a report (`server/readLogs.ts`).
+ */
+function Diagnostics() {
+  const [said, setSaid] = useState<string | null>(null)
+  const openFolder = async () => {
+    setSaid(null)
+    const response = await fetch('/host/logs/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => null)
+    const body = (await response?.json().catch(() => null)) as { ok?: boolean; error?: string; dir?: string } | null
+    setSaid(body?.ok ? `Opened ${body.dir ?? 'the logs folder'}.` : (body?.error ?? 'The logs folder could not be opened.'))
+  }
+  const copy = async () => {
+    setSaid(null)
+    try {
+      const response = await fetch('/host/diagnostics', { cache: 'no-store' })
+      if (!response.ok) throw new Error(String(response.status))
+      await navigator.clipboard.writeText(await response.text())
+      setSaid('Copied: the versions and the last lines of the host’s and the page’s logs. Secrets are left out.')
+    } catch {
+      setSaid('The diagnostics could not be copied.')
+    }
+  }
+  return (
+    <div data-diagnostics>
+      <Rows>
+        <LinkRow
+          icon={FolderOpen}
+          label="Open logs folder"
+          description="Kehikot’s own log, the page’s, and every module’s output, kept on this computer."
+          onPress={() => void openFolder()}
+        />
+        <LinkRow
+          icon={ClipboardCopy}
+          label="Copy recent diagnostics"
+          description="The versions and the last lines of Kehikot’s and the page’s logs, to paste into a report."
+          onPress={() => void copy()}
+        />
+      </Rows>
+      {said ? (
+        <p className="text-muted-foreground mt-2 text-xs" role="status" data-diagnostics-said>
+          {said}
+        </p>
+      ) : null}
+    </div>
   )
 }
 

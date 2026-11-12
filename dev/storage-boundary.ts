@@ -177,7 +177,7 @@ export const ALLOW: ReadonlyArray<{ id: string; match: RegExp; reason: string; f
   {
     id: 'launchd',
     match: /Library['"`]?\s*,\s*['"`]Logs|Library\/Logs/,
-    reason: '~/Library/Logs/Kehikot is where macOS keeps the output of the modules the host starts (host server/machineDirs.ts `logsDir`)',
+    reason: '~/Library/Logs/Kehikot is where macOS keeps the output of the modules the host starts, the host\'s own host.log and the page\'s page.log (host server/machineDirs.ts `logsDir`, `hostLogFile`, `pageLogFile`)',
   },
   {
     id: 'temp',

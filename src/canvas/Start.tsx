@@ -1,3 +1,4 @@
+import { decide } from '@/host/pageLog.ts'
 import { CloudDownload, Play } from 'lucide-react'
 import { useState } from 'react'
 
@@ -69,6 +70,7 @@ export function useStart(module: string, onStarted: () => void) {
     setRunning(true)
     setSaid(null)
     setPrinted([])
+    decide('press', `start ${module} pressed`)
     try {
       const response = await fetch('/host/start', {
         method: 'POST',
@@ -85,6 +87,7 @@ export function useStart(module: string, onStarted: () => void) {
         moved?: string
       }
 
+      decide('press', `start ${module}: ${body.ok ? 'done' : `not done: ${body.why ?? 'no reason given'}`}`)
       if (!body.ok) {
         /* The server's own words. Every refusal it produces names what to fix —
            no directory registered, no run.sh, not executable — and rewording

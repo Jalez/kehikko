@@ -13,6 +13,9 @@ import type { Presses } from '@/host/presses.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { enterFullscreen, leaveFullscreen } from '@/host/surface.ts'
 import { framedAddress } from '@/host/theme.ts'
+import { whyFramed } from '@/host/addressCheck.ts'
+import { addressOnly } from '@/host/logLine.ts'
+import { decide } from '@/host/pageLog.ts'
 import { frameScheme, pageAppearance } from '@/host/appearance.ts'
 import { useAppearance } from '@/host/appearanceStore.ts'
 import { coveredBy, useRevealed, type Covers, type Reveals } from '@/host/reveal.ts'
@@ -266,7 +269,10 @@ export function ModuleFrame({
       {
         ready: (p, build, hold) => watcherRef.current.ready(p, build, hold),
         drawn: () => watcherRef.current.drawn?.(),
-        silent: (line, more) => watcherRef.current.silent(line, more),
+        silent: (line, more) => {
+          decide('quiet', `${framed.id} reported silent: ${line}`)
+          watcherRef.current.silent(line, more)
+        },
         fault: (line) => watcherRef.current.fault(line),
         height: (px) => watcherRef.current.height(px),
         /* Straight through to the canvas, which is the only thing that can
@@ -289,12 +295,16 @@ export function ModuleFrame({
         /* The page again, from the same address: setting `src` navigates even
            when it is unchanged, and the new document is greeted on its `load`. */
         retry: () => {
+          decide('quiet', `${framed.id}: its page did not answer; loading it again once before it is called silent`)
           const src = frame.getAttribute('src')
           if (src) frame.setAttribute('src', src)
         },
         /* The page is from an address the module left (`moved`): the canvas reads the modules
            again, and a new entry is a new frame (`Frames.tsx` keys on it). */
-        behind: () => watcherRef.current.behind?.(),
+        behind: () => {
+          decide('frames', `${framed.id}: its page is from an address the module left; reading the modules again to follow it`)
+          watcherRef.current.behind?.()
+        },
         findResult: (result) => watcherRef.current.findResult?.(result),
         findOpen: (open) => watcherRef.current.findOpen?.(open),
       },
@@ -529,6 +539,12 @@ export function ModuleFrame({
   const plumbedRef = useRef(!!framed.build)
   plumbedRef.current = !!framed.build
   const src = useMemo(() => framedAddress(framed.entry, themeRef.current, plumbedRef.current), [framed.entry])
+  /* The page log's line for this frame's address and why (`addressCheck.ts`): origin and path, never the query. */
+  const framedHow = useRef(framed)
+  framedHow.current = framed
+  useEffect(() => {
+    decide('frames', `${framedHow.current.id}: framed at ${addressOnly(src)} — ${whyFramed(framedHow.current)}`)
+  }, [src])
 
   return (
     <iframe
