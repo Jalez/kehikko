@@ -240,6 +240,15 @@ export const READY_TIMEOUT_MS = 4000
  */
 export const QUIET_FOR_MS = 60_000
 
+/** Said when a page will not answer this window (`kehikot.refused`, protocol 2.93.0). The origins are text. */
+export function refusedLine(name: string, origin: string, allowed: readonly string[]): string {
+  const list = allowed.filter((one) => one.length > 0)
+  return (
+    `${name} refused this window: it was started for ${list.length ? list.join(', ') : 'other windows'}, and this window is ${origin || 'one with no origin'}. `
+    + 'Restarting it gives it this window’s address.'
+  )
+}
+
 /** Said when a page whose module is up has said nothing for `QUIET_FOR_MS`. */
 export function quietForLine(name: string, ms: number, found?: string | null): string {
   return (
@@ -1099,6 +1108,20 @@ export class Conversation {
       return true
     }
 
+    case MESSAGE.REFUSED: {
+      /*
+       * The page will not answer this window (protocol 2.93.0): it was told it may be framed by
+       * other origins than this page's. The commonest way there is a module started for one window
+       * and framed by another — the app came back on another address, or the module was started by
+       * hand — and a restart by this host hands it this window's origin. Said at once, as what it
+       * is; before 2.93.0 this was a page that loaded and never spoke, and it read as a broken module.
+       * An answer already given stands: a refusal after `ready` is somebody else's window.
+       */
+      if (this.answered) return true
+      this.silenced = true
+      this.watcher.silent(refusedLine(this.name, message.origin, message.allowed))
+      return true
+    }
     case MESSAGE.PAGE_ERROR: {
       /*
        * The page failed, and says how (protocol 2.59.0). Before it answered
