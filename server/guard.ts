@@ -124,6 +124,10 @@ export interface Refusal {
  *    (`kehikkoSkills.ts`): instructions every agent session on it loads, so
  *    only a press in the page writes one. An agent reads them with the door's
  *    `kehikko_skills` tool.
+ *  - `/host/inbox/adoption`, `/afters`, `/adopt`, `/untrack`, `/undo`, `/untracked`, `/retrack`,
+ *    `/task` — adopting a tracker item no epic names (`adoptRoutes.ts`): conversation titles are read and
+ *    the person's acts taken only here. An agent only proposes, at the door's `propose_adoption`.
+ *  - `/host/tasks-agent` — the person's agent for Kehikot's own tasks (`tasksAgent.ts`).
  *  - `/host/module-addresses/check` — what the page's own self-check of the
  *    modules' frame addresses found (`moduleAddresses.ts`). Only the page
  *    checks how it reaches this host.
@@ -142,6 +146,15 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/migrate',
   '/host/inbox/use',
   '/host/inbox/answer',
+  '/host/inbox/adoption',
+  '/host/inbox/afters',
+  '/host/inbox/adopt',
+  '/host/inbox/untrack',
+  '/host/inbox/undo',
+  '/host/inbox/untracked',
+  '/host/inbox/retrack',
+  '/host/inbox/task',
+  '/host/tasks-agent',
   '/host/messages/clear',
   '/host/messages/say',
   '/host/messages/mute',

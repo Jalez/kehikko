@@ -332,6 +332,11 @@ export interface Door {
    */
   inbox?: Inbox
   /**
+   * An agent's proposal for adopting a tracker item no epic names (`propose_adoption`, protocol 2.88.0):
+   * it fills the person's dialog and adopts nothing (`adoption.ts`). Absent: the tool says so.
+   */
+  adoption?: { propose(project: number, ref: string, proposal: { epic: string; parts: string[]; conversations: string[]; why: string }): { ok: true; said: string } | { ok: false; why: string } }
+  /**
    * Messages between agent sessions (protocol 2.41.0): only how many a project
    * keeps, for `my_place`. No tool here reads, sends, deletes or clears one —
    * an agent reads its own through the module that runs it.
@@ -395,6 +400,7 @@ export const TOOL_NAMES = [
   'press_item',
   'jump',
   'offer_jump',
+  'propose_adoption',
   'open_address',
   'read_inbox',
   'my_place',
@@ -1466,6 +1472,27 @@ function tools() {
       },
     },
     {
+      name: 'propose_adoption',
+      description:
+        'Propose which epic (and parts) a tracker item no epic names belongs to, and which of the conversations '
+        + 'Kehikot found worked on it — when Kehikot started you to place one, with the item, the epics and the '
+        + 'candidates in your brief. It ONLY proposes: the person sees it in Kehikot and confirms with one press, or '
+        + 'changes it. Nothing is written until they do, and this tool never adopts.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...KEHIKKO_PROPERTY,
+          ref: { type: 'string', description: 'The item\'s ref, exactly as your brief spells it.' },
+          epic: { type: 'string', description: 'The epic\'s slug, from the brief.' },
+          parts: { type: 'array', items: { type: 'string' }, description: 'Part ids of that epic, from the brief. Optional.' },
+          conversations: { type: 'array', items: { type: 'string' }, description: 'Session ids of the candidate conversations that worked on it. Optional.' },
+          why: { type: 'string', description: `One or two sentences the person reads, at most ${LIMITS.REASON} characters.` },
+        },
+        required: ['ref', 'epic', 'why'],
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    {
       name: 'read_tracker',
       description:
         'What GitHub and GitLab last said about issues, merge requests and pull requests in the project a kehikko '
@@ -1802,6 +1829,7 @@ export async function call(
   if (name === 'set_parts') return setPartsAt(canvas, args, door)
   if (name === 'mark_disposition') return markAt(canvas, args, door)
   if (name === 'read_tracker') return readTrackerAt(canvas, args, door)
+  if (name === 'propose_adoption') return proposeAt(canvas, args, door)
   if (name === 'set_tracker_source') return setTrackerSourceAt(canvas, args, door)
   if (name === 'place_modules') return placeOn(canvas, where.how, args, door)
   if (name === 'fold_modules') return foldOn(canvas, where.how, args, door)
@@ -2822,6 +2850,28 @@ async function readTrackerAt(
       + (reading.missing.length ? `\n\nNot in the reading: ${reading.missing.map((m) => `${m.ref} (${m.reason})`).join(', ')}.` : ''),
     failed: false,
   }
+}
+
+/**
+ * `propose_adoption`: an agent's proposal for a tracker item no epic names. Fills the person's dialog;
+ * adopts nothing. The person's press in the page adopts (`inbox.adopt`), and no tool reaches it.
+ */
+function proposeAt(canvas: Canvas, args: Record<string, unknown>, door: Door): { text: string; failed: boolean } {
+  if (!door.adoption) return { text: 'This host takes no adoption proposals.', failed: true }
+  if (canvas.project === null) return { text: `kehikko ${canvas.id} (${canvas.name}) is in no project.`, failed: true }
+  const slug = /^[a-z0-9-]{1,80}$/
+  const ref = typeof args.ref === 'string' && args.ref.length <= 400 ? args.ref.trim() : ''
+  const epic = typeof args.epic === 'string' && slug.test(args.epic) ? args.epic : ''
+  const why = typeof args.why === 'string' ? args.why.trim().slice(0, LIMITS.REASON) : ''
+  const list = (value: unknown, test: (one: string) => boolean): string[] | null =>
+    value === undefined ? [] : Array.isArray(value) && value.length <= 20 && value.every((one) => typeof one === 'string' && test(one)) ? (value as string[]) : null
+  const parts = list(args.parts, (one) => slug.test(one))
+  const conversations = list(args.conversations, (one) => one.length > 0 && one.length <= 128)
+  if (!ref || !epic || !why || parts === null || conversations === null) {
+    return { text: 'propose_adoption needs ref, epic and why (and optionally parts and conversations), as your brief spells them.', failed: true }
+  }
+  const out = door.adoption.propose(canvas.project, ref, { epic, parts, conversations, why })
+  return out.ok ? { text: out.said, failed: false } : { text: out.why, failed: true }
 }
 
 /**
