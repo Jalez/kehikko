@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 
-import { listCanvases, readSubject, type Canvas } from './canvases.ts'
+import { listCanvases, readSubject, spaceOfSubject, type Canvas } from './canvases.ts'
+import { spaceTree } from './spaces.ts'
+import { spaceAgrees, spaceAt, spaceFromEpicParts } from 'kehikot-module-protocol'
 import { projectById, type Project } from './projects.ts'
 
 /**
@@ -95,6 +97,11 @@ export interface Recorded {
   kehikko: string | null
   /** The conversation the record is about, when the record names one (a module's: the agent's session id). */
   conversation?: string | null
+  /**
+   * The space by its path of ids (protocol 2.89.0), when the record keeps one deeper than epic and parts
+   * say. A module record before 2.89.0 has none; then the space is what epic and parts make.
+   */
+  space?: string[] | null
 }
 
 export interface DoorSession {
@@ -111,7 +118,10 @@ const fresh = (bytes: number) => randomBytes(bytes).toString('base64url')
 export function wellFormed(place: { epic: unknown; parts: unknown; kehikko: unknown }): boolean {
   if (place.epic !== null && (typeof place.epic !== 'string' || !SLUG.test(place.epic))) return false
   if (!Array.isArray(place.parts) || place.parts.length > 128 || place.parts.some((one) => typeof one !== 'string' || !SLUG.test(one))) return false
-  return place.kehikko === null || (typeof place.kehikko === 'string' && KEY.test(place.kehikko))
+  if (place.kehikko !== null && (typeof place.kehikko !== 'string' || !KEY.test(place.kehikko))) return false
+  const space = (place as { space?: unknown }).space
+  if (space === undefined || space === null) return true
+  return Array.isArray(space) && space.length > 0 && space.length <= 32 && space.every((one) => typeof one === 'string' && SLUG.test(one)) && space[0] === place.epic
 }
 
 /** Where to ask about a token: the module that issued it, in a project. Kept again on every issue. */
@@ -221,6 +231,14 @@ export interface Here {
   /** The key the place was recorded with; `canvas` is null when no kehikko of the project has it any more. */
   key: string | null
   canvas: Canvas | null
+  /** The space by its path of ids: the record's, when it agrees with its epic and parts, else the one they make. Null: none. */
+  space?: string[] | null
+}
+
+/** A record's space by ids: its own when it says what its epic and parts say, else the one they make (protocol 2.89.0). */
+export function spaceOfRecord(place: { epic: string | null; parts: readonly string[]; space?: readonly string[] | null }): string[] | null {
+  if (place.space && place.space.length && spaceAgrees(place.space, place.epic, place.parts)) return [...place.space]
+  return spaceFromEpicParts(place.epic, place.parts)?.ids ?? null
 }
 
 /** A recorded place, as this host holds it now, or null when its project is not here any more. */
@@ -228,7 +246,7 @@ export function hereOf(db: Database, stored: Recorded, via: Here['via'], token: 
   const project = projectByUid(db, stored.projectUid)
   if (!project) return null
   const canvas = stored.kehikko === null ? null : (listCanvases(db).find((c) => c.project === project.id && c.key === stored.kehikko) ?? null)
-  return { token, via, module, conversation: stored.conversation ?? null, project, epic: stored.epic, parts: [...stored.parts], key: stored.kehikko, canvas }
+  return { token, via, module, conversation: stored.conversation ?? null, project, epic: stored.epic, parts: [...stored.parts], key: stored.kehikko, canvas, space: spaceOfRecord(stored) }
 }
 
 /** Asks the module that issued a token what its record says now. Null: no record, or the module did not answer. */
@@ -277,6 +295,8 @@ export interface Looking {
   /** `'project'` when the person has "All epics" open: then `epic` is null and that is not "no epic". */
   scope: 'epic' | 'project'
   parts: string[]
+  /** The space on screen by its path of ids (protocol 2.89.0); null on none and on "All spaces". */
+  space?: string[] | null
 }
 
 export function lookingAt(db: Database, open: number | null): Looking | null {
@@ -285,7 +305,14 @@ export function lookingAt(db: Database, open: number | null): Looking | null {
   if (!canvas) return null
   const project = canvas.project === null ? null : projectById(db, canvas.project)
   const subject = canvas.project === null ? null : readSubject(db, canvas.project)
-  return { canvas, project, epic: subject?.epic ?? null, scope: subject?.scope ?? 'epic', parts: subject?.parts ?? [] }
+  return {
+    canvas,
+    project,
+    epic: subject?.epic ?? null,
+    scope: subject?.scope ?? 'epic',
+    parts: subject?.parts ?? [],
+    space: subject ? (spaceOfSubject(subject)?.ids ?? null) : null,
+  }
 }
 
 /** Whether the person is looking at exactly this place. */
@@ -295,6 +322,8 @@ export function sameAsLooking(here: Here, looking: Looking | null): boolean {
   /* "All epics" is not a place a conversation can belong to, so it is never the same as one. */
   if (looking.scope === 'project') return false
   if (here.canvas && looking.canvas.id !== here.canvas.id) return false
+  /* A space deeper than a part is a different place from its part, though epic and parts say the same. */
+  if ((here.space?.length ?? 0) > 2 || (looking.space?.length ?? 0) > 2) return (here.space ?? []).join('/') === (looking.space ?? []).join('/')
   return [...looking.parts].sort().join('+') === [...here.parts].sort().join('+')
 }
 
@@ -304,7 +333,7 @@ const placeWords = (
   kehikko: { name: string } | null,
   scope: 'epic' | 'project' = 'epic',
 ): string =>
-  `${scope === 'project' ? 'all epics (scope: project)' : epic ? `epic ${epic}` : 'no epic'}${parts.length ? ` (parts ${parts.join(', ')})` : ''}${kehikko ? ` on kehikko "${kehikko.name}"` : ''}`
+  `${scope === 'project' ? 'all spaces (scope: project)' : epic ? `space ${epic}` : 'no space'}${parts.length ? ` (sub-spaces ${parts.join(', ')})` : ''}${kehikko ? ` on kehikko "${kehikko.name}"` : ''}`
 
 /** "This conversation belongs to …" — the protocol's `DOOR_PLACE_SAYS.belongs`, in the host's words for a project. */
 export function belongsWords(here: Here): string {
@@ -334,12 +363,21 @@ export function doorPlaceOf(here: Here, looking: Looking | null): Record<string,
     epic: here.epic,
     parts: here.parts,
     kehikko: kehikko(here.canvas, here.key),
+    /* The space with names, read off the project's tree (protocol 2.89.0); absent when the tree does not have it. */
+    ...(() => {
+      const path = here.space ? spaceAt(spaceTree(here.project.path), here.space) : null
+      return path ? { space: path } : {}
+    })(),
     looking: looking
       ? {
           projectId: looking.project?.uid ?? null,
           project: looking.project?.path ?? null,
           epic: looking.epic,
           parts: looking.parts,
+          ...(() => {
+            const path = looking.space && looking.project ? spaceAt(spaceTree(looking.project.path), looking.space) : null
+            return path ? { space: path } : {}
+          })(),
           kehikko: kehikko(looking.canvas, looking.canvas.key ?? null),
         }
       : null,

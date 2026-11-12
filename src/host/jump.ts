@@ -61,6 +61,8 @@ export interface Place {
   /** `'project'` is "All epics": then `epic` is null and that is not "no epic". */
   scope?: 'epic' | 'project'
   parts: string[]
+  /** The space by its path of ids, when it is deeper than epic and parts say (protocol 2.89.0). */
+  space?: string[]
   /** The step the kehikko was last turned to on this epic, or null. */
   step: number | null
 }
@@ -71,6 +73,8 @@ export interface JumpAsk {
   kehikko?: string
   epic?: string
   parts?: string[]
+  /** A space deeper than a part, by its path of ids; its first id is `epic`. */
+  space?: string[]
   step?: number
   /** The step's title, when the server could read it, for the mark. */
   title?: string
@@ -97,6 +101,7 @@ export function sameView(a: Place, b: Place): boolean {
     && (a.scope === 'project') === (b.scope === 'project')
     && a.epic === b.epic
     && sameParts(a.parts, b.parts)
+    && (a.space ?? []).join('/') === (b.space ?? []).join('/')
   )
 }
 
@@ -134,6 +139,11 @@ export function planJump(ask: JumpAsk, now: Place, facts: JumpFacts): JumpPlan {
     epic,
     ...(scope === 'project' ? { scope } : {}),
     parts: scope === 'project' ? [] : parts,
+    ...(scope !== 'project' && ask.space && ask.space[0] === epic
+      ? { space: [...ask.space] }
+      : scope !== 'project' && ask.epic === undefined && ask.parts === undefined && !away && now.space
+        ? { space: [...now.space] }
+        : {}),
     step: ask.step ?? (sameEpic && kehikko === now.kehikko ? now.step : null),
   }
   /* Into another project the project picks its own kehikko: never "already there". */
@@ -184,7 +194,7 @@ export function jumpMarkText(mark: JumpMark): string {
  * person is then.
  */
 export function offerAsk(
-  entry: { place?: { kehikko?: string; epic?: string; parts?: readonly string[] }; go?: { step?: number; title?: string } },
+  entry: { place?: { kehikko?: string; epic?: string; parts?: readonly string[]; space?: readonly string[] }; go?: { step?: number; title?: string } },
   project: number,
   onScreen: number,
 ): JumpAsk {
@@ -194,6 +204,7 @@ export function offerAsk(
     ...(place?.kehikko ? { kehikko: place.kehikko } : {}),
     ...(place?.epic ? { epic: place.epic } : {}),
     ...(place?.parts ? { parts: [...place.parts] } : {}),
+    ...(place?.space && place.space[0] === place.epic ? { space: [...place.space] } : {}),
     ...(entry.go?.step !== undefined ? { step: entry.go.step } : {}),
     ...(entry.go?.title ? { title: entry.go.title } : {}),
   }

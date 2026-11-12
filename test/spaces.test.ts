@@ -259,3 +259,85 @@ describe('what a module is told', () => {
     expect(toWireContext({ epic: null, scope: 'project', project: null, space: spaceHere(tree, { epic: 'auth', parts: [] }) }, 'light').space).toBeNull()
   })
 })
+
+describe('places and jumps carry a space', () => {
+  test('a record’s space is kept only while it agrees with its epic and parts', async () => {
+    const { spaceOfRecord } = await import('../server/doorPlaces.ts')
+    expect(spaceOfRecord({ epic: 'auth', parts: ['login'], space: ['auth', 'login', 'errors'] })).toEqual(['auth', 'login', 'errors'])
+    /* An older module moved the conversation and kept only epic and parts: the space follows them. */
+    expect(spaceOfRecord({ epic: 'auth', parts: ['signup'], space: ['auth', 'login', 'errors'] })).toEqual(['auth', 'signup'])
+    expect(spaceOfRecord({ epic: 'auth', parts: [] })).toEqual(['auth'])
+    expect(spaceOfRecord({ epic: null, parts: [] })).toBeNull()
+  })
+
+  test('an agent’s jump to a deep space lands there, and staying put keeps a deep space', async () => {
+    const { planJump } = await import('../src/host/jump.ts')
+    const facts = { projects: [{ id: 1, name: 'P' }], kehikotOf: () => [], subjectOf: () => ({ epic: 'auth', parts: [] }) }
+    const now = { project: 1, kehikko: null, epic: 'auth', parts: [], step: null }
+    const went = planJump({ epic: 'auth', parts: ['login'], space: ['auth', 'login', 'errors'] }, now, facts)
+    expect(went.kind === 'go' && went.target.space).toEqual(['auth', 'login', 'errors'])
+    const deep = { ...now, parts: ['login'], space: ['auth', 'login', 'errors'] }
+    expect(planJump({ epic: 'auth', parts: ['login'], space: ['auth', 'login', 'errors'] }, deep, facts).kind).toBe('ignored')
+    const back = planJump({ epic: 'auth', parts: ['login'] }, deep, facts)
+    expect(back.kind === 'go' && back.target.space).toBeUndefined()
+  })
+})
+
+describe('at the host’s door', () => {
+  async function standing() {
+    const { createCanvas } = await import('../server/canvases.ts')
+    const { Openness } = await import('../server/open.ts')
+    const { call } = await import('../server/mcp.ts')
+    const db = openDb(':memory:')
+    const dir = project({ auth: AUTH })
+    const added = addProject(db, dir, 'Thesis', true)
+    if (!added.ok) throw new Error(added.why)
+    const canvas = createCanvas(db, 'writing', added.project.id)
+    const openness = new Openness()
+    const changed: number[] = []
+    const door = {
+      db,
+      which: () => openness.open(),
+      wake: () => {},
+      epicsChanged: (one: number) => void changed.push(one),
+      epicWritten: () => {},
+      dispositionsChanged: () => {},
+      seen: async () => [],
+    }
+    return { db, call, door, kehikko: canvas.id, id: added.project.id, changed }
+  }
+
+  test('edit_space makes a space at any depth; read_canvas prints the tree and the space with its path', async () => {
+    const { call, door, kehikko, db, id, changed } = await standing()
+    const made = await call('edit_space', { kehikko, create: { parent: ['auth', 'login'], name: 'Errors' } }, door)
+    expect(made.failed).toBe(false)
+    expect(made.text).toContain('Auth › Login › Errors (auth/login/errors)')
+    expect(changed).toEqual([id])
+    setSubject(db, id, { space: { ids: ['auth', 'login', 'errors'] } })
+    const read = await call('read_canvas', { kehikko }, door)
+    expect(read.text).toContain('space: Auth › Login › Errors [auth/login/errors]')
+    expect(read.text).toContain('- Errors [auth/login/errors]')
+    /* The older lines stay for agents that read them: the epic and its parts. */
+    expect(read.text).toContain('epic: auth')
+  })
+
+  test('removing the space the project is in asks first, then moves the project up to what held it', async () => {
+    const { call, door, kehikko, db, id } = await standing()
+    await call('edit_space', { kehikko, create: { parent: ['auth', 'login'], name: 'Errors' } }, door)
+    setSubject(db, id, { space: { ids: ['auth', 'login', 'errors'] } })
+    const asked = await call('edit_space', { kehikko, remove: { path: ['auth', 'login', 'errors'] } }, door)
+    expect(asked.text).toContain('Ask again with confirm')
+    expect(readSubject(db, id)!.space?.ids).toEqual(['auth', 'login', 'errors'])
+    await call('edit_space', { kehikko, remove: { path: ['auth', 'login', 'errors'], confirm: true } }, door)
+    expect(readSubject(db, id)).toMatchObject({ epic: 'auth', parts: ['login'] })
+    expect(readSubject(db, id)!.space).toBeUndefined()
+  })
+
+  test('create_epic and set_parts still work, and are spaces', async () => {
+    const { call, door, kehikko } = await standing()
+    await call('create_epic', { kehikko, title: 'Billing' }, door)
+    await call('set_parts', { kehikko, epic: 'billing', add: { name: 'Invoices' } }, door)
+    const dir = (await import('../server/projects.ts')).projectById(door.db, 1)!.path
+    expect(ids(spaceTree(dir))).toContainEqual(['billing', [['invoices', []]]])
+  })
+})

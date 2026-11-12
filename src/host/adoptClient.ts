@@ -41,8 +41,10 @@ export async function postAdopt(
   kehikko: string | null,
   task: { module: string; session: string } | null = null,
   also: readonly string[] = [],
+  /** The space to adopt into, at any depth, by its path of ids (protocol 2.89.0); its first id is `epic`. */
+  space: readonly string[] | null = null,
 ): Promise<InboxAdoptResult> {
-  const got = await post<{ result?: InboxAdoptResult }>('/host/inbox/adopt', { project, ...key, epic, parts, kehikko, task, also })
+  const got = await post<{ result?: InboxAdoptResult }>('/host/inbox/adopt', { project, ...key, epic, parts, kehikko, task, also, ...(space ? { space } : {}) })
   return got?.result ?? { outcome: 'declined', said: '', brought: [], why: NO_ANSWER }
 }
 

@@ -840,6 +840,8 @@ export interface JumpOrder {
   kehikko?: string
   epic?: string
   parts?: string[]
+  /** The space by its path of ids, when it is deeper than epic and parts say (protocol 2.89.0); its first id is `epic`. */
+  space?: string[]
   step?: number
   title?: string
 }
@@ -854,6 +856,7 @@ export function jumpOrderIn(value: unknown, page: string = pageId()): JumpOrder 
   if (said.kehikko !== undefined && (typeof said.kehikko !== 'string' || !said.kehikko || said.kehikko.length > 64)) return null
   if (said.epic !== undefined && (typeof said.epic !== 'string' || !EPIC_SLUG.test(said.epic))) return null
   if (said.parts !== undefined && (!Array.isArray(said.parts) || said.parts.length > 64 || !said.parts.every((one) => typeof one === 'string' && one.length > 0 && one.length <= 64))) return null
+  if (said.space !== undefined && (!Array.isArray(said.space) || said.space.length > 32 || said.space[0] !== said.epic || !said.space.every((one) => typeof one === 'string' && EPIC_SLUG.test(one)))) return null
   if (said.step !== undefined && (typeof said.step !== 'number' || !Number.isInteger(said.step) || said.step < 1 || said.step > 999)) return null
   const title = typeof said.title === 'string' && said.title.trim() && said.title.length <= LIMITS.TITLE ? said.title.trim() : undefined
   return {
@@ -862,6 +865,7 @@ export function jumpOrderIn(value: unknown, page: string = pageId()): JumpOrder 
     ...(said.kehikko !== undefined ? { kehikko: said.kehikko as string } : {}),
     ...(said.epic !== undefined ? { epic: said.epic as string } : {}),
     ...(said.parts !== undefined ? { parts: [...new Set(said.parts as string[])] } : {}),
+    ...(said.space !== undefined ? { space: [...(said.space as string[])] } : {}),
     ...(said.step !== undefined ? { step: said.step as number } : {}),
     ...(title ? { title } : {}),
   }

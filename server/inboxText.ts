@@ -159,7 +159,7 @@ export function readInboxText(
   const names = namerFor(db, project)
   const label = (entry: Entry) => {
     const h = hereness(entry.place, at)
-    return h === 'here' ? 'here' : h === 'elsewhere' ? 'on another kehikko or epic' : 'kehikko not named'
+    return h === 'here' ? 'here' : h === 'elsewhere' ? 'on another kehikko or space' : 'kehikko not named'
   }
   const open = inbox.open(project).filter((one) => !isDismissed(one))
   const shown = open.filter((one) => inScope(one.place, options.scope, at))
@@ -170,7 +170,7 @@ export function readInboxText(
   )
   lines.push(
     options.scope === 'here'
-      ? 'scope: this kehikko — what is here, and what is about the whole project (names no kehikko and no epic). '
+      ? 'scope: this kehikko — what is here, and what is about the whole project (names no kehikko and no space). '
         + `${open.length - shown.length} other${open.length - shown.length === 1 ? '' : 's'} are elsewhere; scope: "everywhere" lists them.`
       : 'scope: everywhere in this project.',
   )

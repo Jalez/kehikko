@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { InboxAdoptionResult } from 'kehikot-module-protocol'
+import type { InboxAdoptionResult, SpaceNode } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -37,6 +37,8 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
   const [task, setTask] = useState<TaskStarted | null>(null)
   const [changing, setChanging] = useState(false)
   const [epic, setEpic] = useState<string>('')
+  /** The space chosen, by its path of ids (protocol 2.89.0): the epic is its first id. */
+  const [space, setSpace] = useState<string[]>([])
   const [parts, setParts] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [trouble, setTrouble] = useState<string | null>(null)
@@ -48,8 +50,13 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
     void fetchAdoption(project, item).then((got) => {
       if (!live) return
       setRead(got)
-      if (got.suggested) setEpic(got.suggested.epic)
-      else if (got.epics[0]) setEpic(got.epics[0].epic)
+      if (got.suggested) {
+        setEpic(got.suggested.epic)
+        setSpace(got.suggested.space ? [...got.suggested.space] : [got.suggested.epic])
+      } else if (got.epics[0]) {
+        setEpic(got.epics[0].epic)
+        setSpace([got.epics[0].epic])
+      }
       if (got.agent && !started.current) {
         started.current = true
         void postTask(project, item).then((one) => live && setTask(one))
@@ -72,17 +79,35 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
   const plan = useMemo(() => (read ? dialogPlan(read) : null), [read])
   const picking = plan?.mode === 'picker' || changing || (task !== null && !task.ok)
   const chosen = read?.epics.find((one) => one.epic === epic) ?? null
+  /* Every space at any depth, as one list: the tree the host sent, or the epics and their parts from an older one. */
+  const tree = useMemo<SpaceNode[]>(
+    () => read?.spaces ?? (read?.epics ?? []).map((one) => ({ id: one.epic, name: one.title, children: one.parts.map((part) => ({ id: part.id, name: part.name, children: [] })) })),
+    [read],
+  )
+  const rows = useMemo(() => {
+    const out: { ids: string[]; said: string }[] = []
+    const walk = (nodes: readonly SpaceNode[], above: string[], names: string[]) => {
+      for (const node of nodes) {
+        const ids = [...above, node.id]
+        out.push({ ids, said: [...names, node.name || node.id].join(' › ') })
+        walk(node.children, ids, [...names, node.name || node.id])
+      }
+    }
+    walk(tree, [], [])
+    return out
+  }, [tree])
+  const chosenSaid = rows.find((row) => row.ids.join('/') === space.join('/'))?.said ?? chosen?.title ?? ''
 
-  const adopt = async (target: string, inParts: readonly string[], also: readonly string[] = []) => {
+  const adopt = async (target: string, inParts: readonly string[], also: readonly string[] = [], into: readonly string[] | null = null) => {
     setBusy(true)
     setTrouble(null)
-    const got = await postAdopt(project, item, target, inParts, kehikko, task?.ok ? { module: task.module, session: task.session } : null, also)
+    const got = await postAdopt(project, item, target, inParts, kehikko, task?.ok ? { module: task.module, session: task.session } : null, also, into)
     setBusy(false)
     if (got.outcome === 'adopted') onClose(got.said)
     else setTrouble(got.why || 'It was not adopted.')
   }
 
-  const title = read?.item ? `Adopt ${read.item.ref}` : 'Adopt into an epic'
+  const title = read?.item ? `Adopt ${read.item.ref}` : 'Adopt into a space'
   return (
     <Dialog open onOpenChange={(open) => !open && onClose(null)}>
       <ModalContent data-adopt-dialog="" className="sm:max-w-3xl">
@@ -96,7 +121,7 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
           {read && read.outcome !== 'ok' ? <p className="text-sm" data-adopt-trouble="">{read.why}</p> : null}
           {task && !task.ok ? (
             <p className="text-muted-foreground mb-2 text-sm" data-adopt-task="failed">
-              {task.why} Choose the epic yourself.
+              {task.why} Choose the space yourself.
             </p>
           ) : null}
           {read?.agent && task?.ok ? (
@@ -130,20 +155,29 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
           {read && picking ? (
             <div className="flex flex-col gap-3" data-adopt-picker="">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="adopt-epic">Epic</Label>
-                <NativeSelect id="adopt-epic" value={epic} onChange={(event) => (setEpic(event.target.value), setParts([]))}>
-                  {read.epics.map((one) => (
-                    <NativeSelectOption key={one.epic} value={one.epic}>
-                      {one.title}
-                      {read.suggested?.epic === one.epic ? ' (suggested)' : ''}
+                <Label htmlFor="adopt-epic">Space</Label>
+                <NativeSelect
+                  id="adopt-epic"
+                  value={space.join('/')}
+                  onChange={(event) => {
+                    const ids = event.target.value.split('/').filter(Boolean)
+                    setSpace(ids)
+                    setEpic(ids[0] ?? '')
+                    setParts([])
+                  }}
+                >
+                  {rows.map((row) => (
+                    <NativeSelectOption key={row.ids.join('/')} value={row.ids.join('/')}>
+                      {row.said}
+                      {row.ids.length === 1 && read.suggested?.epic === row.ids[0] ? ' (suggested)' : ''}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
                 {read.suggested && read.suggested.epic === epic ? <p className="text-muted-foreground text-xs">Suggested: {read.suggested.why}.</p> : null}
               </div>
-              {chosen?.parts.length ? (
+              {space.length === 1 && chosen?.parts.length ? (
                 <fieldset className="flex flex-col gap-1.5">
-                  <legend className="mb-1 text-sm font-medium">Parts</legend>
+                  <legend className="mb-1 text-sm font-medium">Spaces in it</legend>
                   {chosen.parts.map((part) => (
                     <div key={part.id} className="flex items-center gap-2">
                       <Checkbox
@@ -172,8 +206,8 @@ export function AdoptDialog({ project, item, kehikko, onClose, pollMs = 2500 }: 
             </Button>
           ) : null}
           {picking ? (
-            <Button size="sm" disabled={busy || !chosen} onClick={() => void adopt(epic, parts)} data-adopt-confirm="picker">
-              {chosen ? `Adopt into ${chosen.title}` : 'Adopt'}
+            <Button size="sm" disabled={busy || !chosen} onClick={() => void adopt(epic, parts, [], space.length > 1 ? space : null)} data-adopt-confirm="picker">
+              {chosen ? `Adopt into ${chosenSaid}` : 'Adopt'}
             </Button>
           ) : plan?.confirm ? (
             <Button size="sm" disabled={busy} onClick={() => void adopt(plan.confirm!.epic, plan.confirm!.parts, plan.confirm!.conversations)} data-adopt-confirm="proposal">

@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import {
   AGENT_TASKS,
+  epicPartsOf,
   CONVERSATIONS_FINDER,
   HOST_CALLER,
   LIMITS,
@@ -34,6 +35,7 @@ import {
   type RowForAdoption,
   type Suggestion,
 } from '../src/host/adoption.ts'
+import { spaceTree } from './spaces.ts'
 import { TRACKER_NOTICES_MODULE, type Seen } from '../src/host/trackerNotices.ts'
 
 /**
@@ -121,8 +123,8 @@ const CALL_MS = 8000
 export const ADOPTION_SAYS = {
   noItem: 'That names no tracker item Kehikot holds in this project.',
   noProject: 'That names no project of yours.',
-  inEpic: 'An epic names it already.',
-  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose an epic yourself.',
+  inEpic: 'A space names it already.',
+  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose a space yourself.',
   nothingToUndo: 'There is nothing to undo for that item.',
 } as const
 
@@ -273,6 +275,8 @@ export class Adoption {
         ...(seen.link?.branch ? { branch: seen.link.branch } : {}),
       },
       epics: epics.slice(0, 200).map((one) => ({ epic: one.epic, title: one.title.slice(0, LIMITS.TITLE), parts: one.parts.slice(0, LIMITS.PARTS), refs: one.refs.slice(0, 200) })),
+      /* The whole tree, so the dialog can adopt into a space at any depth (protocol 2.89.0). */
+      spaces: spaceTree(root),
       suggested,
       conversations: found.map(({ place, ...one }) => ({ ...one, placed: placeSaid(place, titleOf), comes: comes.has(`${one.module}|${one.session}`) })),
       agent: agent ? { module: agent.module, name: agent.name } : null,
@@ -297,11 +301,17 @@ export class Adoption {
     module: string,
     id: string,
     epic: string,
-    parts: readonly string[],
+    parts: readonly string[] | string[],
     kehikko: string | null,
     task?: { module: string; session: string } | null,
     /** Sessions the person confirmed bringing (an agent's proposal), confident or not; never one filed elsewhere. */
     also: readonly string[] = [],
+    /**
+     * The space to adopt into, at any depth (protocol 2.89.0), by its path of ids; its first id is `epic`.
+     * The ref is filed where refs are kept — the top-level space and the space under it that holds the
+     * chosen one (`epicPartsOf`) — and the conversations brought are filed under the space itself.
+     */
+    space: readonly string[] | null = null,
   ): Promise<InboxAdoptResult> {
     const declined = (why: string, outcome: 'declined' | 'no-such-item' = 'declined'): InboxAdoptResult => ({ outcome, said: '', brought: [], why })
     const root = this.deps.pathOf(project)
@@ -310,11 +320,13 @@ export class Adoption {
     if (!seen) return declined(ADOPTION_SAYS.noItem, 'no-such-item')
     const epics = this.deps.epics(root)
     const target = epics.find((one) => one.epic === epic)
-    if (!target) return declined(`This project has no epic ${epic}.`)
+    if (!target) return declined(`This project has no space ${epic}.`)
+    const into = space && space.length && space[0] === epic ? [...space] : null
+    if (into) parts = epicPartsOf(into).parts
     const written = this.deps.editRef(root, epic, seen.ref, parts, true)
     if (written.outcome === 'declined') return declined(written.why)
 
-    const to: ConversationPlace = { epic, parts: [...parts], kehikko }
+    const to: ConversationPlace = { epic, parts: [...parts], kehikko, ...(into && into.length > 2 ? { space: into } : {}) }
     const found = await this.#candidates(root, seen)
     const brought: Brought[] = []
     const bring = async (one: { module: string; session: string; title: string; program: string }) => {
@@ -440,7 +452,7 @@ export class Adoption {
       suggested: read.suggested,
     })
     try {
-      const got = agentTaskStartResult.safeParse(await this.#post(provider.module, provider.descriptor.start, { project: root, brief, place: null, title: `Place ${read.item.ref} in an epic`.slice(0, LIMITS.TITLE) }))
+      const got = agentTaskStartResult.safeParse(await this.#post(provider.module, provider.descriptor.start, { project: root, brief, place: null, title: `Place ${read.item.ref} in a space`.slice(0, LIMITS.TITLE) }))
       if (!got.success || got.data.outcome !== 'started' || !got.data.session) return { ok: false, why: got.success ? got.data.why || `${provider.name} did not start it.` : `${provider.name} answered in a shape Kehikot does not read.` }
       const origin = await this.deps.originOf(provider.module)
       if (!origin) return { ok: false, why: `${provider.name} is not registered here.` }

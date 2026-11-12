@@ -350,6 +350,10 @@ export function placeDesk(deps: PlaceDeps) {
           kehikko: (place.kehikko as string | null) ?? null,
           conversation: typeof place.conversation === 'string' ? place.conversation.slice(0, 128) : null,
         }
+        /* The space the record keeps (protocol 2.89.0), when it is spelled as one and goes with its epic. */
+        if (wellFormed({ epic: said.epic, parts: said.parts, kehikko: said.kehikko, space: place.space ?? null } as Parameters<typeof wellFormed>[0]) && Array.isArray(place.space)) {
+          said.space = place.space as string[]
+        }
       }
     } catch {
       said = null
@@ -396,7 +400,7 @@ export function placeDesk(deps: PlaceDeps) {
     return here ? { ...found, here, settled: true } : found
   }
 
-  function recordFor(session: string, project: Project, place: { epic: string | null; parts: string[]; kehikko: string | null }): Here | null {
+  function recordFor(session: string, project: Project, place: { epic: string | null; parts: string[]; kehikko: string | null; space?: string[] | null }): Here | null {
     if (!project.uid) return null
     const stored: Recorded = { projectUid: project.uid, ...place }
     if (!record(db, session, stored)) return null

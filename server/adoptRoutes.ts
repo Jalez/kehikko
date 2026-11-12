@@ -52,6 +52,8 @@ const adoptBody = key.extend({
   kehikko: z.string().regex(KEHIKKO_KEY).nullable().default(null),
   task: z.object({ module: z.string().min(1).max(64), session: z.string().min(1).max(128) }).nullable().default(null),
   also: z.array(z.string().min(1).max(128)).max(20).default([]),
+  /* The space to adopt into, at any depth, by its path of ids (protocol 2.89.0); its first id is `epic`. */
+  space: z.array(z.string().regex(EPIC_SLUG)).min(1).max(LIMITS.SPACE_DEPTH).nullable().default(null),
 })
 
 const BODY_MAX = 64 * 1024
@@ -98,7 +100,7 @@ export function adoptRoutes(deps: AdoptRouteDeps) {
       const got = adoptBody.safeParse(raw)
       if (!got.success || !deps.hasProject(got.data.project)) return reply({ ok: false, error: 'That is not an adoption Kehikot takes.' }, 400)
       const b = got.data
-      return reply({ ok: true, result: await deps.adoption.adopt(b.project, b.module, b.id, b.epic, b.parts, b.kehikko, b.task, b.also) })
+      return reply({ ok: true, result: await deps.adoption.adopt(b.project, b.module, b.id, b.epic, b.parts, b.kehikko, b.task, b.also, b.space) })
     }
     const got = key.safeParse(raw)
     if (!got.success || !deps.hasProject(got.data.project)) return reply({ ok: false, error: 'That names no item of a project of yours.' }, 400)

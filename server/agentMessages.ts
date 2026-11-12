@@ -1,3 +1,4 @@
+import { spaceFromEpicParts, spaceWithin } from 'kehikot-module-protocol'
 import type { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import {
@@ -65,6 +66,8 @@ export interface Reader extends SessionKey {
   kehikko: string | null
   /** The parts of its epic it is at (protocol 2.75.0); none is the whole epic. */
   parts?: string[]
+  /** Its space by its path of ids (protocol 2.89.0), at any depth; absent: what epic and parts make. */
+  space?: string[] | null
 }
 
 /**
@@ -244,6 +247,13 @@ export function isFor(to: MessageTo, reader: Reader): boolean {
   if (to.place) {
     if (to.place.epic !== undefined && to.place.epic !== reader.epic) return false
     if (to.place.kehikko !== undefined && to.place.kehikko !== reader.kehikko) return false
+    /* Protocol 2.89.0: to a space — a session in that space or ABOVE it (a session standing in a space
+       sees everything under it), never one deeper or beside it. */
+    if (to.place.space?.length) {
+      const at = reader.space?.length ? reader.space : (spaceFromEpicParts(reader.epic, reader.parts ?? [])?.ids ?? [])
+      const picked = !reader.space?.length && (reader.parts?.length ?? 0) > 1 ? reader.parts! : []
+      return spaceWithin({ path: at.map((id) => ({ id })), picked }, to.place.space)
+    }
     /* Protocol 2.75.0: to some parts of the epic — a session at any of them, or at the whole epic. */
     const parts = reader.parts ?? []
     if (to.place.parts?.length && parts.length && !parts.some((part) => to.place!.parts!.includes(part))) return false
