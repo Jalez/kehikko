@@ -377,6 +377,8 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/module-intro': 'a module\'s introduction, read without running it',
   '/host/pinned-places': 'the person’s pinned places',
   '/host/settings': 'settings',
+  '/host/tasks-agent': 'settings',
+  '/host/server-pass': 'a module checks that Kehikot called it',
   '/host/visits': 'when places were last visited',
   '/host/sounds': 'the Inbox chime’s own sounds',
   '/host/module-settings': 'a module’s settings',

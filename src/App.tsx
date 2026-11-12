@@ -115,6 +115,8 @@ import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, re
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { outsideHow } from './host/goToPlace.ts'
+import { fetchAdoption, fetchAfters, fetchTasksAgent, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
+import { AdoptDialog } from './canvas/AdoptDialog.tsx'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
@@ -4346,6 +4348,18 @@ export function App() {
    * 2.79.0): from what this page holds, through the page's own routes. See `host/inboxDoor.ts`.
    */
   const inboxDoorRef = useRef<InboxDoor | null>(null)
+  /* Each tracker item's line after its last adopt or untrack (protocol 2.88.0), read again with the Inbox. */
+  const [afters, setAfters] = useState<ReadonlyMap<string, { said: string; undo: boolean }>>(new Map())
+  useEffect(() => {
+    if (projectId === null) return
+    let live = true
+    void fetchAfters(projectId).then((got) => live && setAfters(got))
+    return () => {
+      live = false
+    }
+  }, [projectId, inbox.rev])
+  /* The adoption dialog with the person's agent for Kehikot's own tasks, when one is open. */
+  const [adopting, setAdopting] = useState<{ project: number; item: { module: string; id: string } } | null>(null)
   inboxDoorRef.current = {
     entries: () => inbox.open,
     elsewhere: () => inbox.others,
@@ -4363,6 +4377,21 @@ export function App() {
     open: (entry, inProject) => goToEntry(entry, inProject ?? projectId),
     use: (module, on) => inbox.use(module, on),
     hasProject: (id) => projects.some((one) => one.id === id),
+    adopting: {
+      afters: () => afters,
+      adoption: (key, inProject) => fetchAdoption(inProject ?? projectId ?? 0, key),
+      adopt: (key, epic, parts, inProject) => postAdopt(inProject ?? projectId ?? 0, key, epic, parts, open?.key ?? null),
+      adoptWith: async (key, inProject) => {
+        const at = inProject ?? projectId
+        if (at === null) return 'no-agent'
+        const got = await fetchTasksAgent()
+        if (!got.agent || !got.choices.some((one) => one.module === got.agent)) return 'no-agent'
+        setAdopting({ project: at, item: key })
+        return 'opened'
+      },
+      untrack: (key, inProject) => postUntrack(inProject ?? projectId ?? 0, key),
+      undo: (key, inProject) => postUndo(inProject ?? projectId ?? 0, key),
+    },
   }
   inboxAskRef.current = (from, method, params, pressed) => {
     const door = inboxDoorRef.current
@@ -5391,6 +5420,14 @@ export function App() {
 
       {/* A module asked to show a page and nothing here shows pages: the person
           chooses. Nothing is opened before a press. See `AddressOffer.tsx`. */}
+      {adopting ? (
+        <AdoptDialog
+          project={adopting.project}
+          item={adopting.item}
+          kehikko={adopting.project === projectId ? (open?.key ?? null) : null}
+          onClose={() => setAdopting(null)}
+        />
+      ) : null}
       <AddressOffer
         offer={offer !== null && offer.kehikko === openId ? offer : null}
         askerName={offer?.by === TRACKER_NOTICES_MODULE ? TRACKER_NOTICES_BY : (registry?.presences.find((one) => one.id === offer?.by)?.name ?? offer?.by ?? '')}

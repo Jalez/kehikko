@@ -519,7 +519,8 @@ describe('who may do any of it', () => {
     const tools = (reply.body as { result: { tools: { name: string; description?: string }[] } }).result.tools
     expect(tools.length).toBeGreaterThan(0)
     for (const tool of tools) {
-      expect(tool.name).not.toMatch(/install|repositor|mine|adopt|uninstall/i)
+      /* `\badopt`: adopting a MODULE; `propose_adoption` proposes an epic for a tracker item and adopts nothing. */
+      expect(tool.name).not.toMatch(/install|repositor|mine|\badopt|uninstall/i)
       expect(tool.description ?? '').not.toMatch(/\/host\/mine|my modules/i)
     }
     const door = readFileSync(join(import.meta.dir, '..', 'server', 'mcp.ts'), 'utf8')

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_TASKS, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
@@ -9,7 +9,7 @@ import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
 import { projectsMine } from './projectsMine.ts'
 import { providersOf } from './services.ts'
-import { epicPlacesByRef, epicsByRef, Trackers } from './trackers/reading.ts'
+import { epicPlacesByRef, epicRefs, epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
@@ -42,7 +42,7 @@ import { baseBranchOf, setBaseBranch } from './baseBranch.ts'
 import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectAt, projectById, shareKehikot } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { browse, rootsFor } from './folders.ts'
-import { createEpic, deleteEpic, editParts, epicSlugs, epicsIn, listEpics, retitleEpic, type PartsEdited } from './holdings.ts'
+import { createEpic, deleteEpic, editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
 import { keptScope } from '../src/host/scope.ts'
@@ -59,6 +59,9 @@ import { answersAs, judge, movedLine, newPort, repoint as repointRegistration } 
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
+import { Adoption } from './adoption.ts'
+import { adoptRoutes } from './adoptRoutes.ts'
+import { readTasksAgent, tasksAgentRoute } from './tasksAgent.ts'
 import { BY as HOST_BY, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { changesOfCopy, hostChanges } from './agentChanges.ts'
@@ -3187,6 +3190,55 @@ const inboxRoutes = inboxDesk({
   linkOf: (project, module, id) => (module === TRACKER_NOTICES_MODULE ? trackerNotices.link(project, id) : null),
 })
 
+/*
+ * Adopting a tracker item no epic names, and the conversations that worked on it (protocol 2.88.0).
+ * The person's acts, from the page only; an agent only proposes (`propose_adoption`). `adoption.ts`.
+ */
+const adoption = new Adoption({
+  db,
+  notices: trackerNotices,
+  pathOf: (project) => projectById(db, project)?.path ?? null,
+  epics: (root) => {
+    const dir = epicsIn(root)
+    if (!dir) return []
+    return listEpics(dir).map((one) => {
+      let repo: string | undefined
+      try {
+        const own = JSON.parse(readFileSync(join(epicsDir(root), `${one.slug}.json`), 'utf8')) as { repo?: unknown }
+        if (typeof own.repo === 'string') repo = own.repo
+      } catch {
+        /* No repository named. */
+      }
+      return {
+        epic: one.slug,
+        title: one.title ?? one.slug,
+        parts: (readParts(root, one.slug) ?? []).map((part) => ({ id: part.id, name: part.heading || part.id })),
+        refs: epicRefs(root, one.slug) ?? [],
+        ...(repo ? { repo } : {}),
+      }
+    })
+  },
+  rows: (root) => trackers.rowsHeld(root),
+  editRef: (root, epic, ref, parts, add) => editEpicRef(root, epic, ref, parts, add),
+  providers: (service, root) => servicesHere(service, root, null),
+  originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
+  tasksAgent: () => readTasksAgent(db),
+  changed: (project) => {
+    const root = projectById(db, project)?.path
+    const out = trackerNotices.restateOne(project, root ? epicsByRef(root) : undefined)
+    wakes.inboxChanged(project, out.rev)
+  },
+})
+const adoptDesk = adoptRoutes({
+  adoption,
+  untracked: (project) => trackerNotices.untracked(project),
+  hasProject: (project) => projectById(db, project) !== null,
+})
+const tasksAgentDesk = tasksAgentRoute({
+  db,
+  choices: () => servicesHere(AGENT_TASKS, null, null).map((one) => ({ module: one.module, name: one.name })),
+})
+
 /* What the official list retired is taken off this machine, once the list is read: see
    `retired.ts`. Never waited for, and a sweep that finds nothing does nothing. */
 const retiring = retireDesk({
@@ -4970,6 +5022,11 @@ async function answerRequest(request: Request): Promise<Response> {
     /* The inbox: what the modules said they are doing, held per project. `inbox.ts`. */
     const inboxAnswer = await inboxRoutes.route(request, url)
     if (inboxAnswer) return inboxAnswer
+    /* Adopting a tracker item no epic names, and this host's passes for the modules it calls. `adoptRoutes.ts`. */
+    const adoptAnswer = await adoptDesk(request, url)
+    if (adoptAnswer) return adoptAnswer
+    const tasksAgentAnswer = await tasksAgentDesk(request, url)
+    if (tasksAgentAnswer) return tasksAgentAnswer
 
     /* A module's server asking what its page would be told. `serverAsk.ts`. */
     if (url.pathname === SERVER_ASK_PATH) {
@@ -5438,6 +5495,17 @@ async function answerRequest(request: Request): Promise<Response> {
           },
           headers: headerDesk.door,
           inbox,
+          /* An agent's proposal for adopting an item: fills the person's dialog, adopts nothing. `adoption.ts`. */
+          adoption: {
+            propose: (project, ref, proposal) => {
+              const id = trackerNotices.idOfRef(project, ref)
+              if (!id) return { ok: false, why: `No tracker item ${ref} is held in this project. Spell the ref as your brief does.` }
+              const root = projectById(db, project)?.path
+              if (!root || !epicsIn(root) || !listEpics(epicsIn(root)!).some((one) => one.slug === proposal.epic)) return { ok: false, why: `This project has no epic ${proposal.epic}.` }
+              adoption.propose(project, id, proposal)
+              return { ok: true, said: `Proposed ${ref} → ${proposal.epic}. The person confirms it in Kehikot with one press, or changes it; nothing is written until then.` }
+            },
+          },
           /* An agent's offer filed in a project's Inbox (`offer_jump`): every page reads it again. */
           inboxChanged: (project, rev) => wakes.inboxChanged(project, rev),
           /* How many messages between agent sessions a project keeps (protocol 2.41.0), for my_place. Never their words. */

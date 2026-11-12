@@ -630,6 +630,11 @@ export class Trackers {
     return held.stored.sources.map((s) => ({ tracker: s.tracker, host: s.host, repo: s.repo, default: s.default, listed: s.listed }))
   }
 
+  /** Every row the reading holds for a project now, starting no read: what an adoption suggests from. */
+  rowsHeld(root: string): readonly TrackerRow[] {
+    return this.#of(root).stored.rows
+  }
+
   /**
    * What the reading holds for one scope, at once. Starts a read for anything
    * it does not hold yet; see the essay at the top.

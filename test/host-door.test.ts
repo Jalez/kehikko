@@ -319,6 +319,7 @@ describe('the host’s server, running', () => {
         'pin_version',
         'place_modules',
         'press_item',
+        'propose_adoption',
         'read_canvas',
         'read_inbox',
         'read_tracker',

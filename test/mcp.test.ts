@@ -100,6 +100,8 @@ describe('the door says what it is and what it offers', () => {
        which restores their place — see `test/jump.test.ts`. And one offers
        to, when the person did not ask: an item in their Inbox they take or
        dismiss, which moves nothing — see `test/offer-jump.test.ts`. And one
+       proposes where a tracker item no epic names belongs, which the person
+       confirms or not, and adopts nothing — see `test/adoption.test.ts`. And one
        resizes, moves and shows containers on the conversation's own kehikko,
        because the person asked for it: marked with Undo, which restores the
        arrangement before — see `test/arrange.test.ts`. Removing stays absent. */
@@ -118,6 +120,7 @@ describe('the door says what it is and what it offers', () => {
       'pin_version',
       'place_modules',
       'press_item',
+      'propose_adoption',
       'read_canvas',
       'read_inbox',
       'read_tracker',

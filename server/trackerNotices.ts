@@ -65,6 +65,14 @@ export function ensureTrackerNotices(db: Database): void {
       project integer primary key references projects(id) on delete cascade,
       at      integer not null
     );
+    create table if not exists tracker_untracked (
+      project integer not null references projects(id) on delete cascade,
+      id      text    not null,
+      ref     text    not null,
+      title   text    not null default '',
+      at      integer not null,
+      primary key (project, id)
+    );
   `)
 }
 
@@ -243,6 +251,70 @@ export class TrackerNotices {
     return run()
   }
 
+  /** The record of one item, by its Inbox id; null when not held. */
+  seen(project: number, id: string): Seen | null {
+    const row = this.db.query<{ data: string }, [number, string]>('select data from tracker_seen where project = ? and id = ?').get(project, id)
+    if (!row) return null
+    try {
+      return JSON.parse(row.data) as Seen
+    } catch {
+      return null
+    }
+  }
+
+  /** The item a ref names in a project (its spelling in the reading, or `host/repo` and the number), or null. */
+  idOfRef(project: number, ref: string): string | null {
+    const wanted = ref.trim().toLowerCase()
+    for (const one of this.#seen(project).values()) {
+      const tail = one.ref.replace(/^[^#!]*/, '')
+      const qualified = one.link ? `${one.link.host}/${one.link.repo}${tail}`.toLowerCase() : ''
+      if (one.ref.toLowerCase() === wanted || qualified === wanted || one.id.toLowerCase() === wanted) return one.id
+    }
+    return null
+  }
+
+  /** The items the person said not to track in a project, newest first. */
+  untracked(project: number): { id: string; ref: string; title: string; at: number }[] {
+    return this.db
+      .query<{ id: string; ref: string; title: string; at: number }, [number]>('select id, ref, title, at from tracker_untracked where project = ? order by at desc')
+      .all(project)
+  }
+
+  /**
+   * "Don't track this" (`track: false`) or "Track again" (`true`) for one item: its notice goes, or
+   * comes back from what is held. Returns the Inbox's rev, or null when nothing changed.
+   */
+  track(project: number, id: string, track: boolean): { rev: number } | null {
+    if (track) {
+      const gone = this.db.query('delete from tracker_untracked where project = ? and id = ?').run(project, id)
+      if (!gone.changes) return null
+    } else {
+      const seen = this.seen(project, id)
+      if (!seen) return null
+      this.db
+        .query('insert into tracker_untracked (project, id, ref, title, at) values (?, ?, ?, ?, ?) on conflict (project, id) do nothing')
+        .run(project, id, seen.ref, seen.title.slice(0, 200), this.clock())
+    }
+    return this.#report(project, [...this.#seen(project).values()], this.settings())
+  }
+
+  /** One project's list again, from what is held: after an epic named one of its refs, or stopped. */
+  restateOne(project: number, epics?: ReadonlyMap<string, string>): { rev: number } {
+    const held = [...this.#seen(project).values()]
+    if (epics) {
+      for (const one of held) {
+        const epic = epics.get(one.ref)
+        if (epic === one.epic) continue
+        const next: Seen = { ...one, ...(epic ? { epic } : {}) }
+        if (!epic) delete next.epic
+        this.#put(project, next)
+        Object.assign(one, next)
+        if (!epic) delete one.epic
+      }
+    }
+    return this.#report(project, held, this.settings())
+  }
+
   /** Where one item is (`NoticeLink`), by its Inbox id: what pressing it picks or opens. Null when not held. */
   link(project: number, id: string): NoticeLink | null {
     const row = this.db.query<{ data: string }, [number, string]>('select data from tracker_seen where project = ? and id = ?').get(project, id)
@@ -261,7 +333,9 @@ export class TrackerNotices {
   }
 
   #report(project: number, held: readonly Seen[], settings: NoticeSettings): { rev: number } {
+    const off = new Set(this.untracked(project).map((one) => one.id))
     const items = held.flatMap((one) => {
+      if (off.has(one.id)) return []
       const item = noticeItem(one, settings)
       return item ? [item] : []
     })
