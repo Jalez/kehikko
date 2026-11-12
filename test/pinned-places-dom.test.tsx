@@ -127,11 +127,20 @@ const key = (el: HTMLElement, k: string, more: KeyboardEventInit = {}) =>
   act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...more })))
 
 describe.if(inChild)('the menu', () => {
-  test('empty: says how to pin', async () => {
+  test('empty: no menu at all, only the Pin button; it appears with the first pin and goes with the last', async () => {
     await mount(A, [])
-    expect(trigger().getAttribute('aria-label')).toBe('Pinned places')
-    await openMenu()
-    expect(document.querySelector('[data-testid="pinned-empty"]')?.textContent).toBe('Pin a place to come back to it in one click.')
+    expect(trigger()).toBeNull()
+    expect(document.querySelector('[data-testid="pinned-list"]')).toBeNull()
+    expect(document.querySelector('[aria-haspopup]')).toBeNull()
+    expect(pinHere().getAttribute('aria-label')).toBe('Pin this place')
+    await press(pinHere())
+    await settle()
+    expect(trigger().getAttribute('aria-label')).toBe('Pinned places — 1')
+    await press(pinHere())
+    await settle()
+    expect(trigger()).toBeNull()
+    expect(document.querySelector('[aria-haspopup]')).toBeNull()
+    expect(pinHere().getAttribute('aria-label')).toBe('Pin this place')
   })
 
   test('rows say their labels; picking one hands its place to the navigator, into another project too', async () => {
@@ -163,7 +172,7 @@ describe.if(inChild)('the menu', () => {
     await settle()
     expect(posted).toEqual([{ unpin: 3 }])
     expect(went).toEqual([])
-    expect(document.querySelector('[data-testid="pinned-empty"]')).not.toBeNull()
+    expect(trigger()).toBeNull()
   })
 
   test('a pin with some parts gone says so and still goes to the rest', async () => {
@@ -209,7 +218,7 @@ describe.if(inChild)('the Pin button', () => {
     expect(pinHere().querySelector('svg')?.getAttribute('fill')).toBe('currentColor')
     await press(pinHere())
     await settle()
-    expect(posted).toEqual([{ pin: A }, { unpin: 100 }])
+    expect(posted).toEqual([{ pin: A }, { unpin: nextId - 1 }])
     expect(pinHere().getAttribute('aria-pressed')).toBe('false')
   })
 

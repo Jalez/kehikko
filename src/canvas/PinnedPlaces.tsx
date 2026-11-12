@@ -18,6 +18,7 @@ import type { PinnedView } from './usePinnedPlaces.ts'
  * own pickers go; a pin whose project, kehikko, epic or parts are gone is
  * greyed with the reason and can still be unpinned (its button, or Delete).
  *
+ * With nothing pinned the menu is not drawn at all: only the Pin button shows.
  * On the strip it gives way first: "Pinned" and its count at 900 pixels and
  * wider, the pin alone under it. The Pin button is an icon at every width.
  */
@@ -25,7 +26,10 @@ export function PinnedMenu({ view }: { view: PinnedView }) {
   const [dragging, setDragging] = useState<number | null>(null)
   const ids = view.places.map((one) => one.id)
   const count = view.places.length
-  const said = count ? `${PINNED_SAYS.menu} — ${count}` : PINNED_SAYS.menu
+  const said = `${PINNED_SAYS.menu} — ${count}`
+
+  /* Nothing pinned: no menu, no trigger, only the Pin button beside it. */
+  if (count === 0) return null
 
   return (
     <DropdownMenu onOpenChange={(open) => open && view.onOpen()}>
@@ -43,22 +47,15 @@ export function PinnedMenu({ view }: { view: PinnedView }) {
             <span className="max-[900px]:hidden" data-testid="pinned-label">
               Pinned
             </span>
-            {count ? (
-              <span className="tabular-nums text-[11px] max-[900px]:hidden" aria-hidden>
-                {count}
-              </span>
-            ) : null}
+            <span className="tabular-nums text-[11px] max-[900px]:hidden" aria-hidden>
+              {count}
+            </span>
           </Button>
         </DropdownMenuTrigger>
       </Hint>
       <DropdownMenuContent align="start" className="max-h-[60vh] w-80 overflow-auto" data-testid="pinned-list">
         <DropdownMenuLabel>{PINNED_SAYS.menu.toLowerCase()}</DropdownMenuLabel>
-        {count === 0 ? (
-          <p className="text-muted-foreground px-2 pb-2 text-xs" data-testid="pinned-empty">
-            {PINNED_SAYS.empty}
-          </p>
-        ) : (
-          view.places.map((pin, i) => {
+        {view.places.map((pin, i) => {
             const up = i > 0
             const down = i < count - 1
             const stale = pin.stale !== null
@@ -140,8 +137,7 @@ export function PinnedMenu({ view }: { view: PinnedView }) {
                 </span>
               </DropdownMenuItem>
             )
-          })
-        )}
+          })}
       </DropdownMenuContent>
     </DropdownMenu>
   )

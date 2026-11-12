@@ -925,7 +925,9 @@ describe('the tour in the app', () => {
     /* Narrow: none of them is inside what the bar lets go of under 480 pixels; the labels go, the controls stay. */
     for (const element of found) expect(element!.closest('[class*="max-[480px]:hidden"]')).toBeNull()
     /* A control the window cannot draw is left out, not pointed at and not a crash. */
-    bar.querySelector<HTMLElement>('[data-tour="pinned"]')!.style.display = 'none'
+    /* With nothing pinned there is no menu: the step points at the Pin button. */
+    expect(bar.querySelector('[data-tour="pinned"]')).toBeNull()
+    bar.querySelector<HTMLElement>('[data-tour="pin"]')!.style.display = 'none'
     expect(tour.resolveFrame(tour.TOUR_STEPS.find((one) => one.id === 'pinned')!.frames[0]!, bar, false)).toBeNull()
     expect(tour.shownExplanations(document, false)).not.toContain(tour.stepIndex('pinned'))
     expect(tour.shownExplanations(document, false)).toContain(tour.stepIndex('modules'))

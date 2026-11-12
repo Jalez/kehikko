@@ -303,7 +303,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-tour="pinned"]', '[data-testid="pinned-menu"]'],
+        selectors: ['[data-tour="pinned"]', '[data-testid="pinned-menu"]', '[data-tour="pin"]'],
         title: 'Pinned places',
         body:
           'Pin the place you are on — project, space and kehikko — with the pin button or Alt+Shift+P. Come back to it in one click from this menu.',

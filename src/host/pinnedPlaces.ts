@@ -65,7 +65,6 @@ export interface PinnedPlace {
 /** The words. Text only; no module and no vendor. */
 export const PINNED_SAYS = {
   menu: 'Pinned places',
-  empty: 'Pin a place to come back to it in one click.',
   pin: 'Pin this place',
   unpin: 'Unpin this place',
   unpinRow: (label: string) => `Unpin ${label}`,
