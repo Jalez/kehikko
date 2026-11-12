@@ -356,13 +356,13 @@ describe('jump, the tool', () => {
   test('unknown targets are refused with what exists, and nothing is sent', async () => {
     expect((await call('jump', { project: 'Nope' }, door())).text).toContain('Its projects: Kehikko')
     expect((await call('jump', { kehikko: 'Nope' }, door())).text).toContain('Main (key ')
-    expect((await call('jump', { epic: 'nope' }, door())).text).toContain('Its epics: ')
-    expect((await call('jump', { parts: ['nope'] }, door())).text).toContain('Its parts: Sign-in (auth), The page (ui)')
+    expect((await call('jump', { epic: 'nope' }, door())).text).toContain('Its top-level spaces: ')
+    expect((await call('jump', { parts: ['nope'] }, door())).text).toContain('Its direct sub-spaces: Sign-in (auth), The page (ui)')
     const step = await call('jump', { step: 9 }, door())
     expect(step.text).toContain('share has 3 steps, so there is no step 9')
     expect(step.text).toContain('3 Cap the rate')
     expect((await call('jump', {}, door())).text).toContain('needs somewhere to go')
-    expect((await call('jump', { project: 'Paper', step: 1 }, door())).text).toContain('name the epic')
+    expect((await call('jump', { project: 'Paper', step: 1 }, door())).text).toContain('name the space too')
     expect(asked).toEqual([])
   })
 

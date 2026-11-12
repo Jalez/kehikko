@@ -726,9 +726,9 @@ describe('`set_parts`, at the host’s door', () => {
     const { door, kehikko } = standing(thesis())
     const read = await call('read_canvas', { kehikko }, door)
     expect(read.failed).toBe(false)
-    expect(read.text).toContain('parts of the epic (id — name): introduction — "Introduction"; literature-review — "Literature Review"; methods — "Methods" [picked];')
-    expect(read.text).toContain('parts of the epic picked out: methods —')
-    expect(read.text).toContain('no longer a part of the epic (narrows nothing): long-gone.')
+    expect(read.text).toContain('direct sub-spaces of thesis (older name: parts; id — name): introduction — "Introduction"; literature-review — "Literature Review"; methods — "Methods" [picked];')
+    expect(read.text).toContain('sub-spaces picked out: methods —')
+    expect(read.text).toContain('no longer a sub-space of thesis (narrows nothing): long-gone.')
   })
 
   test('add, rename, move and remove: one edit a call, the same writer, the list answered', async () => {
@@ -736,7 +736,7 @@ describe('`set_parts`, at the host’s door', () => {
     const { door, kehikko, written } = standing(dir)
     const added = await call('set_parts', { kehikko, add: { name: 'Acknowledgements', after: null } }, door)
     expect(added.failed).toBe(false)
-    expect(added.text).toStartWith('Added acknowledgements. The parts of thesis (id — name), in order: acknowledgements — "Acknowledgements"; introduction — "Introduction";')
+    expect(added.text).toStartWith('Added acknowledgements. The direct sub-spaces of thesis (id — name), in order: acknowledgements — "Acknowledgements"; introduction — "Introduction";')
     /* The id an agent gets is the id the picker or a module would have got. */
     expect(listedIn(JSON.parse(file(dir)))![0]).toEqual({ id: 'acknowledgements', name: 'Acknowledgements' })
 
@@ -775,7 +775,7 @@ describe('`set_parts`, at the host’s door', () => {
     }
     const missing = await call('set_parts', { kehikko, remove: { id: 'nope' } }, door)
     expect(missing).toMatchObject({ failed: true })
-    expect(missing.text).toContain('names no part of thesis')
+    expect(missing.text).toContain('names no sub-space of thesis')
     const elsewhere = await call('set_parts', { kehikko, epic: 'another', add: { name: 'A' } }, door)
     expect(elsewhere.text).toContain('no such epic')
     expect(file(dir)).toBe(OWN)
@@ -796,6 +796,6 @@ describe('`set_parts`, at the host’s door', () => {
     const tool = (reply.body as { result: { tools: { name: string; annotations?: Record<string, unknown> }[] } }).result.tools.find((one) => one.name === 'set_parts')!
     expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false })
     const hello = await mcp({ id: 2, method: 'initialize' }, door, { name: 'kehikko', version: '0' })
-    expect((hello.body as { result: { instructions: string } }).result.instructions).toContain('edits the list of parts')
+    expect((hello.body as { result: { instructions: string } }).result.instructions).toContain('edits the tree of spaces')
   })
 })

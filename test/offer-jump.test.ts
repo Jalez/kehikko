@@ -145,7 +145,7 @@ describe('offer_jump files one Inbox item and never moves the view', () => {
   })
 
   test('the target is resolved as strictly as jump’s, and a project left out is the conversation’s', async () => {
-    expect((await call('offer_jump', { epic: 'nope', why: 'x' }, door())).text).toContain('Its epics: ')
+    expect((await call('offer_jump', { epic: 'nope', why: 'x' }, door())).text).toContain('Its top-level spaces: ')
     expect((await call('offer_jump', { why: 'x' }, door())).text).toContain('offer_jump needs somewhere to go')
     expect((await call('offer_jump', { epic: 'auth' }, door())).text).toContain('why is what you want to show')
     expect(offers()).toEqual([])
