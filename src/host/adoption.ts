@@ -217,3 +217,61 @@ export function dialogPlan(read: {
   const label = s ? words(s.epic, s.parts, []) : null
   return { mode: 'picker', confirm: s && label ? { epic: s.epic, parts: [...s.parts], label, conversations: [] } : null }
 }
+
+/* ---- which agent does the task ---- */
+
+/**
+ * Which agent starts the conversation for an adoption (protocol 2.88.0, `agent.tasks`), on the
+ * kehikko the person is on: its PRIMARY agent (Kehikko settings; the only agent module there is
+ * implicitly primary), when it provides `agent.tasks`. Otherwise the one agent module there that
+ * does, when only one does. With two or more and none primary, the person is asked (`choose`, with the
+ * cubes of the primary dialog), and their choice becomes the kehikko's primary agent. None: the picker
+ * alone.
+ *
+ * `onKehikko`: the agent modules placed there, in order. `providers`: the modules providing
+ * `agent.tasks` now. `primary`: the chosen primary, as kept (null when none).
+ */
+export interface TaskAgentPick {
+  agent: string | null
+  choose: string[]
+}
+
+export function taskAgentFor(onKehikko: readonly string[], providers: readonly string[], primary: string | null): TaskAgentPick {
+  const able = onKehikko.filter((one) => providers.includes(one))
+  const shown = onKehikko.length === 1 ? onKehikko[0]! : primary !== null && onKehikko.includes(primary) ? primary : null
+  if (shown !== null && able.includes(shown)) return { agent: shown, choose: [] }
+  if (able.length === 1) return { agent: able[0]!, choose: [] }
+  if (able.length > 1) return { agent: null, choose: able }
+  return { agent: null, choose: [] }
+}
+
+/** What the person is told above the cubes when an adoption has to ask which agent. */
+export const TASK_AGENT_SAID = {
+  title: 'Which agent should place it?',
+  lede: 'More than one agent on this kehikko can work out where an item belongs.',
+  becomes:
+    'The one you choose becomes this kehikko’s primary agent: it also gets the kehikko’s shared news, such as tracker news about the epic. You can change this in Kehikko settings.',
+  confirm: 'Choose and start',
+  self: 'I’ll choose a space myself',
+} as const
+
+/**
+ * Where "Adopt with…" (`inbox.adoptWith`) leads, from what the adoption read says — never a dead end:
+ * the dialog with the agent (or the choice of agent in it), the update an agent module there needs
+ * before it can help, or the module list to add an agent module. `none` only where nothing is known:
+ * no kehikko, or an older host's answer.
+ */
+export type AdoptWithStep = { kind: 'dialog' } | { kind: 'update'; module: string } | { kind: 'add' } | { kind: 'none' }
+
+export function adoptWithStep(read: {
+  outcome: string
+  agent: { module: string } | null
+  taskAgents?: readonly { module: string }[]
+  agentsToUpdate?: readonly { module: string }[]
+}): AdoptWithStep {
+  if (read.outcome !== 'ok') return { kind: 'none' }
+  if (read.agent || (read.taskAgents?.length ?? 0) > 1) return { kind: 'dialog' }
+  if (read.agentsToUpdate?.length) return { kind: 'update', module: read.agentsToUpdate[0]!.module }
+  if (read.taskAgents) return { kind: 'add' }
+  return { kind: 'none' }
+}

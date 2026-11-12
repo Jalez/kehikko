@@ -329,7 +329,7 @@ test('with no project open, Settings › Trackers says so and still holds the sh
   act(() => unmount?.())
   document.body.innerHTML = ''
   /* No project and an older host that says no share: no Trackers tab at all. */
-  await render(<Settings.SettingsBody answer={answer({ github: undefined })} busy={false} section="agents" onSection={() => {}} onChange={() => {}} />)
+  await render(<Settings.SettingsBody answer={answer({ github: undefined })} busy={false} section="tools" onSection={() => {}} onChange={() => {}} />)
   expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).not.toContain('Trackers')
 })
 

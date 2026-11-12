@@ -482,7 +482,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'settings',
     title: 'Set up once, tidied for you',
-    body: 'Settings connects your agents to every module’s tools and skills, and chooses how the Inbox tells you.',
+    body: 'Settings shows which module tools and skills your agent uses outside Kehikot, keeps them tidy as modules come and go, and chooses how the Inbox tells you. Your agent module’s settings turn that on.',
     art: () => (
       <Art label="a settings window with switches turning on, one after another">
         <rect x="60" y="12" width="200" height="126" rx="6" className={box} strokeWidth="1.5" />

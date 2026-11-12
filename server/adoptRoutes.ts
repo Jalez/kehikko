@@ -7,13 +7,13 @@ import type { Adoption } from './adoption.ts'
 /**
  * The routes of adopting a tracker item no epic names (protocol 2.88.0; `adoption.ts`):
  *
- *  - `GET  /host/inbox/adoption?project=N&module=M&id=I` — what the page offers (`inboxAdoptionResult`).
+ *  - `GET  /host/inbox/adoption?project=N&module=M&id=I&kehikko=K` — what the page offers (`inboxAdoptionResult`), its agent from kehikko K.
  *  - `GET  /host/inbox/afters?project=N` — each item's line after its last adopt or untrack.
  *  - `POST /host/inbox/adopt` — `{ project, module, id, epic, parts?, kehikko?, task?, also? }`.
  *  - `POST /host/inbox/untrack` — `{ project, module, id }`.
  *  - `POST /host/inbox/undo` — `{ project, module, id }`.
  *  - `GET  /host/inbox/untracked?project=N`, `POST /host/inbox/retrack` `{ project, id }` — Settings › Trackers.
- *  - `POST /host/inbox/task` — `{ project, module, id }`: the person's agent for Kehikot's own tasks started on it.
+ *  - `POST /host/inbox/task` — `{ project, module, id, kehikko }`: the agent of that kehikko (its primary, or its only one) started on it.
  *
  * Every one is the page's alone (`PAGE_ONLY` in `guard.ts`): conversation titles are read, and the
  * person's acts are taken, nowhere else. The page holds each act to the person's fresh press in the
@@ -85,7 +85,8 @@ export function adoptRoutes(deps: AdoptRouteDeps) {
         const module = url.searchParams.get('module') ?? ''
         const item = url.searchParams.get('id') ?? ''
         if (!module || !item) return reply({ ok: false, error: 'Name the item: module and id.' }, 400)
-        return reply({ ok: true, adoption: await deps.adoption.adoption(id, module, item) })
+        const kehikko = url.searchParams.get('kehikko')
+        return reply({ ok: true, adoption: await deps.adoption.adoption(id, module, item, kehikko && KEHIKKO_KEY.test(kehikko) ? kehikko : null) })
       }
       return reply({ ok: false, error: `${url.pathname} answers POST.` }, 405)
     }
@@ -107,7 +108,10 @@ export function adoptRoutes(deps: AdoptRouteDeps) {
     const b = got.data
     if (url.pathname === '/host/inbox/untrack') return reply({ ok: true, result: deps.adoption.untrack(b.project, b.module, b.id) })
     if (url.pathname === '/host/inbox/undo') return reply({ ok: true, result: await deps.adoption.undo(b.project, b.module, b.id) })
-    if (url.pathname === '/host/inbox/task') return reply({ ok: true, result: await deps.adoption.startTask(b.project, b.module, b.id) })
+    if (url.pathname === '/host/inbox/task') {
+      const kehikko = (raw as { kehikko?: unknown } | null)?.kehikko
+      return reply({ ok: true, result: await deps.adoption.startTask(b.project, b.module, b.id, typeof kehikko === 'string' && KEHIKKO_KEY.test(kehikko) ? kehikko : null) })
+    }
     return null
   }
 }

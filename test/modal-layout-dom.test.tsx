@@ -27,7 +27,6 @@ test('no window draws the bare dialog: every one is on the shared layout', () =>
 
 const CASES = [
   'Settings',
-  'the first question',
   'What’s new',
   'Tools',
   'Skills',
@@ -119,7 +118,6 @@ beforeAll(async () => {
 
   windows = {
     Settings: held((open, close) => <Settings.SettingsDialog open={open} onOpenChange={onChange(close)} load={never} section="about" />),
-    'the first question': held((open, close) => <Settings.FirstQuestion open={open} onOpenChange={onChange(close)} onAnswer={async () => {}} />),
     'What’s new': held((open, close) => (
       <WhatsNewDialog
         open={open}

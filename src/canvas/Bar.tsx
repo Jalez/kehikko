@@ -1,4 +1,5 @@
 import { LayoutGrid, Settings as Gear } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
@@ -9,6 +10,7 @@ import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
 import type { Part, PartsEdit } from '@/host/parts.ts'
 import { attention } from '@/host/moduleMenu.ts'
+import { onOpenModuleList } from '@/host/moduleList.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import { InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
@@ -401,7 +403,7 @@ export function Bar({
          * registered, which are the two moments somebody would have pressed it.
          */}
 
-        <Popover>
+        <ModuleListPopover>
           <Hint label="Kehikko modules" align="end">
             <PopoverTrigger asChild>
               <Button
@@ -427,7 +429,7 @@ export function Bar({
               onIntro={onIntro}
             />
           </PopoverContent>
-        </Popover>
+        </ModuleListPopover>
       </header>
     </TooltipProvider>
   )
@@ -451,5 +453,16 @@ export function SettingsGear() {
         <Gear className="size-3" />
       </Button>
     </Hint>
+  )
+}
+
+/** The module list's popover, which a press elsewhere can open too (`openModuleList`). */
+function ModuleListPopover({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => onOpenModuleList(() => setOpen(true)), [])
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      {children}
+    </Popover>
   )
 }

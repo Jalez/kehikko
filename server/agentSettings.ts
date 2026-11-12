@@ -5,11 +5,10 @@ import { dirname, join } from 'node:path'
 
 import {
   DEFAULT_SETTINGS,
-  excepting,
-  settingsPatched,
   settingsStored,
   type AgentSettings,
   type SettingsAnswer,
+  type SetupHolder,
   type StartHook,
   type SyncStatus,
 } from '../src/host/agentSettings.ts'
@@ -28,11 +27,11 @@ import { readAppearance, writeAppearance } from './appearance.ts'
 import { appearancePatched } from '../src/host/appearance.ts'
 
 /**
- * The app-wide agent settings (`src/host/agentSettings.ts` has the shape and
- * the words), kept on this machine: one row of `settings` in `frame.sqlite`.
- * Not in a project — they are about the person's agent, which every project
- * shares — and not in browser storage, because the server's sync acts on them
- * with no page open.
+ * The copy of the agent setup choice (`src/host/agentSettings.ts` has the shape
+ * and the words), kept on this machine: one row of `settings` in `frame.sqlite`.
+ * The choice is the agent module's (protocol 2.91.0, `agent.setup`); the copy is
+ * read from it (`agentSetup.ts`) so the server's sync acts on it with no page
+ * open and while the module sleeps.
  *
  * Beside them, `agent_made`: every entry in the agent's MCP list that Kehikot
  * made (from the sync, or from a press in a module's Tools window) or found
@@ -41,8 +40,9 @@ import { appearancePatched } from '../src/host/appearance.ts'
  * uninstalled; an entry not in it is never changed by the sync.
  *
  * The routes: `GET /host/settings` (the settings, what the sync last found, and
- * the start hook's state) and `POST /host/settings` (a change). The POST is in
- * `PAGE_ONLY`, and no MCP tool changes a setting.
+ * the start hook's state) and `POST /host/settings` (a change of one of the
+ * host's own settings). The POST is in `PAGE_ONLY`, and no MCP tool changes a
+ * setting.
  */
 
 const KEY = 'agents'
@@ -204,8 +204,8 @@ export interface SettingsDeps {
   db: Database
   /** What the sync last found. */
   status(): SyncStatus
-  /** The settings changed: run the sync. */
-  changed(settings: AgentSettings): void
+  /** The agent module that holds the choice, when one is running (`agentSetup.ts`). */
+  setup?(): SetupHolder | null
   /** The tracker notices setting changed: every project's notices again. */
   noticesChanged?(): void
   /** "Keep this project's modules running" changed: decide again what runs. */
@@ -225,11 +225,10 @@ export interface SettingsDeps {
  * `autoUpdates.ts`), how the project, epic and kehikko pickers are ordered
  * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), Settings › Appearance
  * (`{ appearance: { rows, foldRows, theme, border, background } }`, any subset;
- * `appearance.ts`), or a change of the settings (`{ settings: { tools: { auto } } }`,
- * any subset) or one module put on or off a list of exceptions
- * (`{ except: { kind: 'tools' | 'skills', module, out: boolean } }`), which is
- * what a module's own Tools and Skills windows send, so two windows each
- * changing one module do not undo each other.
+ * `appearance.ts`). Turning the agent setup on or off, and leaving a module
+ * out of it, are the agent module's own settings (`agentSetup.ts`): the page
+ * changes them through `/host/module-settings/set`, and a `{ settings }` or
+ * `{ except }` change here is refused.
  */
 export function settingsRoute(deps: SettingsDeps) {
   const answer = (): SettingsAnswer => ({
@@ -247,6 +246,7 @@ export function settingsRoute(deps: SettingsDeps) {
     picker: readSorts(deps.db),
     visits: readVisits(deps.db),
     skillsAt: deps.skillsAt(),
+    setup: deps.setup?.() ?? null,
   })
 
   return async (request: Request, url: URL): Promise<Response | null> => {
@@ -327,31 +327,9 @@ export function settingsRoute(deps: SettingsDeps) {
       return json(answer())
     }
 
-    const was = readSettings(deps.db)
-    let next: AgentSettings | null = null
-    if (body.settings !== undefined) {
-      next = settingsPatched(was, body.settings)
-      if (!next) return json({ ok: false, why: 'That is not a change Settings takes.' }, 400)
-    } else if (body.except !== undefined) {
-      const except = body.except as { kind?: unknown; module?: unknown; out?: unknown } | null
-      const kind = except?.kind
-      const module = except?.module
-      if (
-        (kind !== 'tools' && kind !== 'skills') ||
-        typeof module !== 'string' ||
-        module.length === 0 ||
-        module.length > 64 ||
-        typeof except?.out !== 'boolean'
-      ) {
-        return json({ ok: false, why: 'An exception names tools or skills, one module, and out: true or false.' }, 400)
-      }
-      next = excepting(was, kind, module, except.out)
-    } else {
-      return json({ ok: false, why: 'A change names settings or one exception.' }, 400)
+    if (body.settings !== undefined || body.except !== undefined) {
+      return json({ ok: false, why: 'Whether your agent is set up outside Kehikot, and which modules are left out, are chosen in the settings of the agent module that offers it.' }, 400)
     }
-
-    writeSettings(deps.db, next)
-    deps.changed(next)
-    return json(answer())
+    return json({ ok: false, why: 'A change names one of these settings.' }, 400)
   }
 }

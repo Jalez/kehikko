@@ -571,22 +571,22 @@ describe('the settings', () => {
     expect(settingsPatched(DEFAULT_SETTINGS, { tools: { auto: 'yes' } })).toBeNull()
   })
 
-  test('the route reads, changes, and takes one exception at a time', async () => {
+  test('the route reads, and refuses the setup and its exceptions: they are the agent module’s own settings', async () => {
     const db = new Database(':memory:')
     ensureSettings(db)
-    let pokes = 0
-    const route = settingsRoute({ db, status: () => ({ at: null, running: false, modules: [], problems: [] }), changed: () => (pokes += 1), skillsAt: () => '/s', hook: () => ({ file: '/x', on: false }) })
+    const route = settingsRoute({
+      db,
+      status: () => ({ at: null, running: false, modules: [], problems: [] }),
+      setup: () => ({ module: 'kehikot.agent', name: 'Agent', program: 'Agent CLI' }),
+      skillsAt: () => '/s',
+      hook: () => ({ file: '/x', on: false }),
+    })
     const post = (body: unknown) => route(new Request('http://127.0.0.1/host/settings', { method: 'POST', body: JSON.stringify(body) }), new URL('http://127.0.0.1/host/settings'))
     const got = await (await route(new Request('http://127.0.0.1/host/settings'), new URL('http://127.0.0.1/host/settings')))!.json()
-    expect(got).toMatchObject({ ok: true, settings: DEFAULT_SETTINGS, skillsAt: '/s', hook: { on: false } })
-    expect((await post({ settings: { asked: true, skills: { auto: false } } }))!.status).toBe(200)
-    expect(readSettings(db)).toMatchObject({ asked: true, skills: { auto: false }, tools: { auto: true } })
-    await post({ except: { kind: 'tools', module: 'kehikot.notes', out: true } })
-    await post({ except: { kind: 'tools', module: 'kehikot.browser', out: true } })
-    await post({ except: { kind: 'tools', module: 'kehikot.notes', out: false } })
-    expect(readSettings(db).tools.except).toEqual(['kehikot.browser'])
-    expect((await post({ settings: { nope: 1 } }))!.status).toBe(400)
-    expect(pokes).toBe(4)
+    expect(got).toMatchObject({ ok: true, settings: DEFAULT_SETTINGS, skillsAt: '/s', hook: { on: false }, setup: { module: 'kehikot.agent', name: 'Agent' } })
+    expect((await post({ settings: { asked: true, skills: { auto: false } } }))!.status).toBe(400)
+    expect((await post({ except: { kind: 'tools', module: 'kehikot.notes', out: true } }))!.status).toBe(400)
+    expect(readSettings(db)).toEqual(DEFAULT_SETTINGS)
   })
 
   test('“Keep this project’s modules running”: on by default, changed with { modules: { keep } }, told once per change', async () => {
@@ -596,7 +596,7 @@ describe('the settings', () => {
     const route = settingsRoute({
       db,
       status: () => ({ at: null, running: false, modules: [], problems: [] }),
-      changed: () => {},
+     
       modulesChanged: (keep) => told.push(keep),
       skillsAt: () => '/s',
       hook: () => ({ file: '/x', on: false }),

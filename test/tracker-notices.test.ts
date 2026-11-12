@@ -238,7 +238,7 @@ describe('the setting', () => {
     const db = open(':memory:')
     ensureSettings(db)
     let restated = 0
-    const route = settingsRoute({ db, status: () => ({ at: null, running: false, modules: [], problems: [] }), changed: () => {}, noticesChanged: () => (restated += 1), skillsAt: () => '/s', hook: () => ({ file: '/x', on: false }) })
+    const route = settingsRoute({ db, status: () => ({ at: null, running: false, modules: [], problems: [] }), noticesChanged: () => (restated += 1), skillsAt: () => '/s', hook: () => ({ file: '/x', on: false }) })
     const url = new URL('http://127.0.0.1/host/settings')
     const got = await (await route(new Request(url), url))!.json()
     expect(got.notices).toEqual(DEFAULT_NOTICES)

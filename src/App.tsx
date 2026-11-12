@@ -121,8 +121,11 @@ import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, re
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { outsideHow } from './host/goToPlace.ts'
-import { fetchAdoption, fetchAfters, fetchTasksAgent, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
+import { fetchAdoption, fetchAfters, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
 import { AdoptDialog } from './canvas/AdoptDialog.tsx'
+import { adoptWithStep } from './host/adoption.ts'
+import { openModuleList } from './host/moduleList.ts'
+import { openUpdates } from './host/updates.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
@@ -4459,15 +4462,20 @@ export function App() {
     hasProject: (id) => projects.some((one) => one.id === id),
     adopting: {
       afters: () => afters,
-      adoption: (key, inProject) => fetchAdoption(inProject ?? projectId ?? 0, key),
+      /* The kehikko the person is on names the agent that would do the task: in this project only. */
+      adoption: (key, inProject) => fetchAdoption(inProject ?? projectId ?? 0, key, (inProject ?? projectId) === projectId ? (open?.key ?? null) : null),
       adopt: (key, epic, parts, inProject) => postAdopt(inProject ?? projectId ?? 0, key, epic, parts, open?.key ?? null),
       adoptWith: async (key, inProject) => {
         const at = inProject ?? projectId
         if (at === null) return 'no-agent'
-        const got = await fetchTasksAgent()
-        if (!got.agent || !got.choices.some((one) => one.module === got.agent)) return 'no-agent'
-        setAdopting({ project: at, item: key })
-        return 'opened'
+        /* Never a dead end (`adoptWithStep`): the agent's dialog, the choice of agent in it, the update
+           the agent module needs, or the module list to add one. */
+        const got = await fetchAdoption(at, key, at === projectId ? (open?.key ?? null) : null)
+        const step = adoptWithStep(got)
+        if (step.kind === 'dialog') setAdopting({ project: at, item: key })
+        else if (step.kind === 'update') openUpdates(step.module)
+        else if (step.kind === 'add') openModuleList()
+        return step.kind === 'none' ? 'no-agent' : 'opened'
       },
       untrack: (key, inProject) => postUntrack(inProject ?? projectId ?? 0, key),
       undo: (key, inProject) => postUndo(inProject ?? projectId ?? 0, key),
@@ -5516,6 +5524,7 @@ export function App() {
           project={adopting.project}
           item={adopting.item}
           kehikko={adopting.project === projectId ? (open?.key ?? null) : null}
+          kehikkoId={adopting.project === projectId ? openId : null}
           onClose={() => setAdopting(null)}
         />
       ) : null}
