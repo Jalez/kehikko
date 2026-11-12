@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { expandResult, foldResult, messageSendResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, trackerRefreshResult } from 'kehikot-module-protocol'
+import { expandResult, foldResult, messageSendResult, METHOD_NAMES, METHODS, navigationResult, projectPickResult, settingsOpenResult, trackerRefreshResult } from 'kehikot-module-protocol'
 
 import { answer, answerCall, type Grants } from '../server/answers.ts'
 import { makeAsk, type CanvasControls } from '@/host/ask.ts'
@@ -69,6 +69,7 @@ const PARAMS: Record<string, unknown> = {
   'inbox.adoptWith': { module: 'a', id: 'b' },
   'inbox.untrack': { module: 'a', id: 'b' },
   'inbox.undo': { module: 'a', id: 'b' },
+  'settings.open': { key: 'limit' },
 }
 
 describe('the rule', () => {
@@ -165,6 +166,7 @@ describe('the canvas holds every method it answers', () => {
     pickProject: async () => (calls.push('pick'), { outcome: 'cancelled', project: null, why: '' }),
     fold: () => (calls.push('fold'), { outcome: 'unchanged', folded: [], unfolded: [], why: '' }),
     expand: () => (calls.push('expand'), { outcome: 'unchanged', why: '' }),
+    openSettings: () => (calls.push('openSettings'), { outcome: 'opened', why: '' }),
     activity: () => (calls.push('activity'), { outcome: 'taken', taken: 0, why: '' }),
     inbox: async () => (calls.push('inbox'), { ok: true, data: {} }),
     project: () => null,
@@ -175,7 +177,7 @@ describe('the canvas holds every method it answers', () => {
       calls.length = 0
       const out = await makeAsk(ME, canvas, () => false)(method, PARAMS[method])
       expect(calls).toEqual([])
-      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'view.expand': expandResult, 'projects.pick': projectPickResult, 'messages.say': messageSendResult }
+      const shapes = { 'view.goto': navigationResult, 'view.fold': foldResult, 'view.expand': expandResult, 'settings.open': settingsOpenResult, 'projects.pick': projectPickResult, 'messages.say': messageSendResult }
       if (Object.hasOwn(shapes, method)) {
         expect(out.ok).toBe(true)
         if (!out.ok) return

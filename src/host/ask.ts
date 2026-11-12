@@ -10,6 +10,7 @@ import {
   type FilterChoice,
   type FoldResult,
   type ExpandResult,
+  type SettingsOpenResult,
   type Passage,
   type ProjectPickResult,
   type Showing,
@@ -268,6 +269,12 @@ export interface CanvasControls {
    * needs one. See `host/expand.ts`. Absent: declined.
    */
   expand?(from: string, call: { expand: boolean }, pressed: boolean): ExpandResult
+  /**
+   * Open the asker's OWN settings, at the setting `key` names (`settings.open`, protocol 2.90.0).
+   * `from` out of the registration: a module opens only its own. Only on the person's fresh press
+   * (`pressed`). Absent: declined.
+   */
+  openSettings?(from: string, call: { key?: string }, pressed: boolean): SettingsOpenResult
   /**
    * Hold one module's whole list of activity (`activity.set`, protocol 1.5.0),
    * replacing its last one. `from` is out of the registration, as for `emit`:
@@ -660,6 +667,16 @@ function answerInTheView(
     return succeeded(method, canvas.expand(moduleId, call, how?.pressed === true))
   }
 
+  /*
+   * A module asking for its own settings to be opened at one setting (protocol 2.90.0): the page's
+   * dialog, on the person's fresh press in its frame. Nothing is read or changed by the call.
+   */
+  if (method === 'settings.open') {
+    const call = parsed.data as { key?: string }
+    if (!canvas.openSettings) return succeeded(method, { outcome: 'declined', why: 'This canvas opens no settings.' })
+    return succeeded(method, canvas.openSettings(moduleId, call, how?.pressed === true))
+  }
+
   if (method === 'activity.set') {
     const { items } = parsed.data as { items: ActivityItem[] }
     if (!canvas.activity) {
@@ -737,6 +754,7 @@ function notAskedFor(method: string, why: string): Answer {
   if (method === 'view.goto') return succeeded(method, { outcome: 'declined', epic: null, why })
   if (method === 'view.fold') return succeeded(method, { outcome: 'declined', folded: [], unfolded: [], why })
   if (method === 'view.expand') return succeeded(method, { outcome: 'declined', why })
+  if (method === 'settings.open') return succeeded(method, { outcome: 'declined', why })
   if (method === 'projects.pick') return succeeded(method, { outcome: 'declined', project: null, why })
   if (method === 'messages.say') return succeeded(method, { outcome: 'declined', id: null, why })
   return failed(why)

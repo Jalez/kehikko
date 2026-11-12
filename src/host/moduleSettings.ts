@@ -127,3 +127,37 @@ export function settingsText(answer: SettingsAnswer, project: string | null): st
   if (answer.problem) out.push(`It could not read its settings: ${answer.problem}`)
   return out.join('\n')
 }
+
+/* ------------------------------------------------------------------ *
+ * A module's page opening its own settings (`settings.open`, protocol 2.90.0)
+ * ------------------------------------------------------------------ */
+
+/** Why a module's `settings.open` was declined, in words a person reads. */
+export const SETTINGS_OPEN_SAYS = {
+  noPress: 'Settings open only when you press for them.',
+  none: (name: string) => `${name} has no settings it shows here.`,
+  noKey: (name: string) => `${name} has no such setting.`,
+} as const
+
+/**
+ * What a module's `settings.open` comes to: opened at `key` (null: at the top), or declined with
+ * why. Only on the person's fresh press, only a module that declared settings, only a key it
+ * declared. Pure: the page opens the dialog when it says `opened`.
+ */
+export function settingsOpenAsked(ask: {
+  name: string
+  fields: readonly SettingField[]
+  key: string | undefined
+  pressed: boolean
+}): { outcome: 'opened'; why: ''; target: string | null } | { outcome: 'declined'; why: string } {
+  if (!ask.pressed) return { outcome: 'declined', why: SETTINGS_OPEN_SAYS.noPress }
+  if (!ask.fields.length) return { outcome: 'declined', why: SETTINGS_OPEN_SAYS.none(ask.name) }
+  if (ask.key !== undefined && !ask.fields.some((one) => one.key === ask.key)) return { outcome: 'declined', why: SETTINGS_OPEN_SAYS.noKey(ask.name) }
+  return { outcome: 'opened', why: '', target: ask.key ?? null }
+}
+
+/** How long the page waits for a module's settings before it says the module is not answering, in ms. */
+export const SETTINGS_READ_MS = 8000
+
+/** What the form says when a module's settings did not come within `SETTINGS_READ_MS`. */
+export const notAnswering = (name: string) => `${name} isn’t answering, so its settings could not be read. It may be busy or restarting. Try again in a moment.`

@@ -6,7 +6,7 @@ import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, type Space } from 'kehikot-module-protocol'
 import { spaceHere } from './host/spaces.ts'
 import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
-import type { Build, ContentChange, Disposition, ExpandResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
+import type { Build, ContentChange, Disposition, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -125,7 +125,7 @@ import { AdoptDialog } from './canvas/AdoptDialog.tsx'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
-import { settingsOf } from './host/moduleSettings.ts'
+import { settingsOf, settingsOpenAsked } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
 import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
 import { coveredForScope, keptScope, scopeOfContainer, scopeToKeep, scopeToTell } from './host/scope.ts'
@@ -700,6 +700,8 @@ export function App() {
   const [introOpen, setIntroOpen] = useState<{ id: string; about: IntroAbout; add: boolean } | null>(null)
   /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Container menu. */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
+  /* The setting the dialog opens at, when a module's page asked for one (`settings.open`). */
+  const [settingsTarget, setSettingsTarget] = useState<string | null>(null)
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
@@ -2250,6 +2252,23 @@ export function App() {
    * deciding is `expandAsked` in `host/expand.ts`; what is here is what only the page knows: the open
    * kehikko, whether the asker's page is what its container shows, and a hand on a container.
    */
+  /**
+   * A module asking for its own settings, at one setting (`settings.open`, protocol 2.90.0). The
+   * deciding is `settingsOpenAsked`; what is here is what only the page knows: what it declared.
+   */
+  const settingsOpenRef = useRef<(from: string, call: { key?: string }, pressed: boolean) => SettingsOpenResult>(() => ({
+    outcome: 'declined',
+    why: 'This host is not ready to open settings yet.',
+  }))
+  settingsOpenRef.current = (from, call, pressed) => {
+    const presence = byId.get(from)
+    const said = settingsOpenAsked({ name: presence?.name ?? presence?.module?.name ?? from, fields: settingsOf(presence?.module), key: call.key, pressed })
+    if (said.outcome === 'declined') return said
+    setSettingsTarget(said.target)
+    setSettingsFor(from)
+    return { outcome: 'opened', why: '' }
+  }
+
   const expandRef = useRef<(from: string, call: { expand: boolean }, pressed: boolean) => ExpandResult>(() => ({
     outcome: 'declined',
     why: 'This host is not ready to show anything large yet.',
@@ -2422,6 +2441,8 @@ export function App() {
       fold: (from, call) => foldRef.current(from, call),
       /* Its own container only, and to expand only on the person's press: see `expandRef`. */
       expand: (from, call, pressed) => expandRef.current(from, call, pressed),
+      /* Its own settings only, on the person's press: see `settingsOpenRef`. */
+      openSettings: (from, call, pressed) => settingsOpenRef.current(from, call, pressed),
       goto: (call, from) => gotoRef.current(call, from),
       activity: (from, items) => activityRef.current(from, items),
       /* The person's Inbox (protocol 2.79.0): answered from what this page holds, through a ref. */
@@ -5360,7 +5381,10 @@ export function App() {
                     setIntroOpen({ id: presence.id, about: { name: presence.name ?? presence.id, summary: presence.summary }, add: false })
                   }}
                   onNotes={() => openWhatsNew({ item: presence.id })}
-                  onSettings={() => setSettingsFor(presence.id)}
+                  onSettings={() => {
+                    setSettingsTarget(null)
+                    setSettingsFor(presence.id)
+                  }}
                   scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
                   onStarted={() => void look(true)}
                   onRemove={() => onUnplace(presence.id)}
@@ -5630,8 +5654,12 @@ export function App() {
       {settingsFor ? (
         <ModuleSettingsDialog
           open
-          onOpenChange={(isOpen) => setSettingsFor(isOpen ? settingsFor : null)}
+          onOpenChange={(isOpen) => {
+            setSettingsFor(isOpen ? settingsFor : null)
+            if (!isOpen) setSettingsTarget(null)
+          }}
           module={settingsFor}
+          target={settingsTarget}
           name={byId.get(settingsFor)?.name ?? settingsFor}
           project={project ? { id: project.id, name: project.name } : null}
           hasSettings={settingsOf(byId.get(settingsFor)?.module).length > 0}

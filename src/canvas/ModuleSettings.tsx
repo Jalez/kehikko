@@ -11,7 +11,9 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select.
 import { Switch } from '@/components/ui/switch.tsx'
 import {
   controlFor,
+  notAnswering,
   numberOf,
+  SETTINGS_READ_MS,
   savedSaid,
   settingsHint,
   settingsPlaceFor,
@@ -27,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.t
 import type { ModuleScope } from 'kehikot-module-protocol'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { ScopeControl, ScopeIcon } from './Scope.tsx'
+import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 
 /**
  * A module's settings, drawn from what it declared (`declares.settings`, protocol 2.15.0) and
@@ -47,8 +50,8 @@ export interface SettingsApi {
   file(module: string, project: number | null): Promise<{ ok: true; path: string; file: string; text: string } | { ok: false; why: string }>
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' })
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', signal })
   const read = (await response.json().catch(() => null)) as T | null
   if (read === null) throw new Error('Kehikot did not answer.')
   return read
@@ -87,11 +90,27 @@ export function setSettingsFileOpener(open: ((path: string) => boolean) | null):
 
 type Note = { tone: 'saved' | 'refused'; text: string }
 
+/**
+ * A read that has not come within `ms` is answered "not answering", so the form never spins without
+ * end: the host gives a module a few seconds, and a host that is itself held up is waited for no
+ * longer than this.
+ */
+export function readWithin(read: Promise<SettingsAnswer>, ms: number, name: string): Promise<SettingsAnswer> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<SettingsAnswer>((done) => {
+    timer = setTimeout(() => done({ ok: false, why: notAnswering(name) }), ms)
+  })
+  return Promise.race([read, late]).finally(() => clearTimeout(timer))
+}
+
 export function ModuleSettingsForm({
   module,
   project,
   api = HOST_SETTINGS_API,
   onOpened,
+  name,
+  target = null,
+  readMs = SETTINGS_READ_MS,
 }: {
   module: string
   /** The project's id; null for a module whose settings are all machine settings, or none open. */
@@ -99,8 +118,16 @@ export function ModuleSettingsForm({
   api?: SettingsApi
   /** The file was put in a module that opens files: the caller may close itself. */
   onOpened?(): void
+  /** The module's name, for "<name> isn't answering"; its id when absent. */
+  name?: string
+  /** The setting to scroll to, focus and light once the form is drawn (`settings.open`, protocol 2.90.0). */
+  target?: string | null
+  /** How long a read is waited for; for tests. */
+  readMs?: number
 }) {
   const [answer, setAnswer] = useState<SettingsAnswer | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const root = useRef<HTMLDivElement>(null)
   const [notes, setNotes] = useState<Record<string, Note>>({})
   const [busy, setBusy] = useState<readonly string[]>([])
   const [shown, setShown] = useState<{ file: string; text: string } | null>(null)
@@ -109,13 +136,19 @@ export function ModuleSettingsForm({
   useEffect(() => {
     let live = true
     setAnswer(null)
-    void api.read(module, project).then((read) => {
+    void readWithin(api.read(module, project), readMs, name ?? module).then((read) => {
       if (live) setAnswer(read)
     })
     return () => {
       live = false
     }
-  }, [api, module, project])
+  }, [api, module, project, readMs, name, attempt])
+
+  /* Once the form is drawn, the setting a module's page asked for is shown: scrolled to, focused, lit. */
+  const drawn = answer?.ok === true
+  useEffect(() => {
+    if (drawn && target && root.current) revealTarget(root.current, target)
+  }, [drawn, target])
 
   const change = useCallback(
     async (field: SettingField, value: unknown) => {
@@ -132,7 +165,17 @@ export function ModuleSettingsForm({
   )
 
   if (answer === null) return <Loading className="text-sm" label="Reading the settings…" />
-  if (!answer.ok) return <p className="text-muted-foreground text-sm" data-settings-why>{answer.why}</p>
+  if (!answer.ok)
+    return (
+      <div className="flex min-w-0 flex-col items-start gap-2">
+        <p className="text-muted-foreground text-sm" data-settings-why>
+          {answer.why}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)} data-settings-retry>
+          Try again
+        </Button>
+      </div>
+    )
 
   const openFile = async () => {
     setFileWhy(null)
@@ -143,7 +186,7 @@ export function ModuleSettingsForm({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-4" data-module-settings={module}>
+    <div ref={root} className="flex min-w-0 flex-col gap-4" data-module-settings={module}>
       {answer.problem ? (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs" data-settings-problem>
           {answer.problem}
@@ -199,7 +242,7 @@ function Field({
     </Label>
   )
   return (
-    <div className="flex min-w-0 flex-col gap-1.5" data-setting={field.key} data-control={control}>
+    <div className="-mx-1.5 flex min-w-0 flex-col gap-1.5 rounded-md px-1.5 py-1 transition-colors data-[lit=true]:bg-amber-500/10 data-[lit=true]:ring-2 data-[lit=true]:ring-amber-500/50" data-setting={field.key} data-control={control} {...{ [TARGET_ATTR]: field.key }}>
       {control === 'switch' ? (
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
@@ -391,6 +434,7 @@ export function ModuleSettingsDialog({
   hasSettings = true,
   connections = null,
   scope = null,
+  target = null,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
@@ -411,9 +455,15 @@ export function ModuleSettingsDialog({
    * module lists; absent, the control is read-only. Null: no container of it is open, nothing drawn.
    */
   scope?: { value: ContainerScope; onPick?(scope: ModuleScope): void } | null
+  /** The setting to open at (`settings.open`, protocol 2.90.0): the Settings tab, scrolled to it. */
+  target?: string | null
 }) {
   const tabs = [...(hasSettings ? (['settings'] as const) : []), ...(connections ? (['connections'] as const) : [])]
   const [tab, setTab] = useState<string>(tabs[0] ?? 'settings')
+  /* A module asking for one setting brings the Settings tab forward, whichever tab was showing. */
+  useEffect(() => {
+    if (target) setTab('settings')
+  }, [target])
   const shown = (tabs as readonly string[]).includes(tab) ? tab : (tabs[0] ?? 'settings')
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -452,7 +502,7 @@ export function ModuleSettingsDialog({
           ) : null}
           {hasSettings ? (
             <TabsContent value="settings" className="min-h-0 overflow-y-auto overscroll-contain pr-1" data-modal-scroll="">
-              {open && shown === 'settings' ? <ModuleSettingsForm module={module} project={project?.id ?? null} api={api} onOpened={() => onOpenChange(false)} /> : null}
+              {open && shown === 'settings' ? <ModuleSettingsForm module={module} name={name} target={target} project={project?.id ?? null} api={api} onOpened={() => onOpenChange(false)} /> : null}
             </TabsContent>
           ) : null}
           {connections ? (
@@ -551,7 +601,7 @@ export function ModulesSettings({ api = HOST_SETTINGS_API, project }: { api?: Se
           {!one.ready ? (
             <p className="text-muted-foreground text-xs">Not running, so its settings cannot be read now.</p>
           ) : one.fields.length ? (
-            <ModuleSettingsForm module={one.id} project={project?.id ?? null} api={api} />
+            <ModuleSettingsForm module={one.id} name={one.name} project={project?.id ?? null} api={api} />
           ) : (
             <p className="text-muted-foreground text-xs">No settings.</p>
           )}
