@@ -882,6 +882,25 @@
   on the button like a fold (`FoldNote.tile`, `FoldMark.tiled`). A module's `view.fold` unfold
   restores a tile too; `context.containers` says a tile is `folded`.
 
+## An agent arranging its own kehikko
+
+- Agents may add, show, fold, tile, resize and move containers on their own
+  kehikko (`place_modules`, `fold_modules`, `arrange_modules` in `server/mcp.ts`),
+  each change undone with one press; removing a container stays the person's.
+  `read_canvas` says each container's column, row, width and height.
+- `arrange_modules` acts only on the conversation's own kehikko (`here.canvas`,
+  what `my_place` names), only one a page has open, never while the person is
+  dragging or resizing (`server/arranging.ts`, told by the page at
+  `POST /host/arranging`, `PAGE_ONLY`), and at most `ARRANGE_PER_MINUTE` changes
+  a minute per conversation.
+- Its layout is the person's: `src/host/arrange.ts` runs the grid's own
+  `moveElement`/`compact` and `columns.ts`'s budget, so an agent's resize lands
+  where a person's drag would. Never a second layout rule.
+- The mark and Undo are the page's alone (`ArrangeMark` in `src/host/arrange.ts`,
+  `src/canvas/ArrangeMark.tsx`): the wake carries every container's place before
+  and after, Undo restores the before exactly, and the mark goes the moment the
+  kehikko is no longer as the agent left it. No server-side undo state.
+
 ## What a module may ask
 
 - Every method is held to the capability the protocol files it under

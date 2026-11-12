@@ -65,6 +65,7 @@ import {
   readOpen,
   removeCanvas,
   reportOpen,
+  reportArranging,
   unplace,
   watchCanvases,
   writeOpen,
@@ -77,6 +78,8 @@ import {
 import { keptFor, keptWritten } from './host/kept.ts'
 import { JUMP_SIGNED, markAfter, markStands, offerAsk, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
 import { JumpMark } from './canvas/JumpMark.tsx'
+import { ArrangeMark } from './canvas/ArrangeMark.tsx'
+import { arrangeNoted, arrangeStands, undoneTo, type ArrangeMark as ArrangeMarkShape } from './host/arrange.ts'
 import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
 import { targetOf } from './host/pinnedPlaces.ts'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
@@ -431,6 +434,8 @@ export function App() {
    * `view.fold`. See `host/folds.ts`.
    */
   const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
+  /* What an agent's `arrange_modules` changed on the open kehikko, and what Undo puts back (`host/arrange.ts`). */
+  const [arrangeMark, setArrangeMark] = useState<ArrangeMarkShape | null>(null)
   /**
    * An agent's jump of the view (`jump`), with where the person was, and the
    * step the open kehikko was last walked to. The page's alone; see
@@ -923,7 +928,7 @@ export function App() {
     if (!settled) return
     const stop = watchCanvases(
       openId,
-      (kehikko, note) => {
+      (kehikko, note, arrangedNote) => {
         void (async () => {
           if (!loaded.current) return
           /* Awaited: the re-read has to be of what the pending writes LEFT. Two
@@ -959,6 +964,9 @@ export function App() {
             if (note && kehikko === openId) {
               setSigned((was) => ({ kehikko, marks: noted(was?.kehikko === kehikko ? was.marks : {}, note) }))
             }
+            /* An agent's arrangement, marked with Undo. If the person's own change crossed it, theirs
+               is what stands, and the mark does not (`arrangeStands`, below). */
+            if (arrangedNote && kehikko === openId) setArrangeMark((was) => arrangeNoted(was, kehikko, arrangedNote))
           } catch {
             /* The next wake, or the next load, will do. A canvas that could not
                be re-read is the arrangement the person already has on screen. */
@@ -1434,6 +1442,8 @@ export function App() {
       if (kept === was.marks) return was
       return Object.keys(kept).length ? { kehikko: was.kehikko, marks: kept } : null
     })
+    /* An agent's arrangement mark stands only while the kehikko is exactly as it left it. */
+    setArrangeMark((was) => (was && arrangeStands(was, open?.id ?? null, open?.placements ?? []) ? was : null))
   }, [open])
 
   /** Change the open canvas, on screen now and in the database shortly. */
@@ -3731,6 +3741,19 @@ export function App() {
     if (mark) void goPlace(mark.back)
   }
   const shownJumpMark = markStands(jumpMark, placeNow)
+  /* A drag or a resize let go of: once what the hand left is stored, agents may arrange again. The
+     grid reports the layout in the same tick as the stop, so the write is queued after it. */
+  const arrangedByHand = () => {
+    const on = openId
+    if (on === null) return
+    setTimeout(() => void writer.flushAll().then(() => reportArranging(on, false)), 0)
+  }
+  /* Undo an agent's arrangement: the arrangement before, exactly — only while it still stands. */
+  const arrangeUndo = () => {
+    const next = undoneTo(arrangeMark, open?.id ?? null, open?.placements ?? [])
+    setArrangeMark(null)
+    if (next) change({ placements: next })
+  }
 
   /**
    * The person's pinned places and the Pin button (`PinnedPlaces.tsx`). A pin
@@ -5046,6 +5069,8 @@ export function App() {
              once a frame, so a drag costs one measuring pass per painted frame
              and not one per mouse event. */
           onDragStart={(_all, _old, item) => {
+            /* No agent arranges under a hand (`server/arranging.ts`). */
+            if (openId !== null) reportArranging(openId, true)
             /* A move is not a resize; whatever a release that changed nothing
                left in `resized` must not be read as this gesture's. */
             resized.current = null
@@ -5059,12 +5084,14 @@ export function App() {
              standing there while its container slides away to the spot the grid
              chose. */
           onDragStop={() => {
+            arrangedByHand()
             setMoving(null)
             /* The container let go of glides to where the grid puts it. */
             setGliding((n) => n + 1)
             settle()
           }}
           onResizeStart={(_all, _old, item, _placeholder, event) => {
+            if (openId !== null) reportArranging(openId, true)
             resized.current = item.i
             traded.current = new Map()
             setMoving(item.i)
@@ -5157,6 +5184,7 @@ export function App() {
             remeasure()
           }}
           onResizeStop={() => {
+            arrangedByHand()
             setPulling(null)
             setMoving(null)
             setGliding((n) => n + 1)
@@ -5221,6 +5249,7 @@ export function App() {
                   foldRows={drawn.foldRows}
                   rowsMode={drawn.rows}
                   foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
+                  arrangedBy={arrangeMark && arrangeMark.kehikko === openId && arrangeMark.changed.includes(placement.i) ? arrangeMark.by : null}
                   header={headers[presence.id] ?? NO_HEADER}
                   /* A press on whichever frame is standing, judged against
                      what is declared now — see `onPressItem`. */
@@ -5448,6 +5477,14 @@ export function App() {
       <WentTo note={placeGo.note} onClose={placeGo.clearNote} />
       {/* An agent's jump, signed, with Go back. See `JumpMark.tsx`. */}
       <JumpMark mark={shownJumpMark} onBack={jumpBack} onClose={() => setJumpMark(null)} />
+      {/* An agent's arrangement, signed, with Undo. See `ArrangeMark.tsx`. */}
+      <ArrangeMark
+        mark={arrangeMark && arrangeMark.kehikko === openId ? arrangeMark : null}
+        names={(id) => byId.get(id)?.name ?? id}
+        raised={shownJumpMark !== null}
+        onUndo={arrangeUndo}
+        onClose={() => setArrangeMark(null)}
+      />
 
       {/* The project picker a module gets instead of a listing. Owned by the
           host for the reason every dialog here is — a modal inside a 220-pixel

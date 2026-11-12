@@ -95,6 +95,7 @@ export function Container({
   foldRows = 1,
   rowsMode,
   foldedBy = null,
+  arrangedBy = null,
   header = NO_HEADER,
   onPress = unpressable,
   footer = NO_FOOTER,
@@ -215,6 +216,12 @@ export function Container({
    * press on it puts the container back. See `host/folds.ts`.
    */
   foldedBy?: string | null
+  /**
+   * Who resized, moved or showed this container, when it was an agent's `arrange_modules` and
+   * the kehikko is still as it left it. Drawn as a dashed outline that takes no room; the mark at
+   * the foot of the kehikko names it and has Undo. See `host/arrange.ts`.
+   */
+  arrangedBy?: string | null
   /**
    * What the module last declared for this container's menus
    * (`kehikot.header`): its view switches, toggles, jumps and runs, drawn as
@@ -563,10 +570,13 @@ export function Container({
        * and this is what that cost.
        */
       className={
-        selected
+        (selected
           ? 'container-frame border-primary ring-primary/60 pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border ring-2 ring-inset'
-          : 'container-frame pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border'
+          : 'container-frame pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border')
+        + (arrangedBy ? ' outline-primary/70 outline-2 -outline-offset-4 outline-dashed' : '')
       }
+      /* Arranged by an agent, until the person arranges it or presses Undo (`ArrangeMark.tsx`). */
+      data-arranged-by={arrangedBy ?? undefined}
       /* Picked out: its coloured border stands whatever border Settings › Appearance chose (`index.css`). */
       data-picked={selected ? 'true' : undefined}
       /* Which module this container is showing, for anything that has to find

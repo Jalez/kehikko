@@ -350,6 +350,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/settings-pass': 'a module checks a settings pass',
   '/host/server-ask': 'a module’s server asks',
   '/host/headers': 'the page reports a module’s header',
+  '/host/arranging': 'the page says the person is arranging a kehikko',
   '/host/pressed': 'the page reports a press',
   '/host/open': 'the page says what it has open',
   '/host/start': 'start a module',

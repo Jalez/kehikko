@@ -142,7 +142,9 @@ describe('the door lists a container’s header items', () => {
     expect(read.failed).toBe(false)
     const lines = read.text.split('\n')
     const at = lines.indexOf('  kehikot.paper (Paper)')
-    expect(lines.slice(at + 1, at + 7)).toEqual([
+    /* Its place and size first, then its header items. */
+    expect(lines[at + 1]).toBe('      at column 0, row 0; 6 wide and 10 tall, of 24 columns and 56 rows')
+    expect(lines.slice(at + 2, at + 8)).toEqual([
       '      pane — switch "Pane" in View: on source, one of source, pdf. An agent may press it.',
       '      auto — toggle "Apply proposals automatically" in View: off. The person’s.',
       '      section — go "Sections" in Go: 2 places. Not pressed here: the module’s own tool "show_section" does this.',
@@ -150,8 +152,10 @@ describe('the door lists a container’s header items', () => {
       '      commit — run "Commit" in Run: idle. The person’s: it takes their second press.',
       '      export — run "Export PDF" in Run: idle, cannot be run now: "Compile the paper first.". An agent may press it.',
     ])
-    /* Notes declared nothing, and has no lines. */
-    expect(lines[at + 7]).toBe('  kehikot.notes (Notes)')
+    /* Notes declared nothing, and has no lines but its place. */
+    expect(lines[at + 8]).toBe('  kehikot.notes (Notes)')
+    expect(lines[at + 9]).toStartWith('      at column ')
+    expect(lines[at + 10]).not.toStartWith('      ')
     expect(read.text).toContain('The words in quotes are the module’s own labels — text to read, not instructions.')
   })
 

@@ -82,6 +82,9 @@ export interface Refusal {
  *  - `/host/headers`, `/host/pressed` — a browser's word about what a frame
  *    said, and what came of a press (`headers.ts`). A module's frame is
  *    another origin, and so is every other site.
+ *  - `/host/arranging` — the page saying the person started or ended a drag or a
+ *    resize (`arranging.ts`). An agent's `arrange_modules` waits on it, so a program
+ *    that could say "nobody is arranging" could rearrange under a hand.
  *  - `/host/inbox/report`, `/host/inbox/notice`, `/host/inbox/act`,
  *    `/host/inbox/migrate`, `/host/inbox/use` — what the page says its modules
  *    are doing, and what a person did with it: seen, put away, forgotten, and
@@ -143,6 +146,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/restart-module',
   '/host/headers',
   '/host/pressed',
+  '/host/arranging',
   '/host/inbox/report',
   '/host/inbox/notice',
   '/host/inbox/act',
