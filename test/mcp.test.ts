@@ -99,7 +99,9 @@ describe('the door says what it is and what it offers', () => {
        the view, because the person asked for it (#208): marked with Go back,
        which restores their place — see `test/jump.test.ts`. And one offers
        to, when the person did not ask: an item in their Inbox they take or
-       dismiss, which moves nothing — see `test/offer-jump.test.ts`. */
+       dismiss, which moves nothing — see `test/offer-jump.test.ts`. And one
+       proposes where a tracker item no epic names belongs, which the person
+       confirms or not, and adopts nothing — see `test/adoption.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
       'fold_modules',
@@ -114,6 +116,7 @@ describe('the door says what it is and what it offers', () => {
       'pin_version',
       'place_modules',
       'press_item',
+      'propose_adoption',
       'read_canvas',
       'read_inbox',
       'read_tracker',

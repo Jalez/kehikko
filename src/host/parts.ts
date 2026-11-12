@@ -260,10 +260,15 @@ export function partsHeld(
   const refsPublished = spoken?.refs === true || published.some((one) => one.refs.length > 0)
 
   const under = `${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${slug}`
+  /* Refs the person adopted into a part (`partRefs`, the host's own `editEpicRef`): always the part's. */
+  const adopted = epic && typeof epic === 'object' ? (epic as { partRefs?: unknown }).partRefs : undefined
+  const adoptedOf = (id: string): string[] =>
+    adopted && typeof adopted === 'object' && !Array.isArray(adopted) ? refsIn((adopted as Record<string, unknown>)[id]) : []
   return base.map((part) => {
     const said = held ? own(held, part.id) : undefined
     const refs = refsPublished ? [] : [...part.refs]
     for (const ref of said?.refs ?? []) if (!refs.includes(ref)) refs.push(ref)
+    for (const ref of adoptedOf(part.id)) if (!refs.includes(ref)) refs.push(ref)
 
     const documents: string[] = []
     const put = (raw: string | null) => {

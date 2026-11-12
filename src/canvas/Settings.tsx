@@ -68,6 +68,8 @@ import { openStorage } from '@/host/storage.ts'
 import { TRACKERS_ARE_FOR } from '@/host/trackerSources.ts'
 import { TRACKER_NEWS_WORDS } from '@/host/trackerNews.ts'
 import { LIT_ROW, TrackerSourcesSettings, type TrackersDoor } from './TrackerSettings.tsx'
+import { fetchTasksAgent, fetchUntracked, postRetrack, postTasksAgent } from '@/host/adoptClient.ts'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { NOTICE_EVENTS, NOTICE_WORDS, type NoticeEvent, type NoticeScope, type NoticeSettings } from '@/host/trackerNotices.ts'
 import { useShownVersion } from './AppVersion.tsx'
 import { GitSaid } from './GitSaid.tsx'
@@ -587,7 +589,7 @@ export function SettingsBody({
                     {shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null}
                   </>
                 ) : answer ? (
-                  <Section which={key} answer={answer} onChange={onChange} />
+                  <Section which={key} answer={answer} onChange={onChange} projectId={project?.id ?? null} />
                 ) : !trouble ? (
                   <Loading className="text-sm" label="Reading the settings…" />
                 ) : null}
@@ -629,7 +631,17 @@ function SavedNote({ saved }: { saved: number }) {
   )
 }
 
-function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 'about' | 'project' | 'appearance' | 'trackers'>; answer: SettingsAnswer; onChange(what: Change): void }) {
+function Section({
+  which,
+  answer,
+  onChange,
+  projectId = null,
+}: {
+  which: Exclude<SettingsSection, 'about' | 'project' | 'appearance' | 'trackers'>
+  answer: SettingsAnswer
+  onChange(what: Change): void
+  projectId?: number | null
+}) {
   const { settings, status, hook } = answer
   /* Any choice made here is an answer to the one-time question too. */
   const set = (patch: Partial<Record<keyof AgentSettings, unknown>>) => onChange({ settings: { ...patch, asked: true } })
@@ -666,6 +678,7 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
           ))}
         </Rows>
         <p className="text-muted-foreground text-xs">{MORE_AGENTS}</p>
+        <TasksAgentPicker />
         {status.problems.length ? (
           <section aria-labelledby="settings-problems" className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3">
             <h4 id="settings-problems" className="flex items-center gap-2 text-sm font-medium">
@@ -796,7 +809,12 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
   }
 
   if (which === 'notices') {
-    return answer.notices ? <TrackerNotices notices={answer.notices} onChange={(notices) => onChange({ notices })} /> : null
+    return answer.notices ? (
+      <>
+        <TrackerNotices notices={answer.notices} onChange={(notices) => onChange({ notices })} />
+        {projectId !== null ? <UntrackedItems project={projectId} /> : null}
+      </>
+    ) : null
   }
 
   return (
@@ -829,13 +847,101 @@ function Section({ which, answer, onChange }: { which: Exclude<SettingsSection, 
   )
 }
 
+/**
+ * The person's agent for Kehikot's own tasks (protocol 2.88.0, `agent.tasks`): every module that provides
+ * it now, by its registered name, and none picked until the person picks one. Adopting an Inbox item with
+ * one starts a conversation there; with none, the person chooses the epic themselves.
+ */
+function TasksAgentPicker() {
+  const [state, setState] = useState<{ agent: string | null; choices: { module: string; name: string }[] } | null>(null)
+  const id = useId()
+  useEffect(() => {
+    let live = true
+    void fetchTasksAgent().then((got) => live && setState(got))
+    return () => {
+      live = false
+    }
+  }, [])
+  if (!state) return null
+  return (
+    <section aria-labelledby={`${id}-h`} className="min-w-0" data-tasks-agent={state.agent ?? ''}>
+      <h4 id={`${id}-h`} className="mb-1 text-sm font-medium">
+        Agent for Kehikot's own tasks
+      </h4>
+      <p className="text-muted-foreground mb-2 text-xs leading-relaxed">
+        Kehikot starts a conversation with it for work of its own, such as finding which epic an item belongs to. It only proposes; you confirm.
+      </p>
+      {state.choices.length ? (
+        <NativeSelect
+          aria-labelledby={`${id}-h`}
+          value={state.agent ?? ''}
+          onChange={(event) => {
+            const agent = event.target.value || null
+            void postTasksAgent(agent).then((ok) => ok && setState({ ...state, agent }))
+          }}
+        >
+          <NativeSelectOption value="">None — I choose myself</NativeSelectOption>
+          {state.choices.map((one) => (
+            <NativeSelectOption key={one.module} value={one.module}>
+              {one.name}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      ) : (
+        <p className="text-muted-foreground text-xs">No installed module starts conversations for Kehikot's tasks yet.</p>
+      )}
+    </section>
+  )
+}
+
+/** Items the person said not to track in this project, each with "Track again" (`inbox.untrack`'s undo). */
+function UntrackedItems({ project }: { project: number }) {
+  const [list, setList] = useState<{ id: string; ref: string; title: string; at: number }[] | null>(null)
+  useEffect(() => {
+    let live = true
+    void fetchUntracked(project).then((got) => live && setList(got))
+    return () => {
+      live = false
+    }
+  }, [project])
+  if (!list) return null
+  return (
+    <section aria-labelledby="settings-untracked" className="min-w-0" data-untracked={list.length}>
+      <h4 id="settings-untracked" className="mb-1 text-sm font-medium">
+        {NOTICE_WORDS.untracked}
+      </h4>
+      <p className="text-muted-foreground mb-2 text-xs leading-relaxed">{NOTICE_WORDS.untrackedLead}</p>
+      {list.length ? (
+        <ul className="overflow-hidden rounded-lg border">
+          {list.map((one) => (
+            <li key={one.id} className="flex items-center gap-2 border-b px-3 py-2 text-xs last:border-b-0" data-untracked-item={one.id}>
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{one.ref}</span> {one.title}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void postRetrack(project, one.id).then(() => setList((was) => (was ?? []).filter((x) => x.id !== one.id)))}
+              >
+                {NOTICE_WORDS.retrack}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted-foreground text-xs">None.</p>
+      )}
+    </section>
+  )
+}
+
 /** Tracker notices: on or off, how wide, and which events. Every choice a labelled control. */
 function TrackerNotices({
   notices,
   onChange,
 }: {
   notices: NoticeSettings
-  onChange(change: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> }): void
+  onChange(change: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>>; outside?: boolean }): void
 }) {
   const name = useId()
   const off = !notices.on
@@ -854,6 +960,7 @@ function TrackerNotices({
       </Summary>
       <Rows>
         <SettingRow label={NOTICE_WORDS.on} checked={notices.on} onChange={(on) => onChange({ on })} />
+        <SettingRow label={NOTICE_WORDS.outside} checked={notices.outside !== false} disabled={off} onChange={(outside) => onChange({ outside })} />
       </Rows>
       <fieldset className="min-w-0" data-notices-scope={notices.scope} disabled={off}>
         <legend className="mb-2 text-sm font-medium">Which issues and changes</legend>
