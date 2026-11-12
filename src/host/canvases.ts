@@ -206,14 +206,33 @@ export function promptFor(
    */
   const notes = here
     .filter((p) => p.i !== module && (guidance.get(p.i) ?? '').trim())
-    .map((p) => `## ${p.i} is on this kehikko\n\n${guidance.get(p.i)!.trim()}`)
+    .map((p) => ({ id: p.i, text: `## ${p.i} is on this kehikko\n\n${guidance.get(p.i)!.trim()}` }))
 
   const aimed = here
     .filter((p) => p.promptFor === module && p.prompt.trim())
     .map((p) => `## from ${p.i}\n\n${p.prompt.trim()}`)
 
-  const all = [...notes, ...aimed]
-  return all.length ? all.join('\n\n') : null
+  /*
+   * Bounded by `LIMITS.PROMPT`, which every page's schema holds the context to. A prompt over it
+   * is a greeting a page cannot read: one built before protocol 2.93.0 drops it unread and goes
+   * quiet. Each module's note is up to `LIMITS.GUIDANCE`, so nine or ten modules on one kehikko
+   * were enough. What the person wrote for this module comes first; the notes of the other
+   * modules fill what is left, in reading order, and the ones that do not fit are named.
+   */
+  const join = (parts: readonly string[]) => parts.join('\n\n')
+  const fits = (parts: readonly string[]) => join(parts).length <= LIMITS.PROMPT
+  const kept: string[] = []
+  const left: string[] = []
+  for (const note of notes) {
+    if (fits([...kept, note.text, ...aimed])) kept.push(note.text)
+    else left.push(note.id)
+  }
+  if (left.length) {
+    const named = `## Also on this kehikko\n\n${left.join(', ')}: their notes did not fit in what a module can be told.`
+    if (fits([...kept, named, ...aimed])) kept.push(named)
+  }
+  const all = [...kept, ...aimed]
+  return all.length ? join(all).slice(0, LIMITS.PROMPT) : null
 }
 export type Placement = z.infer<typeof placementSchema>
 
