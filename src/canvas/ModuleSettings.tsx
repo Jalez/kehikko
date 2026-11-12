@@ -29,7 +29,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.t
 import type { ModuleScope } from 'kehikot-module-protocol'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
 import { moduleSettingsTarget } from '@/host/agentSettings.ts'
-import { TARGET_ATTR } from '@/host/settingsTarget.ts'
 import { ScopeControl, ScopeIcon } from './Scope.tsx'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 
