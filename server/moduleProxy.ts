@@ -42,6 +42,31 @@ import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeO
  * able to write to everything the guard keeps for it. A request there that a browser sent (it
  * carries `Origin` or `Sec-Fetch-*`) is refused, and every answer there is sent with
  * `content-security-policy: sandbox`, so even a page that got through runs on no origin at all.
+ *
+ * ## Riding out a restart
+ *
+ * An agent reaches a module's tools at `/m/<id>/mcp` on this host, so a port change never reaches
+ * it. A restart still did: for the seconds between the old process going and the new one answering,
+ * the door said "not running", the agent's client retried for about half a minute, and then marked
+ * the module failed until a person reconnected it by hand. A module that restarts often (many
+ * releases, a slow start) was the one that needed that.
+ *
+ * So a request at a module's MCP door (`isMcpDoor`) that finds nothing answering, while the host
+ * says it is bringing that module up (`starting`), is held: looked at again every `HOLD_POLL_MS`,
+ * forwarded to the new process (at whatever port it bound) the moment it answers as the module,
+ * and refused with a JSON-RPC error after `HOLD_MS`, or as soon as the host stops bringing it up.
+ * A module that is simply not running, with nothing starting it, is refused at once, as before.
+ *
+ * Holding is safe because nothing of a held request has been sent anywhere: its body is unread
+ * until it is forwarded. A request is forwarded once and never again. One the old process may
+ * have received (the forward began, and the connection dropped) is answered with an error and not
+ * sent to the new process, because a tool call must not run twice. At most `HOLD_MOST` requests
+ * are held per module, and each held one is logged with how long it waited.
+ *
+ * The doors the protocol serves are stateless JSON-RPC over POST: they issue no session id, so a
+ * new process takes the next request of a conversation the old one began. A module that does keep
+ * sessions answers 404 for one it does not know, which is passed on as it is, and is what an MCP
+ * client re-initializes on.
  */
 
 /** How long what `identify` found is believed. Short: a module restarting changes it. */
@@ -52,6 +77,20 @@ export const IDENTIFY_TIMEOUT_MS = 1_500
 
 /** How long a module's WebSocket gets to accept before the handshake is refused. */
 export const SOCKET_OPEN_TIMEOUT_MS = 5_000
+
+/**
+ * How long a request at a module's MCP door is held while the host brings the module back up
+ * (a start, a restart, an update). An agent's client retries a dropped door for about half a
+ * minute and then gives up until a person reconnects it by hand, so the door waits past that: a
+ * module that restarts inside this never looks gone to an agent. See "Riding out a restart".
+ */
+export const HOLD_MS = 45_000
+
+/** How often a held request looks again whether the module answers. */
+export const HOLD_POLL_MS = 250
+
+/** The most requests held for one module at once. One more is answered at once that it is restarting. */
+export const HOLD_MOST = 32
 
 /** Messages held for a socket whose other side has not opened yet. More, and the socket is closed. */
 export const SOCKET_QUEUE_MOST = 256
@@ -94,6 +133,18 @@ export interface ProxyDeps {
   port: number
   fetch?: typeof fetch
   now?: () => number
+  /**
+   * Whether the host is bringing this module up right now: a start, a restart or an update it is
+   * running, or somebody else's restart it is giving time to. While it says so, a request at the
+   * module's MCP door that finds nothing answering is held (`HOLD_MS`) instead of refused. Absent:
+   * never.
+   */
+  starting?(id: string): boolean
+  /** Where the one line per held request goes. */
+  log?: (line: string) => void
+  /** `HOLD_MS` and `HOLD_POLL_MS`, for a test that cannot wait that long. */
+  holdMs?: number
+  pollMs?: number
 }
 
 /** The part of Bun's server a handshake is upgraded with. */
@@ -190,6 +241,8 @@ export class ModuleProxy {
   readonly #now: () => number
   /** What `identify` last found, per module, for the origin and token it was found for. */
   readonly #found = new Map<string, { origin: string; token: string | null; at: number; identity: Identity }>()
+  /** How many requests are held per module right now (`HOLD_MOST`). */
+  readonly #holding = new Map<string, number>()
 
   constructor(deps: ProxyDeps) {
     this.#deps = deps
@@ -314,8 +367,13 @@ export class ModuleProxy {
     if (machine && fromABrowser(request.headers)) {
       return refused(403, 'This address is for programs on this computer. A page reaches a module at its own address.', true)
     }
-    const reached = await this.#reach(route)
-    if (!reached.ok) return machine ? sandbox(reached.response) : reached.response
+    const door = isMcpDoor(route)
+    /* What was found a moment ago may be the process that is going: while the host brings the
+       module up, the door asks afresh, so a request is held rather than sent to the old one. */
+    if (door && this.#deps.starting?.(route.id)) this.forget(route.id)
+    let reached = await this.#reach(route)
+    if (!reached.ok && door) reached = await this.#ride(request, route, reached.response)
+    if (!reached.ok) return machine ? sandbox(door ? await asRpcError(request, reached.response) : reached.response) : reached.response
     const { target, real } = reached
     const url = new URL(request.url)
     const method = request.method.toUpperCase()
@@ -347,6 +405,63 @@ export class ModuleProxy {
     const status = answer.status
     const body = status === 204 || status === 304 || method === 'HEAD' ? null : answer.body
     return new Response(body, { status, statusText: answer.statusText, headers: backHeaders(answer.headers, route, real, this.#deps.port) })
+  }
+
+  /**
+   * Hold a request at a module's MCP door while the host brings the module up, until it answers as
+   * the module (and is reached), the host stops bringing it up, `HOLD_MS` passes or the client
+   * gives up. Nothing of the request is read or sent meanwhile. See "Riding out a restart".
+   */
+  async #ride(request: Request, route: ModuleRoute, first: Response): Promise<{ ok: true; target: ProxyTarget; real: URL } | { ok: false; response: Response }> {
+    const id = route.id
+    const starting = this.#deps.starting
+    if (!starting || !starting(id)) return { ok: false, response: first }
+    const held = this.#holding.get(id) ?? 0
+    if (held >= HOLD_MOST) {
+      return { ok: false, response: refused(503, `${said(route)} is restarting, and ${HOLD_MOST} requests are already waiting for it. Try again in a moment.`) }
+    }
+    this.#holding.set(id, held + 1)
+    const holdMs = this.#deps.holdMs ?? HOLD_MS
+    const pollMs = this.#deps.pollMs ?? HOLD_POLL_MS
+    const began = this.#now()
+    let came = 'gave up'
+    try {
+      for (;;) {
+        if (request.signal.aborted) {
+          came = 'the client gave up'
+          return { ok: false, response: refused(499, 'The request was given up before the module answered.') }
+        }
+        const still = starting(id)
+        if (this.#now() - began >= holdMs) {
+          came = 'timed out'
+          return {
+            ok: false,
+            response: refused(503, `${said(route)} is restarting and did not answer within ${Math.round(holdMs / 1000)} seconds, so the request was not sent. Try again in a moment.`),
+          }
+        }
+        if (still) await pause(pollMs, request.signal)
+        this.forget(id)
+        const again = await this.#reach(route)
+        if (again.ok) {
+          came = `forwarded to ${again.target.origin}`
+          return again
+        }
+        if (!still) {
+          came = 'it stopped'
+          return { ok: false, response: refused(503, `${said(route)} was starting and stopped again without answering, so the request was not sent.`) }
+        }
+      }
+    } finally {
+      const left = (this.#holding.get(id) ?? 1) - 1
+      if (left > 0) this.#holding.set(id, left)
+      else this.#holding.delete(id)
+      ;(this.#deps.log ?? console.log)(`kehikko: held ${request.method.toUpperCase()} ${route.path} for ${id} ${this.#now() - began} ms while it started: ${came}`)
+    }
+  }
+
+  /** How many requests are held for one module right now. */
+  holding(id: string): number {
+    return this.#holding.get(id) ?? 0
   }
 
   /**
@@ -404,6 +519,46 @@ export class ModuleProxy {
 /** A route's program in words: the id, and the version when it is one. */
 function said(route: ModuleRoute): string {
   return route.version ? `${route.id} ${route.version}` : route.id
+}
+
+/**
+ * Whether a route is a module's MCP door, on its program address: the address an agent's client is
+ * given (`stableDoorUrl`), whose path the protocol's doors serve as `/mcp`. A pinned version's door
+ * is not held: nothing restarts one in place.
+ */
+export function isMcpDoor(route: ModuleRoute): boolean {
+  if (route.kind !== 'machine' || route.version) return false
+  return route.path === '/mcp' || route.path.endsWith('/mcp')
+}
+
+/** Wait, or stop waiting when the client gives up. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((wake) => {
+    const timer = setTimeout(done, ms)
+    function done() {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', done)
+      wake()
+    }
+    signal.addEventListener('abort', done, { once: true })
+  })
+}
+
+/**
+ * A refusal at an MCP door, as JSON-RPC: the same status and sentence, as an error an MCP client
+ * shows, answering the request's id when it had one. Read only from a request that is not being
+ * forwarded.
+ */
+async function asRpcError(request: Request, response: Response): Promise<Response> {
+  const why = (await response.text()).trim()
+  let id: unknown = null
+  if (request.method.toUpperCase() === 'POST') {
+    const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+    if (body && !Array.isArray(body) && (typeof body.id === 'string' || typeof body.id === 'number')) id = body.id
+  }
+  const headers = new Headers(response.headers)
+  headers.set('content-type', 'application/json')
+  return new Response(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: why } }), { status: response.status, headers })
 }
 
 /** What an identity is kept under: the id, or `id@version`. */
