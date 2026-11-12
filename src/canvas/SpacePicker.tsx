@@ -17,6 +17,21 @@ import {
   typeAhead,
   writeOpenBranches,
 } from '@/host/spaces.ts'
+import { SORT_WORDS, type PickerSort } from '@/host/pickerOrder.ts'
+import { loadVisits, setSort, usePickerSort, useVisits } from '@/host/pickerStore.ts'
+import {
+  BUCKET_WORDS,
+  bucketOf,
+  headings,
+  lifeWords,
+  matchedTree,
+  sortedTree,
+  spaceLives,
+  worstElsewhere,
+  type Bucket,
+  type SpaceActivity,
+} from '@/host/spaceRecency.ts'
+import { ActivityDot } from './Activity.tsx'
 import { Hint } from './Hint.tsx'
 
 /**
@@ -34,7 +49,13 @@ import { Hint } from './Hint.tsx'
  * server's own sentence of what goes). The children of the space the project is on carry checkboxes:
  * several siblings picked at once, which is what picking several parts was.
  *
- * Every rule is in `src/host/spaces.ts`; this draws.
+ * Each row carries the activity dot the epic and part rows had (the worst live item of the Inbox
+ * record in it; a closed branch shows the worst of everything under it), and the list is ordered by a
+ * switch at its top, Recent activity or Alphabetical — the choice the epic picker kept (`PickerSorts`,
+ * its `epics` entry). Recent sorts each level's siblings by the later of the person's last visit and
+ * the last activity by anyone, in the space or under it, and groups them under time headings.
+ *
+ * Every rule is in `src/host/spaces.ts` and `src/host/spaceRecency.ts`; this draws.
  */
 
 export type SpaceEditAsked =
@@ -64,7 +85,16 @@ export interface SpacePickerProps {
   store?: Pick<Storage, 'getItem' | 'setItem'> | null
   /** Whether the list starts open (a test, or a tour step that shows it). */
   defaultOpen?: boolean
+  /** The open project's Inbox record, for the dots and for when each space last saw activity. */
+  activity?: readonly SpaceActivity[]
+  /** For tests: the clock the time headings are read against. */
+  clock?: () => number
 }
+
+/** The words of the order switch: the space picker says what Recent means here. */
+const ORDER_WORDS: Record<PickerSort, string> = { recent: 'Recent activity', az: 'Alphabetical' }
+const ORDERS: readonly PickerSort[] = ['recent', 'az']
+const NO_ACTIVITY: readonly SpaceActivity[] = []
 
 const browserStore = (): Pick<Storage, 'getItem' | 'setItem'> | null => {
   try {
@@ -74,7 +104,19 @@ const browserStore = (): Pick<Storage, 'getItem' | 'setItem'> | null => {
   }
 }
 
-export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdit, store, defaultOpen = false }: SpacePickerProps) {
+export function SpacePicker({
+  tree,
+  here,
+  all,
+  project,
+  onPick,
+  onPickAll,
+  onEdit,
+  store,
+  defaultOpen = false,
+  activity = NO_ACTIVITY,
+  clock = Date.now,
+}: SpacePickerProps) {
   const storage = store === undefined ? browserStore() : store
   const projectId = project?.id ?? null
   const [isOpen, setOpen] = useState(defaultOpen)
@@ -88,6 +130,17 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
   const [trouble, setTrouble] = useState('')
   const typed = useRef({ text: '', at: 0 })
   const treeRef = useRef<HTMLDivElement | null>(null)
+  const sort = usePickerSort('epics')
+  const visits = useVisits()
+  /* The clock the headings read, taken again each time the list opens. */
+  const [now, setNow] = useState(clock)
+  useEffect(() => {
+    if (!isOpen) return
+    setNow(clock())
+    /* What another window visited since is in it. */
+    void loadVisits()
+  }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lives = useMemo(() => spaceLives(tree, projectId, visits, activity, now), [tree, projectId, visits, activity, now])
 
   /* Another project remembers other branches. */
   useEffect(() => setOpened(readOpenBranches(projectId, storage)), [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -97,7 +150,15 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
   /* The current branch is always open while the list is drawn, on top of what the person opened. */
   /* And the current space itself, so its children — the siblings that can be picked together — are in view. */
   const shown = useMemo(() => new Set([...opened, ...branchesTo(hereIds), ...(hereIds.length ? [keyOf(hereIds)] : [])]), [opened, hereIds])
-  const rows = useMemo(() => treeRows(tree, shown, filter), [tree, shown, filter])
+  /* Each level's siblings in the chosen order — by match while filtering — and the tree kept. */
+  const ordered = useMemo(() => (filter.trim() ? matchedTree(tree, filter) : sortedTree(tree, sort, lives)), [tree, filter, sort, lives])
+  const rows = useMemo(() => treeRows(ordered, shown, filter), [ordered, shown, filter])
+  /* The time headings: under Recent only, and never while filtering. */
+  const headed = useMemo(
+    () => (sort === 'recent' && !filter.trim() ? headings(rows, (ids) => bucketOf(lives.get(keyOf(ids))?.last, now)) : new Map<number, Bucket>()),
+    [rows, sort, filter, lives, now],
+  )
+  const elsewhere = all ? null : worstElsewhere(lives, tree, hereIds)
 
   /* Opening the list puts the focus on the current space. */
   useEffect(() => {
@@ -178,6 +239,20 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
     } else setTrouble(answer.why)
   }
 
+  /* Which heading each row sits under: the last one opened among its siblings. */
+  const headingIds = useMemo(() => {
+    const out = new Map<number, string>()
+    const current = new Map<string, string>()
+    rows.forEach((row, index) => {
+      const parent = keyOf(row.ids.slice(0, -1))
+      if (headed.has(index)) current.set(parent, `space-heading-${index}`)
+      const id = current.get(parent)
+      if (id) out.set(index, id)
+    })
+    return out
+  }, [rows, headed])
+  const headingOf = (index: number): string | undefined => headingIds.get(index)
+
   const crumbs = breadcrumb(null, here, all)
   const label = !project
     ? 'no project is open, so there are no spaces'
@@ -229,6 +304,8 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
                 )}
                 {here && here.picked.length > 1 ? <span className="text-muted-foreground shrink-0">({here.picked.length})</span> : null}
               </nav>
+              {/* Another space holds something: said on the closed control, so it is not found only by opening the list. */}
+              {elsewhere ? <ActivityDot state={elsewhere} what="another space" /> : null}
               {project ? <ChevronDown className="text-muted-foreground size-3 shrink-0 max-[640px]:hidden" /> : null}
             </Button>
           </PopoverTrigger>
@@ -253,6 +330,42 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
           data-space-filter
           className="mb-1 h-7 text-xs"
         />
+        {tree.length > 1 ? (
+          <div
+            role="radiogroup"
+            aria-label="order of spaces"
+            data-space-order
+            className="bg-muted mb-1 flex gap-0.5 rounded-md p-0.5"
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+              event.preventDefault()
+              const next = sort === 'recent' ? 'az' : 'recent'
+              void setSort('epics', next).catch(() => undefined)
+              event.currentTarget.querySelector<HTMLElement>(`[data-order="${next}"]`)?.focus()
+            }}
+          >
+            {ORDERS.map((one) => (
+              <button
+                key={one}
+                type="button"
+                role="radio"
+                aria-checked={sort === one}
+                tabIndex={sort === one ? 0 : -1}
+                data-order={one}
+                title={one === 'recent' ? 'the latest visit or activity first, under time headings' : SORT_WORDS.az.says}
+                onClick={() => {
+                  if (one !== sort) void setSort('epics', one).catch(() => undefined)
+                }}
+                className={`flex min-w-0 flex-1 items-center justify-center truncate rounded-sm px-2 py-0.5 text-[11px] ${sort === one ? 'bg-background font-medium shadow-sm' : 'text-muted-foreground'}`}
+              >
+                {ORDER_WORDS[one]}
+              </button>
+            ))}
+            <span role="status" className="sr-only">
+              spaces ordered {sort === 'recent' ? 'by recent activity' : 'alphabetically'}
+            </span>
+          </div>
+        ) : null}
         <button
           type="button"
           role="option"
@@ -280,6 +393,12 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
           ) : (
             rows.map((row, index) => {
               const key = keyOf(row.ids)
+              const bucket = headed.get(index)
+              const headingId = headingOf(index)
+              const life = lives.get(key)
+              /* An open branch shows its own; a closed one the worst of its whole subtree. */
+              const dot = row.open ? (life?.mark ?? null) : (life?.markBelow ?? null)
+              const said = lifeWords(life, now)
               const node = nodeAt(tree, row.ids)
               const current = key === hereKey
               const under = node ? spacesUnder(node) : 0
@@ -287,8 +406,20 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
               const renaming = naming && 'path' in naming && keyOf(naming.path) === key
               return (
                 <div key={key}>
+                  {bucket ? (
+                    <div
+                      id={`space-heading-${index}`}
+                      aria-hidden
+                      data-space-heading={bucket}
+                      className="text-muted-foreground px-2 pt-1.5 pb-0.5 text-[10px] font-medium tracking-wide uppercase"
+                      style={{ paddingLeft: `${row.depth * 12 + 8}px` }}
+                    >
+                      {BUCKET_WORDS[bucket]}
+                    </div>
+                  ) : null}
                   <div
                     id={`space-row-${key}`}
+                    aria-describedby={headingId}
                     role="treeitem"
                     aria-level={row.depth + 1}
                     aria-expanded={row.children ? row.open : undefined}
@@ -337,10 +468,11 @@ export function SpacePicker({ tree, here, all, project, onPick, onPickAll, onEdi
                         className="h-6 flex-1 text-xs"
                       />
                     ) : (
-                      <button type="button" tabIndex={-1} className="min-w-0 flex-1 truncate text-left" onClick={() => pick(row.ids)}>
+                      <button type="button" tabIndex={-1} className="min-w-0 flex-1 truncate text-left" title={said || undefined} onClick={() => pick(row.ids)}>
                         {row.name}
                       </button>
                     )}
+                    {dot ? <ActivityDot state={dot} what={dot === life?.mark ? row.name : `inside ${row.name}`} /> : null}
                     {under ? (
                       <span className="text-muted-foreground shrink-0 tabular-nums" title={`${under} space${under === 1 ? '' : 's'} under it`}>
                         {under}

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { flushSync } from 'react-dom'
 import { Responsive, type Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, type Space } from 'kehikot-module-protocol'
-import { spaceHere } from './host/spaces.ts'
+import { heldSpaceOf, spaceHere } from './host/spaces.ts'
+import type { SpaceActivity } from './host/spaceRecency.ts'
 import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
 import type { Build, ContentChange, Disposition, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
@@ -3635,13 +3636,20 @@ export function App() {
   const visitedHere: Here | null =
     projectId === null
       ? null
-      : { project: projectId, epic: about.scope === 'project' ? null : about.epic, kehikko: open && open.project === projectId ? (open.key ?? null) : null }
+      : {
+          project: projectId,
+          epic: about.scope === 'project' ? null : about.epic,
+          kehikko: open && open.project === projectId ? (open.key ?? null) : null,
+          /* The space stood in, as a path: a part picked alone is the child space it became. */
+          space: about.scope === 'project' ? null : (heldSpaceOf(about)?.ids ?? null),
+        }
+  const visitedSpace = visitedHere?.space?.join('/') ?? ''
   const visitedBefore = useRef<Here | null>(null)
   useEffect(() => {
     const visit = visitFor(visitedBefore.current, visitedHere)
     visitedBefore.current = visitedHere
     if (visit) noteVisit(visit)
-  }, [visitedHere?.project, visitedHere?.epic, visitedHere?.kehikko])
+  }, [visitedHere?.project, visitedHere?.epic, visitedHere?.kehikko, visitedSpace])
 
   /** The containers on the open kehikko, but `except`, walked to a step: a person's press on a step in a module that shows steps. */
   const turnHere = (target: { epic: string; step: number }, except?: string) => {
@@ -4238,6 +4246,12 @@ export function App() {
      next, across kehikot, epics and parts. See `nextOf`. */
   const [lastNext, setLastNext] = useState<string | null>(null)
   const nextEntry = useMemo(() => nextOf(inbox.open, lastNext), [inbox.open, lastNext])
+  /* The open project's record as the space picker reads it: every open item for when a space last saw
+     activity (agent sessions, modules, tracker news alike), the live ones for its dots. */
+  const spaceActivity = useMemo<SpaceActivity[]>(() => {
+    const live = new Set(inbox.live)
+    return inbox.all.map((one) => ({ state: one.state, ...(one.place ? { place: one.place } : {}), entered: one.entered, live: live.has(one) }))
+  }, [inbox.all, inbox.live])
   /*
    * The module that shows the Inbox (protocol 2.79.0): whichever registered module declares
    * `inbox:person`, else the official list's entry whose role is `inbox` (`inboxModuleOf`). The
@@ -4993,6 +5007,7 @@ export function App() {
           onPick: (ids, picked) => changeSubject({ space: { ids, picked: picked ?? [] } }),
           onPickAll: () => changeSubject({ scope: 'project' }),
           onEdit: project && !project.missing ? onEditSpaces : null,
+          activity: spaceActivity,
         }}
         /* The host's own door. The id the server answers for it comes from
            the sweep — `registry.host.id` — so the page never spells the host's

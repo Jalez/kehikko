@@ -7,6 +7,7 @@ import {
   kehikkoVisitKey,
   projectVisitKey,
   sortsFrom,
+  spaceVisitKey,
   type Picker,
   type PickerSort,
   type PickerSorts,
@@ -53,7 +54,7 @@ export function adoptVisits(stored: unknown): void {
     return out
   }
   const s = stored as Record<string, unknown>
-  visits = { projects: one(s.projects), epics: one(s.epics), kehikot: one(s.kehikot) }
+  visits = { projects: one(s.projects), epics: one(s.epics), kehikot: one(s.kehikot), spaces: one(s.spaces) }
   tell()
 }
 
@@ -101,6 +102,7 @@ export function noteVisit(visit: Visit, now = Date.now()): void {
       projects: stamp(visits.projects, projectVisitKey(one.project)),
       epics: one.epic !== undefined ? stamp(visits.epics, epicVisitKey(one.project, one.epic)) : visits.epics,
       kehikot: one.kehikko !== undefined ? stamp(visits.kehikot, kehikkoVisitKey(one.project, one.kehikko)) : visits.kehikot,
+      spaces: one.space !== undefined ? stamp(visits.spaces ?? {}, spaceVisitKey(one.project, one.space)) : (visits.spaces ?? {}),
     }
   }
   if (visit.left) hold(visit.left, now - 1)
