@@ -171,6 +171,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/mine/add',
   '/host/mine/install',
   '/host/mine/remove',
+  '/host/uninstall',
   '/host/mine/adopt',
   '/host/projects/locate',
   '/host/projects/followed',

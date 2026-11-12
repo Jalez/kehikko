@@ -63,7 +63,7 @@ import { inboxDesk } from './inboxRoutes.ts'
 import { Adoption } from './adoption.ts'
 import { adoptRoutes } from './adoptRoutes.ts'
 import { readTasksAgent, tasksAgentRoute } from './tasksAgent.ts'
-import { BY as HOST_BY, retireDesk } from './retired.ts'
+import { BY as HOST_BY, isOwnCheckout, noteOf, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { changesOfCopy, hostChanges } from './agentChanges.ts'
 import { withoutForAgents } from 'kehikot-module-protocol'
@@ -802,7 +802,15 @@ async function survey(kept = false): Promise<{
      kept, however old — the sweep after the host's wait for one module, which changed nothing else. */
   manifests.keepOnly(found.registrations.map((registration) => registration.id))
   /* Copies: what follows writes names and icons onto them, and the kept one is what the module said. */
-  const presences = await Promise.all(found.registrations.map(async (registration) => ({ ...(await manifests.read(registration, { kept })) })))
+  const retiredNow = official.retired()
+  const presences = await Promise.all(
+    found.registrations.map(async (registration) => {
+      const note = noteOf(retiredNow, registration.id, (id) => official.current().find((one) => one.id === id)?.name ?? null)
+      /* Whose copy it is: the host's own under `installed/`, or a checkout somebody registered (Uninstall only unregisters that). */
+      const own = isOwnCheckout(registration.dir, join(installsDir(), registration.id))
+      return { ...(await manifests.read(registration, { kept })), ...(note ? { retired: note } : {}), ...(own ? { own: true as const } : {}) }
+    }),
+  )
   startup.mark('first sweep')
   const knows = agentKnows()
 
@@ -3273,11 +3281,10 @@ const tasksAgentDesk = tasksAgentRoute({
   choices: () => servicesHere(AGENT_TASKS, null, null).map((one) => ({ module: one.module, name: one.name })),
 })
 
-/* What the official list retired is taken off this machine, once the list is read: see
-   `retired.ts`. Never waited for, and a sweep that finds nothing does nothing. */
+/* A module the official list retired, still here: said on its presence, removed only on a press
+   (`/host/uninstall`, for any module). See `retired.ts`. */
 const retiring = retireDesk({
   db,
-  inbox,
   retired: official.retired,
   root: installsDir(),
   registry: registryDir(),
@@ -3285,12 +3292,9 @@ const retiring = retireDesk({
   stop: (id) => void halt(id),
   keep: (project) => keep(db, project),
   woke: (kehikko) => wakes.woke(kehikko),
-  projects: () => listProjects(db).map((one) => ({ id: one.id })),
-  changed: (project, rev) => wakes.inboxChanged(project, rev),
   registryChanged: () => wakes.registryChanged(),
   log: (line) => console.log(line),
 })
-void official.refresh().then(() => retiring.sweep())
 
 /*
  * A conversation's place (protocol 2.4.0): the token a session carries on every
@@ -4799,7 +4803,7 @@ async function answerRequest(request: Request): Promise<Response> {
       const runningApp = app && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(app) ? app : null
       /* Somebody asked what is new: that includes which modules exist. Not
          waited for — the answer here is about checkouts. */
-      if (fetch) void official.refresh().then(() => retiring.sweep())
+      if (fetch) void official.refresh()
       /* And which Kehikot each release works with: read at most daily, so
          this is nearly always instant; never waited for long. */
       if (fetch) await appProtocols.settled(4_000, runningApp)
@@ -4984,6 +4988,12 @@ async function answerRequest(request: Request): Promise<Response> {
     if (notesAnswer) return notesAnswer
 
     /* The official module list, installing from it, and proposing for it. */
+    if (url.pathname === '/host/uninstall' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { module?: unknown } | null
+      if (!body || typeof body.module !== 'string' || body.module.length > 64) return json({ error: 'An uninstall names one module.' }, 400)
+      const done = await retiring.uninstall(body.module)
+      return done.ok ? json(done) : json({ error: done.why }, done.status)
+    }
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))
     if (officialAnswer) return officialAnswer
 

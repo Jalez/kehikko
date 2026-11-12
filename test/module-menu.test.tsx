@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ModuleList } from '../src/canvas/Modules.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { arrange, attention, builtFrom, HERE, matches, OTHER, rowsOf, shelfOf } from '../src/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, HERE, matches, OTHER, rowsOf, shelfOf, uninstallSaid } from '../src/host/moduleMenu.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
@@ -264,5 +264,46 @@ describe('what a module is built from, and what it says wrongly about itself', (
     expect(html).toContain('Update the module to use it.')
     /* The quiet warning line a ready module used to get for this is gone. */
     expect(html).not.toContain('data-warning')
+  })
+})
+
+describe('a deprecated module, and Uninstall', () => {
+  const old = presence({ id: 'kehikot.old', name: 'Old', tags: ['planning'], retired: { says: 'Replaced by the Inbox module.', successor: { id: 'kehikot.next', name: 'Next' } } })
+  const noSuccessor = presence({ id: 'kehikot.older', name: 'Older', retired: { says: 'Its job is done elsewhere.' } })
+  const own = presence({ id: 'me.scores', name: 'Scores', own: true })
+  const draw = (presences: Presence[], official: Parameters<typeof rowsOf>[2] = null) =>
+    renderToStaticMarkup(
+      <TooltipProvider>
+        <ModuleList registry={{ presences, sweep: { dir: '/registry', rejected: [] }, protocol: 2 }} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+      </TooltipProvider>,
+    )
+
+  test('the badge says Deprecated beside the name, only on a retired module', () => {
+    const html = draw([old, paper])
+    expect(html.match(/>Deprecated</g)).toHaveLength(1)
+    expect(html.indexOf('Old')).toBeLessThan(html.indexOf('Deprecated'))
+    expect(html.indexOf('Deprecated')).toBeLessThan(html.indexOf('Paper'))
+  })
+
+  test('its tooltip is the list’s “Replaced by <successor>.”, else the list’s words', () => {
+    expect(deprecatedSaid(old)).toBe('Replaced by Next.')
+    expect(deprecatedSaid(noSuccessor)).toBe('Its job is done elsewhere.')
+    expect(deprecatedSaid(paper)).toBeNull()
+  })
+
+  test('every installed module has Uninstall, which is not the same button as remove', () => {
+    const html = draw([old, paper, own])
+    expect(html.match(/>Uninstall</g)).toHaveLength(3)
+    expect(html.match(/>add</g)).toHaveLength(3)
+  })
+
+  test('the confirm says what happens: a copy Kehikot installed is deleted, a person’s own checkout only unregistered', () => {
+    expect(uninstallSaid('Paper', false)).toBe(
+      'Uninstall Paper from this computer? It is taken off every kehikko it is on and the copy Kehikot installed is deleted. What it kept in your projects stays.',
+    )
+    const own = uninstallSaid('Scores', true)
+    expect(own).toContain('Unregister Scores')
+    expect(own).toContain('Your own folder is not deleted')
+    expect(own).toContain('what it kept in your projects stays')
   })
 })

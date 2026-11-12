@@ -80,6 +80,12 @@ function ageOf(ms: number): string {
   return `${Math.round(hours / 24)} days ago`
 }
 
+/** Take a module off this computer: off every kehikko, unregistered, and its installed copy deleted. Data in projects stays. */
+export async function uninstallModule(id: string): Promise<void> {
+  const response = await post('/host/uninstall', id)
+  if (!response.ok) throw new Error(await reason(response))
+}
+
 /** Start installing one official module. It returns at once; the list says how it is going. */
 export async function installOfficial(id: string): Promise<void> {
   const response = await post('/host/official/install', id)

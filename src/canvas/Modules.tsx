@@ -12,8 +12,8 @@ import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { protocolDetailSaid } from '@/host/worksWith.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
-import { arrange, attention, builtFrom, rowsOf, type Available, type Registered } from '@/host/moduleMenu.ts'
-import { fetchOfficial, installOfficial, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, rowsOf, uninstallSaid, type Available, type Registered } from '@/host/moduleMenu.ts'
+import { fetchOfficial, installOfficial, uninstallModule, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
 import {
   addRepository,
   adoptMine,
@@ -210,6 +210,7 @@ export function ModuleList({
                       onPlace={() => onPlace(row.id)}
                       onUnplace={() => onUnplace(row.id)}
                       onRemove={row.mine ? () => official.remove(row.id) : undefined}
+                      onUninstall={() => official.uninstall(row.id)}
                       refused={official.refused.get(row.id) ?? null}
                       onIntro={onIntro ? () => onIntro(row.id, { name: row.name, summary: row.summary }) : undefined}
                     />
@@ -304,6 +305,7 @@ function useOfficial(onInstalled?: () => void) {
     install: (id: string) => press(id, () => installOfficial(id)),
     installMine: (id: string) => press(id, () => installMine(id)),
     remove: (id: string) => press(id, () => removeMine(id)),
+    uninstall: (id: string) => press(id, () => uninstallModule(id)),
     adopt: (id: string) => press(id, () => adoptMine(id)),
     again: () => setAsked((n) => n + 1),
   }
@@ -394,6 +396,7 @@ function ModuleRow({
   onPlace,
   onUnplace,
   onRemove,
+  onUninstall,
   refused,
   onIntro,
 }: {
@@ -404,6 +407,8 @@ function ModuleRow({
   onUnplace(): void
   /** One of the person's own: take it off this computer. */
   onRemove?(): void
+  /** Uninstall: off this computer and every kehikko; asked once first. */
+  onUninstall(): void
   /** Why the last press on it was refused. */
   refused?: string | null
   /** Open its introduction (protocol 2.57.0), or its "How to use": a "?" beside add. */
@@ -416,6 +421,7 @@ function ModuleRow({
      the host itself did (asleep, starting), and a module it cannot speak to.
      Plain "not running" gets no word. It is the resting state of the list. */
   const word = presence.lifecycle ?? (presence.condition === 'incompatible' ? 'incompatible' : null)
+  const deprecated = deprecatedSaid(presence)
   return (
     <li className="flex items-start gap-2.5 p-3">
       <span className="mt-1.5">
@@ -431,6 +437,13 @@ function ModuleRow({
             <Badge variant="outline" className="text-muted-foreground shrink-0">
               {word}
             </Badge>
+          ) : null}
+          {deprecated ? (
+            <Hint label={deprecated} side="top">
+              <Badge variant="outline" className="shrink-0 border-amber-600/50 text-amber-700 dark:text-amber-400">
+                Deprecated
+              </Badge>
+            </Hint>
           ) : null}
           <Standings standing={standing} />
           {row.mine ? <AddedByYou repo={row.mine.repo} /> : null}
@@ -485,6 +498,7 @@ function ModuleRow({
         ) : null}
         <Halves standing={standing} />
         <Details row={row} shown={trouble} onRemove={onRemove} />
+        <UninstallAsk name={row.name} own={presence.own === true} onUninstall={onUninstall} />
       </div>
       {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
       <Hint
@@ -690,6 +704,41 @@ function AddedByYou({ repo }: { repo: string }) {
  * It stops the module and deletes the copy this host installed and its
  * registration; what it kept in projects stays.
  */
+/**
+ * Uninstall: take the module off this computer, as against "remove", which takes it off this kehikko.
+ * Asks once, in the words of `uninstallSaid`.
+ */
+function UninstallAsk({ name, own, onUninstall }: { name: string; own: boolean; onUninstall(): void }) {
+  const [asking, setAsking] = useState(false)
+  if (!asking) {
+    return (
+      <Hint label="take it off this computer and every kehikko (the “remove” button only takes it off this one)" side="bottom">
+        <button type="button" className="text-muted-foreground hover:text-foreground mt-1.5 block text-[11px] underline" onClick={() => setAsking(true)}>
+          Uninstall
+        </button>
+      </Hint>
+    )
+  }
+  return (
+    <p role="alert" className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+      {uninstallSaid(name, own)}{' '}
+      <button
+        type="button"
+        className="text-foreground underline"
+        onClick={() => {
+          setAsking(false)
+          onUninstall()
+        }}
+      >
+        {own ? 'Unregister' : 'Uninstall'}
+      </button>{' '}
+      <button type="button" className="underline" onClick={() => setAsking(false)}>
+        Cancel
+      </button>
+    </p>
+  )
+}
+
 function RemoveMine({ name, installed, onRemove }: { name: string; installed: boolean; onRemove(): void }) {
   const [asking, setAsking] = useState(false)
   if (!asking) {

@@ -30,9 +30,9 @@
     { "id": "kehikot.inbox", "name": "Inbox", "repo": "Jalez/kehikko-inbox", "port": 7910, "icon": "lucide:inbox", "role": "inbox", "tags": ["agents", "planning"], "summary": "What your modules need from you, are doing and have finished, in every project: answer a question, dismiss it, or go to it.", "protocol": "2.79.0" }
   ],
   "retired": [
-    { "id": "kehikot.notifications", "name": "Notifications", "says": "the Inbox in the bar now holds what modules need, are doing and have said." },
-    { "id": "kehikot.atlas", "name": "Atlas", "says": "Kehikot's own project and epic switching, and the agent jump, do its job." },
-    { "id": "kehikot.tests", "name": "Tests", "says": "Queue runs heavy work such as test suites, and Checklist holds what a change owes." }
+    { "id": "kehikot.notifications", "name": "Notifications", "says": "Replaced by the Inbox module.", "replacedBy": "kehikot.inbox" },
+    { "id": "kehikot.atlas", "name": "Atlas", "says": "Replaced by Kehikot's own project and epic switching, and the agent jump." },
+    { "id": "kehikot.tests", "name": "Tests", "says": "Replaced by Queue, which runs heavy work such as test suites, and Checklist, which holds what a change owes." }
   ],
   "layouts": [
     {
