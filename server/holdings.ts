@@ -368,7 +368,9 @@ function epicOf(
   /* The list of parts is this host's, like the slug and the title: when its
      file keeps one, that is the epic's list, whatever the record says. */
   const listed = listedIn(own)
-  const epic = record ? { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}), ...(listed ? { parts: listed } : {}) } : own
+  const epic = record
+    ? { ...record, slug: str(own.slug) ?? slug, ...(title ? { title } : {}), ...(listed ? { parts: listed } : {}), ...(own.partRefs ? { partRefs: own.partRefs } : {}), ...adoptedRefs(record, own) }
+    : own
   /* Protocol 2.21.0: once any module publishes a plan for the epic, its steps
      are the union of every provider's (`server/plans.ts`) — the same steps
      `steps.list` hands over, each saying whose it is. Until then the epic is
@@ -868,6 +870,88 @@ export function editParts(root: string | null | undefined, slug: unknown, edit: 
   }
   const now = { ...own, parts: result.parts }
   return { result, epic: summarise(slug, epicOf(root, slug, now), now, holdings, root), written: true }
+}
+
+/** What came of adding a ref to an epic, or taking one out: whether the file was written, and why not. */
+export interface RefEdited {
+  outcome: 'changed' | 'unchanged' | 'declined'
+  why: string
+}
+
+/**
+ * The ONE writer of the refs an epic names by adoption: `refs` (the epic's own) and `partRefs`
+ * (`{ <part id>: [ref] }`, which `partsHeld` adds to those parts) in the epic's own file, every other
+ * byte where it was (`withMember`), written beside and renamed, as `editParts` writes. The Inbox's
+ * "Add to an epic" and its Undo come here; nothing else writes those two keys.
+ *
+ * `add`: the ref goes into `refs` and into each of `parts` (which must be the epic's). Otherwise it
+ * comes out of `refs` and out of every part. No change, no write. Never throws.
+ */
+export function editEpicRef(root: string | null | undefined, slug: unknown, ref: string, parts: readonly string[], add: boolean): RefEdited {
+  const declined = (why: string): RefEdited => ({ outcome: 'declined', why })
+  if (typeof slug !== 'string' || !SLUG.test(slug) || !root || !epicsIn(root)) return declined('There is no such epic in this project.')
+  if (!ref.trim() || ref.length > 400) return declined('That is not a ref.')
+  if (!projectRootExists(root)) return declined(`${MISSING_SAID} The epic was not changed.`)
+  if (isReadOnlyRoot(root)) return declined(`${READ_ONLY_SAID} The epic was not changed.`)
+  const path = join(epicsDir(root), `${slug}.json`)
+  let raw: string
+  try {
+    raw = readFileSync(path, 'utf8')
+  } catch {
+    return declined('There is no such epic in this project.')
+  }
+  const own = parse(raw)
+  if (!own) return declined(`${slug}.json could not be read as JSON, and this host will not overwrite a file it cannot read.`)
+  const known = new Set(epicPartIds(root, slug) ?? [])
+  for (const part of parts) if (!known.has(part)) return declined(`The epic ${slug} has no part ${part}.`)
+
+  const refs = Array.isArray(own.refs) ? own.refs.filter((one): one is string => typeof one === 'string') : []
+  const partRefs: Record<string, string[]> = {}
+  if (own.partRefs && typeof own.partRefs === 'object' && !Array.isArray(own.partRefs)) {
+    for (const [id, list] of Object.entries(own.partRefs as Record<string, unknown>)) {
+      if (Array.isArray(list)) partRefs[id] = list.filter((one): one is string => typeof one === 'string')
+    }
+  }
+  const nextRefs = add ? (refs.includes(ref) ? refs : [...refs, ref]) : refs.filter((one) => one !== ref)
+  const nextParts: Record<string, string[]> = {}
+  for (const [id, list] of Object.entries(partRefs)) {
+    const kept = add ? list : list.filter((one) => one !== ref)
+    if (kept.length) nextParts[id] = kept
+  }
+  if (add) for (const part of parts) nextParts[part] = [...new Set([...(nextParts[part] ?? []), ref])]
+  const sameRefs = JSON.stringify(nextRefs) === JSON.stringify(refs)
+  const sameParts = JSON.stringify(nextParts) === JSON.stringify(partRefs)
+  if (sameRefs && sameParts) return { outcome: 'unchanged', why: '' }
+
+  let next: string | null = raw
+  if (!sameRefs) next = withMember(next, 'refs', () => JSON.stringify(nextRefs))
+  if (next !== null && !sameParts) next = withMember(next, 'partRefs', () => JSON.stringify(nextParts))
+  if (next === null) return declined(`${slug}.json is not laid out in a way this host can change one field of without rewriting the rest of it.`)
+  const beside = `${path}.tmp-${process.pid}`
+  try {
+    writeFileSync(beside, next, 'utf8')
+    renameSync(beside, path)
+  } catch (error) {
+    try {
+      unlinkSync(beside)
+    } catch {
+      /* It was never made. */
+    }
+    return declined(`${slug}.json could not be written: ${(error as Error).message}`)
+  }
+  return { outcome: 'changed', why: '' }
+}
+
+/** The refs the person adopted into an epic (`refs` in its own file), kept beside the record's own. */
+function adoptedRefs(record: Record<string, unknown>, own: Record<string, unknown>): { refs?: unknown[] } {
+  if (!Array.isArray(own.refs) || !own.refs.length) return {}
+  const theirs = Array.isArray(record.refs) ? record.refs : []
+  return { refs: [...theirs, ...own.refs.filter((one) => !theirs.includes(one))] }
+}
+
+/** The ids of an epic's parts, as its list or record gives them; null for no such epic. */
+function epicPartIds(root: string, slug: string): string[] | null {
+  return readParts(root, slug)?.map((part) => part.id) ?? null
 }
 
 /**

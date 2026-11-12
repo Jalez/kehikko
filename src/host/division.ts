@@ -211,6 +211,12 @@ export const ANSWERED_BY_THE_VIEW = [
   'inbox.answer',
   'inbox.open',
   'inbox.use',
+  /* Protocol 2.88.0: adopting a tracker item no epic names, the same way: the page's, on the person's press. */
+  'inbox.adoption',
+  'inbox.adopt',
+  'inbox.adoptWith',
+  'inbox.untrack',
+  'inbox.undo',
 ] as const
 
 /** Methods the protocol names that neither half has claimed. Should be empty. */

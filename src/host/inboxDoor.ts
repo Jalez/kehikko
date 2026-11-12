@@ -11,7 +11,14 @@ import {
   inboxOpenResult,
   inboxReadResult,
   inboxUseResult,
+  inboxAdoptionResult,
+  inboxAdoptResult,
+  inboxAdoptWithResult,
+  inboxUntrackResult,
+  inboxUndoResult,
   methodParams,
+  type InboxAdoptionResult,
+  type InboxAdoptResult,
   type InboxItem,
   type InboxLogResult,
   type InboxLogRow,
@@ -77,6 +84,20 @@ export interface InboxDoor {
   use(module: string, on: boolean): void
   /** Whether a project id is one of the person's (another project named by `project`). */
   hasProject(project: number): boolean
+  /**
+   * Adopting a tracker item no epic names (protocol 2.88.0): the server's answers, by the item's key.
+   * Absent on a page built without it: the methods are declined.
+   */
+  adopting?: {
+    /** Each item's line after its last adopt or untrack, by `module\u0000id`. */
+    afters(): ReadonlyMap<string, { said: string; undo: boolean }>
+    adoption(key: { module: string; id: string }, project?: number): Promise<InboxAdoptionResult>
+    adopt(key: { module: string; id: string }, epic: string, parts: readonly string[], project?: number): Promise<InboxAdoptResult>
+    /** Open the host's dialog with the person's agent; `no-agent` when none is picked. */
+    adoptWith(key: { module: string; id: string }, project?: number): Promise<'opened' | 'no-agent'>
+    untrack(key: { module: string; id: string }, project?: number): Promise<{ outcome: 'done' | 'declined'; changed: number; why: string }>
+    undo(key: { module: string; id: string }, project?: number): Promise<{ outcome: 'done' | 'declined'; changed: number; why: string }>
+  }
 }
 
 /** The item the host's Next last told a page to go to, and when; `null` before any. */
@@ -91,6 +112,9 @@ export const DOOR_SAYS = {
   noProject: 'That names no project of yours.',
   noItem: 'That names no open item in the Inbox.',
   muteHost: 'Kehikot’s own lists are not muted here; they have their own settings.',
+  noAdopting: 'This Kehikot does not adopt items into epics.',
+  notAdoptable: 'That names no open item about a change that no epic names.',
+  noAgent: 'No agent is picked for Kehikot’s own tasks. Pick one in Settings › Agents, or choose the epic here.',
 } as const
 
 /*
@@ -153,6 +177,7 @@ export function itemOf(
   names: Namer,
   at: { epic: string | null; kehikko: string | null },
   projectName: string | null,
+  after?: { said: string; undo: boolean },
 ): InboxItem {
   const detail = entry.detail ? clip(entry.detail, LIMITS.ACTIVITY_DETAIL) : ''
   const label = clip(entry.label, LIMITS.ACTIVITY_LABEL)
@@ -182,8 +207,14 @@ export function itemOf(
     mutable: mayMute(entry.module),
     /* An agent's offer (protocol 2.87.0): its press goes there with Go back and closes it. */
     ...(isOffer(entry) ? { go: {} } : {}),
+    /* A tracker item no epic names (protocol 2.88.0): Add to an epic, Don't track this. */
+    adoptable: adoptable(entry),
+    ...(after?.said ? { after: { said: clip(after.said, LIMITS.REASON), undo: after.undo } } : {}),
   }
 }
+
+/** Whether a page may offer to adopt an entry: a tracker notice whose ref no epic names. */
+export const adoptable = (entry: Pick<Entry, 'module' | 'place'>): boolean => entry.module === TRACKER_NOTICES_MODULE && entry.place?.epic === undefined
 
 /** `inbox.read`, from what the page holds: every item held to the protocol's schema, and the whole answer too. */
 export function readOf(door: InboxDoor): InboxReadResult {
@@ -222,9 +253,11 @@ export function readOf(door: InboxDoor): InboxReadResult {
     })
   }
   const nextKey = next ? inboxKeyOf(next) : null
+  const afters = door.adopting?.afters()
+  const afterOf = (entry: Entry) => afters?.get(`${entry.module}\u0000${entry.id}`)
   return {
     rev: whole(door.rev()),
-    items: items(door.entries().filter(isLive), (entry) => itemOf(entry, names, at, projectName)),
+    items: items(door.entries().filter(isLive), (entry) => itemOf(entry, names, at, projectName, afterOf(entry))),
     next: nextKey,
     elsewhere,
     earlier: whole(door.earlier()),
@@ -280,7 +313,9 @@ const malformed = (method: string, issue: { path: PropertyKey[]; message: string
 /** The refusal each method says when it is declined. */
 const declined = (method: string, rawWhy: string): Answer => {
   const why = clip(rawWhy, LIMITS.REASON)
-  return ok(method === 'inbox.answer' ? { outcome: 'declined', why } : method === 'inbox.open' ? { outcome: 'declined', why } : { outcome: 'declined', changed: 0, why })
+  if (method === 'inbox.adoption') return ok({ outcome: 'declined', why })
+  if (method === 'inbox.adopt') return ok({ outcome: 'declined', said: '', brought: [], why })
+  return ok(method === 'inbox.answer' || method === 'inbox.open' || method === 'inbox.adoptWith' ? { outcome: 'declined', why } : { outcome: 'declined', changed: 0, why })
 }
 
 /** The entry a key names, in the open project or another. */
@@ -312,6 +347,11 @@ const RESULTS: Record<string, { safeParse(data: unknown): { success: true; data:
   'inbox.answer': inboxAnswerResult,
   'inbox.open': inboxOpenResult,
   'inbox.use': inboxUseResult,
+  'inbox.adoption': inboxAdoptionResult,
+  'inbox.adopt': inboxAdoptResult,
+  'inbox.adoptWith': inboxAdoptWithResult,
+  'inbox.untrack': inboxUntrackResult,
+  'inbox.undo': inboxUndoResult,
 }
 
 /**
@@ -390,6 +430,28 @@ async function answerUnchecked(
       if (!entry) return ok({ outcome: 'no-such-item', why: DOOR_SAYS.noItem })
       door.open(entry, project)
       return ok({ outcome: 'opened', why: '' })
+    }
+    case 'inbox.adoption':
+    case 'inbox.adopt':
+    case 'inbox.adoptWith':
+    case 'inbox.untrack':
+    case 'inbox.undo': {
+      const adopting = door.adopting
+      if (!adopting) return declined(method, DOOR_SAYS.noAdopting)
+      const key = { module: String(params.module), id: String(params.id) }
+      if (method === 'inbox.undo') return ok(await adopting.undo(key, project))
+      const entry = find(door, key.module, key.id, project)
+      if (!entry || !adoptable(entry)) {
+        if (method === 'inbox.adoption') return ok({ outcome: 'no-such-item', why: DOOR_SAYS.notAdoptable })
+        if (method === 'inbox.adopt') return ok({ outcome: 'no-such-item', said: '', brought: [], why: DOOR_SAYS.notAdoptable })
+        if (method === 'inbox.adoptWith') return ok({ outcome: 'no-such-item', why: DOOR_SAYS.notAdoptable })
+        return declined(method, DOOR_SAYS.notAdoptable)
+      }
+      if (method === 'inbox.adoption') return ok(await adopting.adoption(key, project))
+      if (method === 'inbox.adopt') return ok(await adopting.adopt(key, String(params.epic), (params.parts as string[] | undefined) ?? [], project))
+      if (method === 'inbox.untrack') return ok(await adopting.untrack(key, project))
+      const opened = await adopting.adoptWith(key, project)
+      return ok(opened === 'opened' ? { outcome: 'opened', why: '' } : { outcome: 'no-agent', why: DOOR_SAYS.noAgent })
     }
     case 'inbox.use': {
       const module = String(params.module)

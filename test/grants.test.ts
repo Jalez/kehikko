@@ -64,6 +64,11 @@ const PARAMS: Record<string, unknown> = {
   'inbox.answer': { module: 'a', id: 'b', choice: 'Yes' },
   'inbox.open': { module: 'a', id: 'b' },
   'inbox.use': { module: 'a', use: false },
+  'inbox.adoption': { module: 'a', id: 'b' },
+  'inbox.adopt': { module: 'a', id: 'b', epic: 'auth' },
+  'inbox.adoptWith': { module: 'a', id: 'b' },
+  'inbox.untrack': { module: 'a', id: 'b' },
+  'inbox.undo': { module: 'a', id: 'b' },
 }
 
 describe('the rule', () => {

@@ -83,11 +83,14 @@ export interface NoticeSettings {
   on: boolean
   scope: NoticeScope
   events: Record<NoticeEvent, boolean>
+  /** Also items where the person has a role that no epic of the project names. On by default. */
+  outside: boolean
 }
 
 export const DEFAULT_NOTICES: NoticeSettings = {
   on: true,
   scope: 'roles',
+  outside: true,
   events: Object.fromEntries(NOTICE_EVENTS.map((one) => [one, true])) as Record<NoticeEvent, boolean>,
 }
 
@@ -96,6 +99,10 @@ export const NOTICE_WORDS = {
   title: 'Tracker notices',
   lead: 'A line in the Inbox when something happens on an issue, merge request or pull request: one line per item, updated as more happens. Your own actions are never told.',
   on: 'Tell me in the Inbox',
+  outside: "Tell me about my items that aren't in any epic",
+  untracked: 'Not tracked',
+  untrackedLead: 'Items you said not to track. Kehikot tells you nothing more about them in this project.',
+  retrack: 'Track again',
   scopes: {
     roles: 'Only where I have a role (author, assignee or reviewer)',
     epics: 'Also everything my epics name',
@@ -120,8 +127,9 @@ export const NOTICE_WORDS = {
 export function noticesPatched(was: NoticeSettings, raw: unknown): NoticeSettings | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const body = raw as Record<string, unknown>
-  for (const key of Object.keys(body)) if (!['on', 'scope', 'events'].includes(key)) return null
+  for (const key of Object.keys(body)) if (!['on', 'scope', 'events', 'outside'].includes(key)) return null
   if (body.on !== undefined && typeof body.on !== 'boolean') return null
+  if (body.outside !== undefined && typeof body.outside !== 'boolean') return null
   if (body.scope !== undefined && body.scope !== 'roles' && body.scope !== 'epics') return null
   let events = was.events
   if (body.events !== undefined) {
@@ -133,7 +141,12 @@ export function noticesPatched(was: NoticeSettings, raw: unknown): NoticeSetting
       events[key as NoticeEvent] = value
     }
   }
-  return { on: (body.on as boolean | undefined) ?? was.on, scope: (body.scope as NoticeScope | undefined) ?? was.scope, events }
+  return {
+    on: (body.on as boolean | undefined) ?? was.on,
+    scope: (body.scope as NoticeScope | undefined) ?? was.scope,
+    events,
+    outside: (body.outside as boolean | undefined) ?? was.outside,
+  }
 }
 
 /** What is stored, read leniently: anything unreadable is the default. */
@@ -195,11 +208,23 @@ export interface NoticeLink {
   kind: TrackerRow['kind']
   url: string
   title: string
+  /** A change's own branch, when the reading said: what an adoption's suggestion and finder match by. */
+  branch?: string
 }
 
 /** The link of a row, as a notice keeps it. */
 export function linkOf(row: TrackerRow): NoticeLink {
-  return { ref: row.ref, tracker: row.tracker, host: row.host, repo: row.repo, number: row.number, kind: row.kind, url: row.url, title: row.title }
+  return {
+    ref: row.ref,
+    tracker: row.tracker,
+    host: row.host,
+    repo: row.repo,
+    number: row.number,
+    kind: row.kind,
+    url: row.url,
+    title: row.title,
+    ...(row.headBranch ? { branch: row.headBranch } : {}),
+  }
 }
 
 /** The record of one tracker item between readings. */
@@ -476,6 +501,8 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
  */
 export function noticeItem(seen: Seen, settings: NoticeSettings): ActivityItem | null {
   if (!settings.on) return null
+  /* An item no epic names, when the person asked not to hear of those. */
+  if (!seen.epic && settings.outside === false) return null
   const events = stillTrue(seen.events, seen.facts).filter((one) => settings.events[one.kind])
   if (!events.length || seen.since === null) return null
   const needs = events.some((one) => one.kind === 'review-requested' || one.kind === 'changes-requested')
