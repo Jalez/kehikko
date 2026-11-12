@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
@@ -3154,6 +3155,9 @@ const settingsDesk = settingsRoute({
 const soundsDesk = soundsRoute({ db })
 const visitsDesk = visitsRoute({ db })
 
+/* Whether the person has a hand in a kehikko's arrangement, for `arrange_modules`. `arranging.ts`. */
+const arranging = new Arranging()
+
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
   send: (order) => wakes.press(order),
@@ -4982,6 +4986,10 @@ async function answerRequest(request: Request): Promise<Response> {
     const headersAnswer = await headerDesk.route(request, url)
     if (headersAnswer) return headersAnswer
 
+    /* The page saying a drag or a resize started or ended, so no agent arranges under it. `arranging.ts`. */
+    const arrangingAnswer = await arrangingRoute(request, url, arranging)
+    if (arrangingAnswer) return arrangingAnswer
+
     /* A module's Claude Code skills: read, and installed, updated or removed on a press. `skills.ts`. */
     const skillsAnswer = await skillDesk(request, url)
     if (skillsAnswer) return skillsAnswer
@@ -5250,7 +5258,10 @@ async function answerRequest(request: Request): Promise<Response> {
       openness.reported(page, kehikko)
       if (kehikko !== null) startup.mark('page reported its kehikko')
       /* A page on its way out has no frames left to have declared anything. */
-      if (kehikko === null) headerDesk.held.forget(page)
+      if (kehikko === null) {
+        headerDesk.held.forget(page)
+        arranging.forget(page)
+      }
       /* A kehikko was just opened, so the set of modules anybody is looking at
          has just changed — which is the whole trigger this design runs on. The
          sweep reads the kept manifests (`manifests`), so this costs no request
@@ -5411,7 +5422,9 @@ async function answerRequest(request: Request): Promise<Response> {
           places: placeRoutes.places,
           which: () => openness.open(),
           watched: () => openness.every(),
-          wake: (kehikko, folded) => (folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko)),
+          wake: (kehikko, folded, arranged) =>
+            arranged ? wakes.arranged(kehikko, arranged) : folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko),
+          arranging: (kehikko) => arranging.busy(kehikko),
           epicsChanged: (project) => wakes.epicsChanged(project),
           epicWritten: (project, slug) => {
             const root = projectById(db, project)?.path

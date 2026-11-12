@@ -1,3 +1,4 @@
+import type { ArrangeNote } from '../src/host/arrange.ts'
 import type { ContentChange } from 'kehikot-module-protocol'
 
 /**
@@ -94,7 +95,7 @@ export type News =
   /* `folded` rides on the first kind and is the one thing here that says WHO:
      see `FoldNote`. A page that does not know the field re-reads the kehikko,
      which is all the first kind ever asked of it. */
-  | { kehikko: number; folded?: FoldNote }
+  | { kehikko: number; folded?: FoldNote; arranged?: ArrangeNote }
   /* `modules`, when the host has the reading in hand — its wait for a module it started has just
      ended, and it swept — is that reading, what `/host/modules` would answer: the page takes it
      as a look's answer, newer ones only (`swept`), instead of every page asking for it again. A
@@ -237,6 +238,14 @@ export interface FoldNote {
   tile?: string[]
 }
 
+/**
+ * What rides with a wake when an agent arranged a kehikko (`arrange_modules` in `mcp.ts`): who,
+ * which containers, and every container's place before and after, so the page can mark them and
+ * offer Undo, which puts back the arrangement before exactly. See `src/host/arrange.ts`. A page
+ * before this ignores it and re-reads.
+ */
+export type { ArrangeNote } from '../src/host/arrange.ts'
+
 /** A listener that has been handed one piece of news. */
 type Woken = (news: News) => void
 
@@ -328,6 +337,11 @@ export class Wakes {
    */
   folded(kehikko: number, note: FoldNote): void {
     this.#tell({ kehikko, folded: note })
+  }
+
+  /** An agent resized, moved or showed containers (`arrange_modules`): the page re-reads and marks them, with Undo. */
+  arranged(kehikko: number, note: ArrangeNote): void {
+    this.#tell({ kehikko, arranged: note })
   }
 
   /**
