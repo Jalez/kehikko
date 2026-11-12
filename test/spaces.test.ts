@@ -318,7 +318,7 @@ describe('at the host’s door', () => {
     expect(read.text).toContain('space: Auth › Login › Errors [auth/login/errors]')
     expect(read.text).toContain('- Errors [auth/login/errors]')
     /* The older lines stay for agents that read them: the epic and its parts. */
-    expect(read.text).toContain('epic: auth')
+    expect(read.text).toContain('epic (older name of the top-level space, still accepted by tools): auth')
   })
 
   test('removing the space the project is in asks first, then moves the project up to what held it', async () => {

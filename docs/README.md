@@ -106,12 +106,20 @@ project  (a repository or worktree — a folder on disk)
 ```
 
 A **project** is the container. A **kehikko** is one named canvas inside it:
-which containers, arranged where — a layout, and nothing more. An **epic** is
+which containers, arranged where — a layout, and nothing more. A **space** is
 what the project is currently about, picked once per project; every kehikko in
-it shows the same one. Switching kehikko never changes the epic, and switching
-epic never changes the kehikko. The parts of the epic a person has focused on are
-the project's too, for the same reason. Not every project has epics, and one that does
-not says so rather than showing an empty picker.
+it shows the same one. A project holds a tree of spaces, to any depth (protocol
+2.89.0). Switching kehikko never changes the space, and switching space never
+changes the kehikko. Not every project has spaces, and one that does not says so
+rather than showing an empty picker.
+
+**Epics and parts are the older names** of a top-level space and its direct
+sub-spaces, with the same ids. They stay on the wire for compatibility: modules
+are still told `context.epic` and `context.parts`, the files are still
+`.kehikot/host/epics/<id>.json`, the door's tools still accept `epic` and `parts`
+arguments, and `create_epic` and `set_parts` keep their names (`edit_space` is
+preferred). Everything a person or an agent reads says space. The sections
+below that say epic and part describe that compatibility layer and its history.
 
 Modules keep their data in `<project>/.kehikot/<module>/` as plain JSON — beside
 the work it describes rather than inside somebody's app, so it is readable,
@@ -241,7 +249,7 @@ Still open: the tracker's scope for an epic is the refs in `refs` arrays and in
 `containers`, what blocks what, what settles what — and whether a host should
 read the trackers for those as well has not been decided, so it does not.
 
-## An epic has parts, and the project can be pointed at some of them
+## An epic has parts, and the project can be pointed at some of them (the older names of a space's sub-spaces)
 
 A large epic is divided into **parts**: one level deep, an id, a name and a
 place in an order. **A part belongs to the epic and to no module**, and nothing
@@ -317,7 +325,7 @@ its refs, its documents and whether it is picked. Keys are absent when empty,
 so a part nobody holds anything for is the same four fields it always was. See
 `src/host/parts.ts`, and `docs/parts.md` in the protocol.
 
-## All epics at once
+## All epics at once (All spaces)
 
 The epic picker has **All epics** at the top. Choosing it puts the project on
 every epic at once: modules are told `context.scope: 'project'` with `epic`
@@ -614,18 +622,19 @@ these tools:
 
 | tool | what it does |
 |---|---|
-| `read_canvas` | what is arranged on a kehikko: the containers with each one's column, row, width and height, which are picked out, the project folder and the epic, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
+| `read_canvas` | what is arranged on a kehikko: the containers with each one's column, row, width and height, which are picked out, the project folder, the space and the project's tree of spaces with each one's path of ids, which registered modules are not on it — and, under each container, the header items its module declared: id, kind, label, menu, state, and whether an agent may press it |
 | `select_modules` | pick containers out, replacing what was picked before |
 | `place_modules` | put modules on a kehikko as new containers, where the `+` would put them; nothing already there moves |
-| `create_epic` | make a new epic in the project a kehikko stands in — one file, `.kehikot/host/epics/<slug>.json` — without opening it |
+| `edit_space` | one edit of the project's tree of spaces — create, rename, move or remove a space at any depth, by its path of ids |
+| `create_epic`, `set_parts` | older names, kept: create a top-level space (one file, `.kehikot/host/epics/<id>.json`, without opening it) / edit a top-level space's direct sub-spaces; `edit_space` is preferred |
 | `mark_disposition` | say why a closed ref closed — `done`, `wont-do`, `duplicate`, `superseded`, or `null` to take it back — in the project's `.kehikot/host/dispositions.json`, signed `agent (MCP)` |
 | `read_tracker` | the project's shared tracker reading |
 | `module_versions`, `pin_version` | a module's tagged versions, and which one a container runs |
 | `fold_modules` | fold containers to their headers, make them tiles, or unfold them (a tile is put back at the size and place it had), on a kehikko a page has open; marked on the container as an agent's doing |
 | `arrange_modules` | resize, move and show containers on the conversation's OWN kehikko — `{ containers: [{ module, size? (small, half, wide, full) or columns?, rows?, column?, row? }], show? }` — by the rules a person's drag is made by; never another kehikko, never while the person is dragging or resizing, at most ten changes a minute; marked on the containers with **Undo**, which restores the arrangement before exactly |
 | `press_item` | press one item of a module's header — `{ module, item, value? }` — through the page that has the kehikko open |
-| `jump` | jump the person's view when they ask — `{ project?, kehikko?, epic?, parts?, step? }`, what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
-| `offer_jump` | offer to take the person somewhere they did not ask to see — `{ why, project?, kehikko?, epic?, parts?, step? }`, jump's targets — as one item in their Inbox with **Take me there**; it moves nothing, a new offer replaces the session's last, and the person takes (with Go back) or dismisses it |
+| `jump` | jump the person's view when they ask — `{ project?, kehikko?, space?, step? }` (`epic?`, `parts?`: older names, still accepted), what is left out stays — on the page on screen, as their own pickers go; a step walks every container that follows `kehikot.goto`; marked on the kehikko with **Go back** |
+| `offer_jump` | offer to take the person somewhere they did not ask to see — `{ why, project?, kehikko?, space?, step? }`, jump's targets — as one item in their Inbox with **Take me there**; it moves nothing, a new offer replaces the session's last, and the person takes (with Go back) or dismisses it |
 
 All of them take an optional `kehikko` id and, without one, act on the kehikko a
 page of this host says it has open — refusing, with the list, when no page has
@@ -636,8 +645,8 @@ conversation's own kehikko it may add, show, fold, tile, resize and move
 containers, each change marked and undone with one press; and only `jump`
 moves the view — when the person asks for it, marked with Go back. The arrangement
 belongs to the person looking at it, and what an agent may add is what they
-can see arrive and take off with one press — a container, or an epic in the
-dropdown. `place_modules` refuses rather than squeeze a container somebody
+can see arrive and take off with one press — a container, or a space in the
+picker. `place_modules` refuses rather than squeeze a container somebody
 arranged, and refuses a module this computer has no registration for.
 `server/mcp.ts` has the argument, including the half of the original "cannot
 add" rule that did not survive and why.
@@ -661,20 +670,20 @@ module took the press, not whether a run has finished; the container says
 by it. `server/headers.ts` and `server/mcp.ts` have the argument.
 
 `jump` is how an agent takes the person somewhere when they ask ("take me to the
-auth epic", "show me part 3", "open the Wide kehikko in project X"), or step by
+auth space", "show me Login", "open the Wide kehikko in project X"), or step by
 step through a walkthrough they started; the `/kehikko-jump` skill Kehikot
-installs says when. Each of `project`, `kehikko`, `epic`, `parts` and `step` is
-optional, and what is left out stays where the person is: a step alone turns the
-kehikko to that step, parts alone are picked in the epic that is open, another
-project is gone to with the person's own calm switch and then to the kehikko,
-epic and parts in it. Names are resolved strictly (an id, a folder, an exact
+installs says when. Each of `project`, `kehikko`, `space` and `step` is optional
+(`epic` and `parts`, the older names, still work), and what is left out stays
+where the person is: a step alone turns the kehikko to that step, another
+project is gone to with the person's own calm switch and then to the kehikko
+and space in it. Names are resolved strictly (an id, a folder, an exact
 name or title) and an unknown one is refused with what exists. It acts only on
 the page on screen; with none, nothing moves. A step walks every container on
 the kehikko with `kehikot.goto`, and the answer names those that followed
 (Journeys lights the step's card) — the same walk a person's press on a step of
 the journey's tree in Flows makes, through `view.goto { epic, step }`. The page
 says "Jumped here by an agent" (or "Moved to step 7 (Cap the rate) by an agent")
-with **Go back**, which restores project, kehikko, epic, parts and step exactly;
+with **Go back**, which restores project, kehikko, space and step exactly;
 a second jump keeps the first place to go back to. A jump to where the person
 already is is ignored, jumps are at least 2.5 seconds apart, and each is one line
 in the host log. The conversation's own place (`my_place`) does not follow: it is

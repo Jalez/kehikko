@@ -37,7 +37,7 @@ Ask what the guide's section 1 table asks, ONE question per message, each with y
 4. What it keeps, and in which files under `.kehikot/<name>/`.
 5. What agents should be able to do: which tools only read, which write, and what stays the person's.
 6. What it shows, and what the person switches between (the header's View, Go and Run).
-7. Whether what it holds belongs to parts of the epic (`reacts: ['parts']`) or not (a `partless` sentence).
+7. Whether what it holds belongs to the sub-spaces of a space — `parts` on the wire, the older name — (`reacts: ['parts']`) or not (a `partless` sentence).
 8. What, if anything, needs the person or runs for a while (the Inbox).
 9. Whether it offers a skill of its own.
 

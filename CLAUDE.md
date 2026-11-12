@@ -481,6 +481,16 @@
 
 ## Spaces (protocol 2.89.0)
 
+- Spaces are the model: a project holds one tree of spaces, and a place is a
+  project, a space and a kehikko. "Epic" and "part" are the older names of a
+  top-level space and its direct sub-spaces, kept on the wire (`context.epic`,
+  `parts`, tool arguments `epic`/`parts`, tool names `create_epic`/`set_parts`)
+  for compatibility.
+- What agents read says spaces, like what the person reads: door instructions
+  and tool descriptions lead with `space` and call `epic`/`parts` "older name,
+  still accepted"; `create_epic`/`set_parts` point to `edit_space` as preferred
+  (`test/tools-say-spaces.test.ts` holds it). Places in notes, markers and a
+  door's sentences are the protocol's `spaceWords` (`space Auth › Login`).
 - A project's spaces are one tree, to any depth. The top two levels ARE the epic
   files and their `parts` (same ids); `.kehikot/host/spaces.json` keeps the
   top-level order and every deeper space (`server/spaces.ts`). Where the two
@@ -631,20 +641,20 @@
   page (`fromThePage` in `server/anyway.ts`); a new route a page posts state to
   gets the same check.
 - An agent may jump the person's view when the person asks for it (or step by
-  step through a walkthrough they started): `jump { project?, kehikko?, epic?,
-  parts?, step? }` (`server/mcp.ts`), the ONE door tool that switches project,
-  kehikko or epic. What it leaves out stays. The server resolves names strictly
+  step through a walkthrough they started): `jump { project?, kehikko?, space?,
+  step? }` (`epic?`/`parts?` still accepted; `server/mcp.ts`), the ONE door tool
+  that switches project, kehikko or space. What it leaves out stays. The server resolves names strictly
   and refuses an unknown one with what exists, paces jumps (`paceRefusal`) and
   logs one line; the page on screen plans it again (`planJump`, which ignores a
   jump to where the person is), goes as the person's own pickers go (`goPlace`
   in `App.tsx`: `onProject`, the calm switch, then `gotoHere`), walks a step
   (`kehikot.goto`) and marks it with Go back, which restores project, kehikko,
-  epic, parts and step exactly (`JumpMark.tsx`). It never moves `my_place`.
+  space and step exactly (`JumpMark.tsx`). It never moves `my_place`.
   Every rule is in `src/host/jump.ts`. A module's `view.goto { epic, step }`
   walks the other containers the same way. `/kehikko-jump` (`skills/`) is the
   skill that says when to use it.
 - To show the person something they did not ask to see, an agent OFFERS instead:
-  `offer_jump { why, project?, kehikko?, epic?, parts?, step? }` (`offerJumpOn`,
+  `offer_jump { why, project?, kehikko?, space?, step? }` (`offerJumpOn`,
   same target resolution as `jump`, `resolveTarget`) files ONE open Inbox item
   per session (`Inbox.offer`, origin `offer`, id `offerId`), by the session's
   agent module, a "said" (`done`) at normal priority with protocol 2.87.0's `go`.
@@ -1346,10 +1356,10 @@
   the person's view instead says so every time (`UNPLACED_LINE`). `my_place`
   with no record says so and how a record is made; what is on screen is said
   only as information, labelled NOT its place.
-- The person is NEVER asked which epic a conversation is for. A connection
+- The person is NEVER asked which space a conversation is for. A connection
   with no readable record is settled on its first tool call (`settle` in
   `server/placeRoutes.ts`, `settledPlace` in `server/doorPlaces.ts`): the
-  token's project or the one on screen, the epic only when the project has
+  token's project or the one on screen, its top-level space only when the project has
   exactly one, else the whole project. That answer says so and names
   `set_my_place`. A module that does not answer about its token is answered
   for by what it said last. The old `place-ask:` Inbox items are taken out of
@@ -1414,7 +1424,7 @@
   window event `kehikot:settings` (`OPEN_EVENT`) is also the desktop shell's way
   in for an app-menu "Settings…".
 
-## Switching kehikko, project or epic
+## Switching kehikko, project or space
 
 - Module pages must take a real click, typing and the wheel, in WebKit (the
   app's engine) and Chromium. `dev/pages-take-input.drive.mjs` proves it with

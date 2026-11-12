@@ -261,15 +261,15 @@ describe('two conversations on two epics, and the person switching', () => {
 
     const canvasA = (await text('read_canvas', await doorFor(TOKEN_A))).content[0]!.text
     expect(canvasA).toContain(`kehikko ${canvas.id}: writing — this conversation’s own kehikko — not the one on screen now`)
-    expect(canvasA).toContain('epic: methods — this conversation\'s epic.')
-    expect(canvasA).toContain('parts this conversation is about: data')
+    expect(canvasA).toContain('[methods/data] — this conversation\'s space.')
+    expect(canvasA).toContain('sub-spaces this conversation is about: data')
 
     /* The person switches to methods on the writing kehikko: A is now on screen, B is not. */
     setSubject(db, project.id, { epic: 'methods', parts: ['data'] })
     openness.reported(PAGE, canvas.id)
     expect((await text('my_place', await doorFor(TOKEN_A))).content[0]!.text).toContain('The person is looking at this place now.')
     const later = (await text('read_canvas', await doorFor(TOKEN_B))).content[0]!.text
-    expect(later).toContain('epic: results — this conversation\'s epic.')
+    expect(later).toContain('[results] — this conversation\'s space.')
     expect(later).toContain('The person is looking at something else now (space methods (sub-spaces data) on kehikko "writing")')
   })
 
@@ -277,7 +277,7 @@ describe('two conversations on two epics, and the person switching', () => {
     await issue(TOKEN_A, canvas.key)
     const done = await text('set_parts', await doorFor(TOKEN_A), { add: { name: 'Analysis' } })
     expect(done.isError).toBeUndefined()
-    expect(done.content[0]!.text).toContain('The parts of methods')
+    expect(done.content[0]!.text).toContain('The direct sub-spaces of methods')
   })
 
   test('the record is read as it is NOW: a conversation moved to another place is answered there', async () => {
@@ -331,7 +331,7 @@ describe('a conversation nobody started from a place', () => {
     expect(session).toMatch(/^[A-Za-z0-9_-]{16,64}$/)
     const first = await mcp({ id: 1, method: 'tools/call', params: { name: 'read_inbox', arguments: {} } as never }, await doorFor(null, session!, true), { name: 'kehikko', version: 't' })
     const said = (first.body as { result: { content: { text: string }[] } }).result.content[0]!.text
-    expect(said).toContain(`This conversation had no place, so Kehikot set one: ${project.name}, the whole project, no epic on kehikko "review". Nobody was asked.`)
+    expect(said).toContain(`This conversation had no place, so Kehikot set one: ${project.name}, the whole project, no space on kehikko "review". Nobody was asked.`)
     expect(said).toContain('call set_my_place')
     /* Two epics: no guess at one. The kehikko is the one open, which is in that project. */
     expect(sessionOf(db, session!)?.place).toMatchObject({ projectUid: project.uid, epic: null, parts: [], kehikko: other.key })

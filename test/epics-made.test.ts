@@ -285,8 +285,8 @@ describe('one writer, two callers', () => {
     const { id, project: projectId } = kehikkoIn(dir)
     const done = await call('create_epic', { kehikko: id, title: 'Not opened' }, door())
     expect(done.failed).toBe(false)
-    expect(done.text).toContain('Created not-opened')
-    expect(done.text).toContain('still about something-else')
+    expect(done.text).toContain('Created the top-level space not-opened')
+    expect(done.text).toContain('still in the space something-else')
     expect(readSubject(db, projectId)?.epic).toBe('something-else')
     expect(listCanvases(db).some((c) => c.id === id)).toBe(true)
     /* The page is told its epics changed — not that the kehikko did, because

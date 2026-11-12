@@ -238,14 +238,14 @@ describe('the door reports the scope', () => {
     ]
     const done = await call('read_canvas', {}, door(store, openness, seen))
     expect(done.failed).toBe(false)
-    expect(done.text).toContain('epic: all epics')
+    expect(done.text).toContain('space: all spaces')
     expect(done.text).toContain('scope: project')
-    expect(done.text).toMatch(/a\.one \(One\) — works on one epic at a time/)
-    expect(done.text).not.toMatch(/a\.all \(All\) — works on one epic at a time/)
+    expect(done.text).toMatch(/a\.one \(One\) — works in one space at a time/)
+    expect(done.text).not.toMatch(/a\.all \(All\) — works in one space at a time/)
 
     setSubject(store, p.id, { epic: 'one' })
     const again = await call('read_canvas', {}, door(store, openness, seen))
-    expect(again.text).toContain('scope: epic')
+    expect(again.text).toContain('scope: space')
     expect(again.text).not.toContain('works on one epic at a time')
   })
 
