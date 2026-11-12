@@ -4472,6 +4472,8 @@ export function App() {
         /* Never a dead end (`adoptWithStep`): the agent's dialog, the choice of agent in it, the update
            the agent module needs, or the module list to add one. */
         const got = await fetchAdoption(at, key, at === projectId ? (open?.key ?? null) : null)
+        /* The host's server did not answer: say so in its words, not as "no agent". */
+        if (got.outcome === 'declined' && got.why) return { why: got.why }
         const step = adoptWithStep(got)
         if (step.kind === 'dialog') setAdopting({ project: at, item: key })
         else if (step.kind === 'update') openUpdates(step.module)

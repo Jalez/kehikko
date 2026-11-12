@@ -218,6 +218,26 @@ export function dialogPlan(read: {
   return { mode: 'picker', confirm: s && label ? { epic: s.epic, parts: [...s.parts], label, conversations: [] } : null }
 }
 
+/**
+ * Which conversations the dialog lists, and which it folds. Only confident matches (`created`,
+ * `pushed`, `branch`) and the ones an agent's proposal names are listed, at most `most`; every other
+ * one — a conversation that only mentioned the item or worked in the same repository — is folded under
+ * one line the person can open. A busy repository otherwise filled the dialog with twenty of them.
+ */
+export function conversationRows<T extends { session: string; match: string }>(
+  conversations: readonly T[],
+  proposed: readonly string[] = [],
+  most = 3,
+): { shown: T[]; folded: T[]; foldedSaid: string | null } {
+  const strong = conversations.filter((one) => CONFIDENT.has(one.match) || proposed.includes(one.session))
+  const shown = strong.slice(0, most)
+  const folded = conversations.filter((one) => !shown.includes(one))
+  const n = folded.length
+  return { shown, folded, foldedSaid: n === 0 ? null : n === 1 ? 'One other conversation worked in this repository' : `${n} other conversations worked in this repository` }
+}
+
+const CONFIDENT = new Set(['created', 'pushed', 'branch'])
+
 /* ---- which agent does the task ---- */
 
 /**

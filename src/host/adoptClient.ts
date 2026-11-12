@@ -8,14 +8,41 @@ import type { InboxAdoptResult, InboxAdoptionResult } from 'kehikot-module-proto
 
 type Key = { module: string; id: string }
 
-async function ask<T>(url: string, init?: RequestInit): Promise<T | null> {
+/**
+ * How long the page waits for one of these routes. None of them waits on a module for longer than a
+ * few seconds (`ADOPTION_LIMITS` in `server/adoption.ts`), and a module's page that asked through the
+ * host gives up after 12 s, so the page gives up before that and says why.
+ */
+export const ASK_WITHIN_MS = 10_000
+
+/** An answer, or why there was none, in words. */
+type Asked<T> = { ok: true; body: T } | { ok: false; why: string }
+
+async function asked<T>(url: string, init?: RequestInit, within = ASK_WITHIN_MS): Promise<Asked<T>> {
   try {
-    const response = await fetch(url, init)
-    if (!response.ok) return null
-    return (await response.json()) as T
-  } catch {
-    return null
+    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(within) })
+    const body = (await response.json().catch(() => null)) as (T & { error?: unknown }) | null
+    if (!response.ok) {
+      const said = body && typeof body.error === 'string' ? body.error : `HTTP ${response.status}`
+      return { ok: false, why: `Kehikot refused it: ${said.replace(/\.$/, '')}. Nothing was changed.` }
+    }
+    if (body === null) return { ok: false, why: 'Kehikot answered in a shape this page does not read. Nothing was changed.' }
+    return { ok: true, body }
+  } catch (error) {
+    const name = (error as { name?: string } | null)?.name
+    return {
+      ok: false,
+      why:
+        name === 'TimeoutError' || name === 'AbortError'
+          ? `Kehikot did not answer within ${Math.round(within / 1000)} s. Nothing was changed.`
+          : `Kehikot's server could not be reached (${(error as Error)?.message ?? 'no reason'}). Nothing was changed.`,
+    }
   }
+}
+
+async function ask<T>(url: string, init?: RequestInit): Promise<T | null> {
+  const got = await asked<T>(url, init)
+  return got.ok ? got.body : null
 }
 
 const post = <T>(path: string, body: unknown) =>
@@ -29,10 +56,13 @@ export async function fetchAfters(project: number): Promise<Map<string, { said: 
 }
 
 /** What to offer for one item; `kehikko` (its key) is the one the person is on, whose agent would do the task. */
-export async function fetchAdoption(project: number, key: Key, kehikko: string | null = null): Promise<InboxAdoptionResult> {
+export async function fetchAdoption(project: number, key: Key, kehikko: string | null = null): Promise<InboxAdoptionResult & { finding?: boolean }> {
   const at = kehikko ? `&kehikko=${encodeURIComponent(kehikko)}` : ''
-  const got = await ask<{ adoption?: InboxAdoptionResult }>(`/host/inbox/adoption?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}${at}`)
-  return got?.adoption ?? { outcome: 'declined', why: NO_ANSWER, item: null, epics: [], suggested: null, conversations: [], agent: null, proposal: null }
+  const got = await asked<{ adoption?: InboxAdoptionResult; finding?: boolean }>(
+    `/host/inbox/adoption?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}${at}`,
+  )
+  if (got.ok && got.body.adoption) return { ...got.body.adoption, ...(got.body.finding ? { finding: true } : {}) }
+  return { outcome: 'declined', why: got.ok ? NO_ANSWER : got.why, item: null, epics: [], suggested: null, conversations: [], agent: null, proposal: null }
 }
 
 export async function postAdopt(
@@ -62,9 +92,35 @@ export async function postUndo(project: number, key: Key): Promise<Done> {
 
 export type TaskStarted = { ok: true; module: string; name: string; session: string; view: string } | { ok: false; why: string; noAgent?: true }
 
-/** Start the agent of kehikko `kehikko` (its primary, or its only one) on the item. */
-export async function postTask(project: number, key: Key, kehikko: string | null = null): Promise<TaskStarted> {
-  return (await post<{ result?: TaskStarted }>('/host/inbox/task', { project, ...key, kehikko }))?.result ?? { ok: false, why: NO_ANSWER }
+/** How the host says a start stands (`TaskState` in `server/adoption.ts`). */
+type TaskState =
+  | { state: 'starting'; module: string; name: string }
+  | { state: 'started'; module: string; name: string; session: string; view: string }
+  | { state: 'failed'; why: string; noAgent?: true }
+
+/** How long the page reads a start that is under way before saying the agent did not say. */
+export const TASK_WITHIN_MS = 45_000
+
+/**
+ * Start the agent of kehikko `kehikko` (its primary, or its only one) on the item. The host answers
+ * at once and starts it in the background; this reads how it went every `everyMs` until it started
+ * or failed, and says why in words when it did not.
+ */
+export async function postTask(project: number, key: Key, kehikko: string | null = null, everyMs = 1000, withinMs = TASK_WITHIN_MS): Promise<TaskStarted> {
+  const begun = await asked<{ result?: TaskState }>('/host/inbox/task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project, ...key, kehikko }) })
+  if (!begun.ok) return { ok: false, why: begun.why }
+  let state = begun.body.result ?? null
+  const until = Date.now() + withinMs
+  const name = state && 'name' in state ? state.name : 'The agent'
+  while (state?.state === 'starting' && Date.now() < until) {
+    await new Promise((done) => setTimeout(done, everyMs))
+    const read = await asked<{ result?: TaskState | null }>(`/host/inbox/task?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}`)
+    if (read.ok && read.body.result) state = read.body.result
+  }
+  if (!state) return { ok: false, why: NO_ANSWER }
+  if (state.state === 'started') return { ok: true, module: state.module, name: state.name, session: state.session, view: state.view }
+  if (state.state === 'failed') return { ok: false, why: state.why, ...(state.noAgent ? { noAgent: true as const } : {}) }
+  return { ok: false, why: `${name} didn’t say it started the task within ${Math.round(withinMs / 1000)} s.` }
 }
 
 export async function fetchUntracked(project: number): Promise<{ id: string; ref: string; title: string; at: number }[]> {

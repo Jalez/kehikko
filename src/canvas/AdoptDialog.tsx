@@ -7,7 +7,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { dialogPlan, TASK_AGENT_SAID } from '@/host/adoption.ts'
+import { conversationRows, dialogPlan, TASK_AGENT_SAID } from '@/host/adoption.ts'
 import { fetchAdoption, postAdopt, postTask, type TaskStarted } from '@/host/adoptClient.ts'
 import { postKehikkoSettings } from '@/host/kehikkoSettings.ts'
 import { AgentCubes } from './KehikkoSettings.tsx'
@@ -41,6 +41,8 @@ export interface AdoptDialogProps {
   onClose(said: string | null): void
   /** For tests: how often the proposal is read again while the agent works. */
   pollMs?: number
+  /** For tests: how often a start under way is read (`postTask`). */
+  taskPollMs?: number
 }
 
 export function AdoptDialog({
@@ -51,8 +53,11 @@ export function AdoptDialog({
   makePrimary = (id, module) => postKehikkoSettings(id, { primary: module }),
   onClose,
   pollMs = 2500,
+  taskPollMs = 1000,
 }: AdoptDialogProps) {
-  const [read, setRead] = useState<InboxAdoptionResult | null>(null)
+  const [read, setRead] = useState<(InboxAdoptionResult & { finding?: boolean }) | null>(null)
+  /** Whether the conversations that only worked in the repository are shown. */
+  const [allConversations, setAllConversations] = useState(false)
   const [task, setTask] = useState<TaskStarted | null>(null)
   const [changing, setChanging] = useState(false)
   const [epic, setEpic] = useState<string>('')
@@ -76,7 +81,7 @@ export function AdoptDialog({
   const start = () => {
     if (started.current) return
     started.current = true
-    void postTask(project, item, kehikko).then((one) => live.current && setTask(one))
+    void postTask(project, item, kehikko, taskPollMs).then((one) => live.current && setTask(one))
   }
 
   /* Read what to offer; with an agent, start it once; with a choice to make, ask it first. */
@@ -122,6 +127,15 @@ export function AdoptDialog({
     setAsking(false)
     if (got.agent) start()
   }
+
+  /* The finders had not all answered: read again for the rest (the host answers from what it found). */
+  useEffect(() => {
+    if (!read?.finding) return
+    const timer = setTimeout(() => {
+      void fetchAdoption(project, item, kehikko).then((got) => live.current && got.outcome === 'ok' && setRead(got))
+    }, Math.min(pollMs, 1500))
+    return () => clearTimeout(timer)
+  }, [read, project, item.module, item.id, kehikko, pollMs])
 
   /* While the agent works and has proposed nothing, read again for its proposal. */
   useEffect(() => {
@@ -214,14 +228,7 @@ export function AdoptDialog({
             </div>
           ) : null}
           {read && !asking && read.conversations.length ? (
-            <ul className="text-muted-foreground mb-3 flex flex-col gap-1 text-xs" data-adopt-conversations="">
-              {read.conversations.map((one) => (
-                <li key={`${one.module}:${one.session}`} data-comes={one.comes ? '' : undefined}>
-                  {one.title || 'Untitled'} ({one.program}) — {one.reason}
-                  {one.placed ? ` · filed under ${one.placed}, stays there` : one.comes ? ' · comes along' : ''}
-                </li>
-              ))}
-            </ul>
+            <ConversationList read={read} open={allConversations} onOpen={() => setAllConversations((was) => !was)} />
           ) : null}
           {read && picking ? (
             <div className="flex flex-col gap-3" data-adopt-picker="">
@@ -298,5 +305,29 @@ export function AdoptDialog({
         </ModalFooter>
       </ModalContent>
     </Dialog>
+  )
+}
+
+/** The conversations that worked on the item: the confident ones, and the rest folded (`conversationRows`). */
+function ConversationList({ read, open, onOpen }: { read: InboxAdoptionResult; open: boolean; onOpen(): void }) {
+  const rows = conversationRows(read.conversations, read.proposal?.conversations ?? [])
+  const line = (one: InboxAdoptionResult['conversations'][number]) => (
+    <li key={`${one.module}:${one.session}`} data-comes={one.comes ? '' : undefined} data-adopt-match={one.match}>
+      {one.title || 'Untitled'} ({one.program}) — {one.reason}
+      {one.placed ? ` · filed under ${one.placed}, stays there` : one.comes ? ' · comes along' : ''}
+    </li>
+  )
+  return (
+    <div className="text-muted-foreground mb-3 text-xs" data-adopt-conversations="">
+      {rows.shown.length ? <ul className="flex flex-col gap-1">{rows.shown.map(line)}</ul> : null}
+      {rows.foldedSaid ? (
+        <>
+          <button type="button" className="hover:text-foreground mt-1 underline-offset-2 hover:underline" aria-expanded={open} onClick={onOpen} data-adopt-more="">
+            {open ? '▾' : '▸'} {rows.foldedSaid}
+          </button>
+          {open ? <ul className="mt-1 flex flex-col gap-1 pl-3" data-adopt-folded="">{rows.folded.map(line)}</ul> : null}
+        </>
+      ) : null}
+    </div>
   )
 }
