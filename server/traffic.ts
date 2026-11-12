@@ -357,6 +357,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/restart': 'restart a module',
   '/host/restart-anyway': 'restart a module',
   '/host/restart-module': 'restart a module',
+  '/host/uninstall': 'uninstall a module',
   '/host/agent': 'an agent’s place',
   '/host/inbox/report': 'the page reports a module’s Inbox items',
   '/host/inbox/notice': 'the page reports a module’s notice',

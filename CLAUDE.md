@@ -1152,13 +1152,17 @@
   `/host/inbox/notice`; nothing forwards a line to a module, and no old module
   file is imported.
 - A module the official list retires (`retired` in `modules.json`, read with the
-  list: `server/officialSource.ts`, acted on by `server/retired.ts`) is taken off
-  the machine: its containers off every kehikko (`editCanvas`), its process
-  stopped, its registration and its `installed/<id>/` copy deleted, and each
-  project's Inbox told once as the host. A registration naming another directory
-  is somebody's own checkout and is left whole. Nothing under a project's
-  `.kehikot/<module>/` is ever touched. The host names no module: ids and words
-  come from the list. Retiring is published by merging `modules.json` to `main`.
+  list: `server/officialSource.ts`, noted by `server/retired.ts`) is never offered for
+  install, and where it is still registered — whatever its directory — its presence
+  carries `retired` and the modules menu draws a "Deprecated" badge whose tooltip is
+  "Replaced by <successor>." (`replacedBy` in the entry) or the entry's `says`. Nothing is
+  removed automatically: a person installed it or registered their own checkout, and
+  containers may hold it. Every registered module has an Uninstall (`POST /host/uninstall`,
+  in `PAGE_ONLY`; `retireDesk.uninstall`): off every kehikko, stopped, registration deleted,
+  and the copy under `installed/<id>/` deleted; a person's own checkout (`presence.own`) is
+  only unregistered, its folder kept. Nothing under a project's `.kehikot/<module>/` is ever
+  touched. "remove" on a row stays "off this kehikko". The host names no module: ids and
+  words come from the list. Retiring is published by merging `modules.json` to `main`.
 
 ## Tracker sources
 

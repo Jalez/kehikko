@@ -269,6 +269,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/storage',
       '/host/tasks-agent',
       '/host/trackers',
+      '/host/uninstall',
       '/host/updates/cancel',
       '/host/updates/step-back',
       '/host/visits',
