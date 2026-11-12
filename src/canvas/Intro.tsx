@@ -250,7 +250,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'agents',
     title: 'Agents that know where they are',
-    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. Agents message each other, and Skills for this kehikko… gives all of them instructions you write.',
+    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. Agents message each other, and a kehikko’s settings hold skills for this kehikko: instructions you write for all of them.',
     art: () => (
       <Art label="an agent conversation connected to the modules beside it">
         <Pane x={16} y={12} w={132} h={126} header="fill-primary/30" />

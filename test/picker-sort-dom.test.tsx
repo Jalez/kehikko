@@ -191,7 +191,6 @@ describe('the sort switch in each dropdown', () => {
         canvases={[canvas(1, 'k1', 'Wide'), canvas(2, 'k2', 'Narrow'), canvas(3, 'k3', 'Alpha')]}
         open={null}
         onOpen={noop}
-        onRename={noop}
         onCreate={noop}
         onDelete={noop}
       />,

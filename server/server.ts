@@ -13,7 +13,7 @@ import { spell } from './trackers/edit.ts'
 import { trackerEditSchema } from '../src/host/trackerSources.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
-import { connectionsSettingSchema, type ConnectionModule } from '../src/host/connections.ts'
+import { connectionsSettingSchema, runsAgents, type ConnectionModule } from '../src/host/connections.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, settle, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
@@ -34,6 +34,7 @@ import {
   readState,
   readSubject,
   setSubject,
+  type Canvas,
   type CanvasEdit,
   type PlacementInput,
 } from './canvases.ts'
@@ -171,6 +172,8 @@ import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { readShelves, saveLayout } from './layouts.ts'
 import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
+import { editKehikkoSettings, ensureKehikkoSettings, readKehikkoSettings, takesNewsAt } from './kehikkoSettings.ts'
+import { choiceDue, shownPrimary } from '../src/host/kehikkoSettings.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { moduleIntros } from './moduleIntros.ts'
 import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
@@ -290,7 +293,9 @@ ensureKnown(db)
 /* What the modules said they are doing and what a person did with it, per project. `inbox.ts`. */
 const inbox = new Inbox(db)
 /* Messages between agent sessions (protocol 2.41.0): one record per project, beside the Inbox. `agentMessages.ts`. */
-const agentMessages = new AgentMessages(db)
+/* News to a place goes to the primary agent module's sessions on a kehikko that has one chosen (`kehikkoSettings.ts`). */
+ensureKehikkoSettings(db)
+const agentMessages = new AgentMessages(db, undefined, (project, reader) => takesNewsAt(db, project, reader.kehikko, reader.module, agentModulesOn))
 /* Which modules the person allowed to send messages as them, as this host saw it (protocol 2.50.0). `personGrants.ts`. */
 const personGrants = new PersonGrants(db)
 /* What happened on the person's issues and changes, told in the Inbox as the host's own items. `trackerNotices.ts`. */
@@ -1422,6 +1427,35 @@ const pins = new Pins({
 
 /** Each module's presence from the last sweep, for the names and versions the picker shows. */
 const lastPresences = new Map<string, Presence>()
+
+/**
+ * The modules this host has seen say they run agent sessions (`declares.agentSessions`), remembered
+ * for the process's life so one that is asleep is still known as one. Never named: read off manifests.
+ */
+const agentRunners = new Set<string>()
+/** The agent modules placed on one kehikko, in the order they are placed. See `src/host/kehikkoSettings.ts`. */
+function agentModulesOfCanvas(canvas: Canvas): string[] {
+  for (const presence of lastPresences.values()) if (presence.module && runsAgents(presence.module)) agentRunners.add(presence.id)
+  return [...new Set(canvas.placements.map((one) => one.i))].filter((id) => agentRunners.has(id))
+}
+function agentModulesOn(project: number, key: string): string[] {
+  const canvas = listCanvases(db).find((one) => one.project === project && one.key === key)
+  return canvas ? agentModulesOfCanvas(canvas) : []
+}
+/** What `GET /host/kehikko-settings` answers for one kehikko: its settings, its agent modules, who is primary, and whether to ask. */
+function kehikkoSettingsAnswer(canvas: Canvas, project: number) {
+  const agents = agentModulesOfCanvas(canvas)
+  const settings = readKehikkoSettings(db, project, canvas.key)
+  return {
+    settings,
+    agents: agents.map((id) => {
+      const presence = lastPresences.get(id)
+      return { id, name: presence?.module?.name ?? presence?.name ?? knownName(id) ?? nameFromId(id), icon: presence?.icon ?? null }
+    }),
+    primary: shownPrimary(agents, settings),
+    due: choiceDue(agents, settings),
+  }
+}
 /* Where a module's introduction is read from when the page asks (`moduleIntros.ts`). The
    repository comes from a list on this side, never from the request. */
 const intros = moduleIntros({
@@ -4054,6 +4088,30 @@ async function answerRequest(request: Request): Promise<Response> {
       if (body.act !== 'save') return json({ error: 'act is save or remove.' }, 400)
       const done = saveKehikkoSkill(project?.path ?? null, canvas.key, body)
       return done.ok ? json({ skill: done.skill, said: done.said }) : json({ error: done.why }, done.status)
+    }
+
+    /* A kehikko's own settings (`server/kehikkoSettings.ts`): which agent module is primary. The
+       GET is the page's; the POST is in `PAGE_ONLY`, and no MCP tool reads or changes them. */
+    if (url.pathname === '/host/kehikko-settings' && request.method === 'GET') {
+      const canvas = listCanvases(db).find((one) => one.id === Number(url.searchParams.get('kehikko')))
+      if (!canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
+      if (canvas.project === null) return json({ settings: { primary: null, later: [] }, agents: [], primary: null, due: false })
+      return json(kehikkoSettingsAnswer(canvas, canvas.project))
+    }
+    if (url.pathname === '/host/kehikko-settings' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { kehikko?: unknown; primary?: unknown; later?: unknown } | null
+      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
+      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
+      if (canvas.project === null) return json({ error: 'That kehikko stands in no project.' }, 409)
+      const agents = agentModulesOfCanvas(canvas)
+      const edit =
+        body.later === true ? { later: agents }
+        : body.primary === null || typeof body.primary === 'string' ? { primary: body.primary as string | null }
+        : null
+      if (!edit) return json({ error: 'Say primary (a module id or null) or later: true.' }, 400)
+      const done = editKehikkoSettings(db, canvas.project, canvas.key, edit, agents)
+      if (!done.ok) return json({ error: done.why }, done.status)
+      return json(kehikkoSettingsAnswer(canvas, canvas.project))
     }
 
     /* A module's own introduction (protocol 2.57.0), read without running it: its manifest, its

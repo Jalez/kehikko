@@ -1,5 +1,5 @@
 import { Pencil, Plus, X } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu.tsx'
@@ -174,6 +174,42 @@ export function RowPencil({ label, title, onStart }: { label: string; title: str
         }}
       >
         <Pencil className="size-3" />
+      </span>
+    </Hint>
+  )
+}
+
+/**
+ * A button on a row, like the pencil: revealed on hover or focus, its own
+ * press and not the row's. The kehikko menu's gear is one (`Canvases.tsx`).
+ */
+export function RowButton({
+  label,
+  title,
+  icon: Icon,
+  onPress,
+  ...data
+}: {
+  label: string
+  title: string
+  icon: ComponentType<{ className?: string }>
+  onPress(): void
+} & { [key: `data-${string}`]: string | number | undefined }) {
+  return (
+    <Hint label={title}>
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-label={label}
+        className={`text-muted-foreground hover:text-foreground pointer-events-auto ${HIT} shrink-0 opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100`}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onPress()
+        }}
+        {...data}
+      >
+        <Icon className="size-3" />
       </span>
     </Hint>
   )

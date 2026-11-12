@@ -46,6 +46,11 @@ import { tellDigest, TELL_EVERY_MS } from 'kehikot-module-protocol/serve'
  * since its last one waits for the minute's end, then goes as one digest
  * (`tellDigest`). Nothing is dropped: news older than `MESSAGES_UNREAD_MS`
  * is no longer unread, as any message.
+ *
+ * When a kehikko has more than one agent module and the person chose a primary one
+ * (`server/kehikkoSettings.ts`), only the primary's sessions there are handed such news; a session of
+ * another is handed none of it (`takesNews`). Messages to a session, a module or the project are not
+ * news to a place and are handed as ever.
  */
 
 /** A session as this record knows it: the module that runs it and its id there. */
@@ -272,6 +277,11 @@ export class AgentMessages {
   constructor(
     private readonly db: Database,
     private readonly clock: () => number = () => Date.now(),
+    /**
+     * Whether this reader is handed news to a place at all: false for a session of an agent module
+     * that is not its kehikko's primary one (`server/kehikkoSettings.ts`). Everyone when not given.
+     */
+    private readonly takesNews: (project: number, reader: Reader) => boolean = () => true,
   ) {
     ensureAgentMessages(db)
   }
@@ -377,6 +387,8 @@ export class AgentMessages {
    * then it waits, and is handed at the minute's end, merged.
    */
   private handTells(project: number, reader: Reader): void {
+    /* Another agent module on this kehikko is its primary: the news goes to that one's sessions. */
+    if (!this.takesNews(project, reader)) return
     const fresh = this.clock() - LIMITS.MESSAGES_UNREAD_MS
     const rows = this.db
       .query<Row, [number, number]>('select * from agent_messages where project = ? and tell = 1 and copy_of is null and at >= ? order by id')

@@ -44,6 +44,40 @@ export function KehikkoSkillsDialog({
   save?: typeof saveKehikkoSkill
   remove?: typeof removeKehikkoSkill
 }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <ModalContent className="sm:max-w-lg" data-kehikko-skills="">
+        <ModalHeader
+          title={<>Skills for {kehikko ? kehikko.name : 'this kehikko'}</>}
+          titleClassName="text-base"
+          description={DELIVERY_SAID}
+          descriptionClassName="text-sm leading-relaxed"
+        />
+        <ModalBody>
+          <KehikkoSkillsPanel active={open} kehikko={kehikko} load={load} save={save} remove={remove} />
+        </ModalBody>
+      </ModalContent>
+    </Dialog>
+  )
+}
+
+/**
+ * The list and the form, without a window around them: Kehikko settings › Skills draws this, and
+ * the dialog above does too. Read again each time `active` turns on.
+ */
+export function KehikkoSkillsPanel({
+  active,
+  kehikko,
+  load = fetchKehikkoSkills,
+  save = saveKehikkoSkill,
+  remove = removeKehikkoSkill,
+}: {
+  active: boolean
+  kehikko: { id: number; name: string } | null
+  load?: typeof fetchKehikkoSkills
+  save?: typeof saveKehikkoSkill
+  remove?: typeof removeKehikkoSkill
+}) {
   const [skills, setSkills] = useState<KeptSkill[] | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -65,7 +99,7 @@ export function KehikkoSkillsDialog({
   }, [kehikko, load])
 
   useEffect(() => {
-    if (!open) return
+    if (!active) return
     setSkills(null)
     setDraft(null)
     setArming(null)
@@ -73,7 +107,7 @@ export function KehikkoSkillsDialog({
     setSaid(null)
     setError(null)
     void reload()
-  }, [open, reload])
+  }, [active, reload])
 
   const issue = draft ? draftIssue(draft) : null
   const full = (skills?.length ?? 0) >= LIMITS_SAID.most
@@ -110,15 +144,7 @@ export function KehikkoSkillsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <ModalContent className="sm:max-w-lg" data-kehikko-skills="">
-        <ModalHeader
-          title={<>Skills for {kehikko ? kehikko.name : 'this kehikko'}</>}
-          titleClassName="text-base"
-          description={DELIVERY_SAID}
-          descriptionClassName="text-sm leading-relaxed"
-        />
-        <ModalBody>
+    <>
 
         {draft ? (
           <form
@@ -262,8 +288,6 @@ export function KehikkoSkillsDialog({
             {full ? <p className="text-muted-foreground text-xs">A kehikko keeps at most {LIMITS_SAID.most} skills.</p> : null}
           </div>
         )}
-        </ModalBody>
-      </ModalContent>
-    </Dialog>
+    </>
   )
 }

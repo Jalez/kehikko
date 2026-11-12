@@ -124,6 +124,9 @@ export interface Refusal {
  *    (`kehikkoSkills.ts`): instructions every agent session on it loads, so
  *    only a press in the page writes one. An agent reads them with the door's
  *    `kehikko_skills` tool.
+ *  - `/host/kehikko-settings` — a kehikko's own settings (`kehikkoSettings.ts`):
+ *    which agent module is primary, and so who is handed the kehikko's shared
+ *    news. Only the person chooses; no MCP tool reads or changes it.
  *  - `/host/module-addresses/check` — what the page's own self-check of the
  *    modules' frame addresses found (`moduleAddresses.ts`). Only the page
  *    checks how it reaches this host.
@@ -163,6 +166,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds/remove',
   '/host/layouts',
   '/host/kehikko-skills',
+  '/host/kehikko-settings',
   '/host/onboarding',
   '/host/whats-new',
   '/host/whats-new/mentions',

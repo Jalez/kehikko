@@ -280,8 +280,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
     frames: [
       {
         selectors: ['[data-tour="kehikko"]', 'button[aria-label="switch kehikko"]'],
-        title: 'Skills for this kehikko',
-        body: 'Write instructions of your own for a kehikko with Skills for this kehikko… in this menu. Every agent working on it follows them.',
+        title: 'Kehikko settings',
+        body: 'The gear on a kehikko’s row in this menu opens its settings: its name, skills of your own that every agent on it follows, and which agent is primary when it has more than one.',
         side: 'bottom',
         align: 'start',
       },

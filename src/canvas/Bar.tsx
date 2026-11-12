@@ -83,7 +83,6 @@ export function Bar({
   onLocateProject,
   storageViews,
   onOpen,
-  onRename,
   onCreate,
   onDelete,
   onSubject,
@@ -135,7 +134,6 @@ export function Bar({
   /** Which modules on the open kehikko offer their own storage view (the projects menu's Storage). */
   storageViews?: StorageViews
   onOpen(id: number): void
-  onRename(id: number, name: string): void
   onCreate(): void
   onDelete(id: number): void
   onSubject(subject: Subject): void
@@ -276,7 +274,6 @@ export function Bar({
           canvases={canvases}
           open={open}
           onOpen={onOpen}
-          onRename={onRename}
           onCreate={onCreate}
           onDelete={onDelete}
         />

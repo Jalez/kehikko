@@ -227,6 +227,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/inbox/notice',
       '/host/inbox/report',
       '/host/inbox/use',
+      '/host/kehikko-settings',
       '/host/kehikko-skills',
       '/host/layouts',
       '/host/messages/clear',

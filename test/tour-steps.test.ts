@@ -20,7 +20,7 @@ describe('the tour’s steps', () => {
       ['epic-bar', 'The epic'],
       ['parts-bar', 'Its parts'],
       ['kehikko-bar', 'Your kehikot'],
-      ['kehikko-skills', 'Skills for this kehikko'],
+      ['kehikko-skills', 'Kehikko settings'],
       ['pinned', 'Pinned places'],
       ['modules', 'Kehikko modules'],
       ['header', 'A container’s header'],
