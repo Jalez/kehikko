@@ -1,5 +1,5 @@
 import type { FilterChoice, ModuleContext, ModuleScope } from 'kehikot-module-protocol'
-import { useLayoutEffect, type CSSProperties } from 'react'
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 
 import type { CanvasControls } from '@/host/ask.ts'
 import type { ConversationWatcher } from '@/host/conversation.ts'
@@ -8,6 +8,7 @@ import type { Presses } from '@/host/presses.ts'
 import { revealHandlers, type Covers, type Reveals } from '@/host/reveal.ts'
 import type { FramedModule } from '@/host/registry.ts'
 import { ModuleFrame, type DocumentEvent } from './ModuleFrame.tsx'
+import { useRepaintOnUncover } from './repaint.ts'
 
 /**
  * Every module's page, loaded once, positioned over the container that asked for it.
@@ -251,7 +252,8 @@ export function Frames({
         /* Drawn: visible, and not under a loading cover. */
         const seen = visible && !veiled
         return (
-        <div
+        <FrameBox
+          seen={seen}
           /* The entry is in the key, so a page whose container switched version
              — a different address, on the version's own port — is a new
              document rather than the old one pointed somewhere else. */
@@ -293,9 +295,20 @@ export function Frames({
             reveals={reveals}
             covers={covers}
           />
-        </div>
+        </FrameBox>
         )
       })}
+    </div>
+  )
+}
+
+/** One page's wrapper; refreshes its paint whenever it is un-hidden (`repaint.ts`). */
+function FrameBox({ seen, children, ...rest }: { seen: boolean; children: ReactNode } & React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>) {
+  const ref = useRef<HTMLDivElement>(null)
+  useRepaintOnUncover(ref, seen)
+  return (
+    <div ref={ref} {...rest}>
+      {children}
     </div>
   )
 }
