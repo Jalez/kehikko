@@ -123,7 +123,7 @@ describe('a page that loads and never speaks', () => {
         refreshable: () => {},
         header: () => {},
       },
-      { readyTimeoutMs: 30 },
+      { readyTimeoutMs: 30, quietForMs: 60 },
     )
 
     /* Nothing is said before the greeting: a module cannot be silent in answer
@@ -132,7 +132,10 @@ describe('a page that loads and never speaks', () => {
     expect(said).toHaveLength(0)
 
     conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
-    await Bun.sleep(60)
+    /* Not at the first deadline: a page that is only slow is not complained about. */
+    await Bun.sleep(45)
+    expect(said).toHaveLength(0)
+    await Bun.sleep(80)
 
     expect(said).toHaveLength(1)
     expect(readsAsAbsent(said[0]!)).toBe(false)

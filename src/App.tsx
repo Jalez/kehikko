@@ -4955,6 +4955,8 @@ export function App() {
         pressedAtRef.current.delete(id)
         onClickMove(phase === 'up' && since !== undefined ? { kind: 'release', held: at - since } : { kind: 'release', held: 0 })
       },
+      /* The frame's page is from before its module was started again elsewhere: read again. */
+      behind: () => void lookRef.current?.(),
       /* Find (protocol 2.69.0): what a search came to, and ⌘F pressed inside the page. */
       findResult: (result) => findsRef.current.result(id, result),
       findOpen: (asked) => findsRef.current.open(id, asked),
