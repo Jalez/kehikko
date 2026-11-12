@@ -26,7 +26,8 @@ import {
   type MineList,
 } from '@/host/myModules.ts'
 import type { RegistryView } from '@/host/registry.ts'
-import { ConditionDot } from './Conditions.tsx'
+import { ConditionDot, RunDot } from './Conditions.tsx'
+import { askStart, askStop, lookOf, runControl, START_LABEL, STOP_LABEL } from '@/host/runState.ts'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
@@ -372,30 +373,35 @@ function RowShell({
   return (
     <li data-module-row={id} data-open={open ? '' : undefined} className="px-2 py-1.5">
       <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          data-module-row-toggle=""
-          aria-expanded={open}
-          aria-controls={open ? body : undefined}
-          onClick={onToggle}
-          className="hover:bg-muted/50 focus-visible:ring-ring/50 flex min-w-0 flex-1 items-start gap-1.5 rounded px-1 py-0.5 text-left outline-none focus-visible:ring-2"
-        >
-          <ChevronRight className={`text-muted-foreground mt-1 size-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
-          <span className="mt-1.5 flex shrink-0">{dot}</span>
-          <span className={`mt-0.5 flex shrink-0 ${muted ? 'opacity-70' : ''}`}>{icon}</span>
-          {/* The name gets the room: it wraps, and is never truncated for the status beside it. */}
-          <span data-module-name="" className={`min-w-0 flex-1 text-sm leading-snug font-medium [overflow-wrap:anywhere] ${muted ? 'opacity-70' : ''}`}>
-            {name}
-          </span>
-        </button>
+        {/* The name and its badges flow as one line: the badges come after the name when they fit and
+            wrap under it when they do not. The name is a flex item that wraps its own words, so it is
+            never cut for the badges, and it is the badges that move. */}
+        <div data-module-line="" className="flex min-w-0 flex-1 flex-wrap items-start gap-x-1.5 gap-y-0.5">
+          <button
+            type="button"
+            data-module-row-toggle=""
+            aria-expanded={open}
+            aria-controls={open ? body : undefined}
+            onClick={onToggle}
+            className="hover:bg-muted/50 focus-visible:ring-ring/50 flex max-w-full min-w-0 items-start gap-1.5 rounded px-1 py-0.5 text-left outline-none focus-visible:ring-2"
+          >
+            <ChevronRight className={`text-muted-foreground mt-1 size-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+            <span className="mt-1.5 flex shrink-0">{dot}</span>
+            <span className={`mt-0.5 flex shrink-0 ${muted ? 'opacity-70' : ''}`}>{icon}</span>
+            {/* The name gets the room: it wraps, and is never truncated for the status or the badges beside it. */}
+            <span data-module-name="" className={`min-w-0 flex-1 text-sm leading-snug font-medium [overflow-wrap:anywhere] ${muted ? 'opacity-70' : ''}`}>
+              {name}
+            </span>
+          </button>
+          {shown.length ? (
+            <div data-module-badges="" className="mt-1 flex min-w-0 shrink-0 flex-wrap items-center gap-1">
+              {shown}
+            </div>
+          ) : null}
+        </div>
         {status ? <span className="flex min-h-6 shrink-0 items-center">{status}</span> : null}
         {onIntro ? <IntroButton name={name} onIntro={onIntro} /> : null}
       </div>
-      {shown.length ? (
-        <div data-module-badges="" className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 pl-[3.25rem]">
-          {shown}
-        </div>
-      ) : null}
       {progress ? (
         <div data-module-progress="" className="mt-1 pr-1 pl-[3.25rem]">
           {progress}
@@ -507,7 +513,7 @@ function AvailableRow({
       open={open}
       onToggle={onToggle}
       muted
-      dot={<span className="border-muted-foreground/50 size-1.5 rounded-full border" aria-label="not installed" title="not installed" />}
+      dot={<RunDot look={lookOf('not-installed')} />}
       icon={<ModuleIcon id={row.id} icon={row.entry.icon} name={row.name} className="text-muted-foreground size-3.5" />}
       status={status}
       progress={shownJob ? <StepProgress job={shownJob} /> : null}
@@ -611,7 +617,7 @@ function ModuleRow({
       name={row.name}
       open={open}
       onToggle={onToggle}
-      dot={<ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} />}
+      dot={<ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} reached={presence.reached} stopped={presence.stopped} />}
       icon={<ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />}
       status={status}
       progress={shownJob ? <StepProgress job={shownJob} /> : null}
@@ -629,13 +635,16 @@ function ModuleRow({
           {trouble}
         </p>
       ) : null}
-      {placed ? null : (
-        <Hint label="put it on this kehikko" side="bottom">
-          <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" data-row-primary="" onClick={onPlace}>
-            Add to this kehikko
-          </Button>
-        </Hint>
-      )}
+      <div data-row-actions="" className="flex flex-wrap items-center gap-1.5">
+        {placed ? null : (
+          <Hint label="put it on this kehikko" side="bottom">
+            <Button variant="secondary" size="sm" className="h-6 px-2 text-xs" data-row-primary="" onClick={onPlace}>
+              Add to this kehikko
+            </Button>
+          </Hint>
+        )}
+        <RunControls id={row.id} presence={presence} primary={placed} />
+      </div>
       <Details row={row} shown={trouble} onRemove={onRemove} />
       <RowFoot>
         {placed ? (
@@ -646,6 +655,67 @@ function ModuleRow({
         <UninstallAsk name={row.name} own={presence.own === true} onUninstall={onUninstall} />
       </RowFoot>
     </RowShell>
+  )
+}
+
+/**
+ * Stop or Start, beside the row's other action.
+ *
+ * Stop when the module is running and this host started it: it stops the child the host holds, by its
+ * handle, as Restart does, and nothing else. Disabled, with the reason, for a module started outside
+ * Kehikot. Start when it is not running; a module a person stopped stays stopped until this is pressed.
+ * Page-only routes (`/host/stop-module`, `/host/start`); no tool does either.
+ */
+function RunControls({ id, presence, primary }: { id: string; presence: Registered['presence']; primary: boolean }) {
+  const control = runControl(presence)
+  const [busy, setBusy] = useState(false)
+  const [said, setSaid] = useState<string | null>(null)
+  if (!control) return null
+  const press = async (ask: typeof askStop) => {
+    setBusy(true)
+    setSaid(null)
+    try {
+      const answer = await ask(id)
+      if (!answer.ok) setSaid(answer.why)
+    } catch {
+      setSaid('Kehikot could not be reached.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (control.kind === 'stop-disabled') {
+    return (
+      <Hint label={control.why} side="bottom">
+        {/* A span carries the tooltip: a disabled button does not receive focus or hover. */}
+        <span tabIndex={0} data-row-run="stop" aria-label={`${STOP_LABEL}: ${control.why}`} aria-disabled="true" className="inline-flex">
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" disabled tabIndex={-1}>
+            {STOP_LABEL}
+          </Button>
+          <span className="sr-only" data-row-run-why="">{control.why}</span>
+        </span>
+      </Hint>
+    )
+  }
+  const stop = control.kind === 'stop'
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6 px-2 text-xs"
+        data-row-run={stop ? 'stop' : 'start'}
+        {...(primary ? { 'data-row-primary': '' } : {})}
+        disabled={busy}
+        onClick={() => void press(stop ? askStop : askStart)}
+      >
+        {stop ? STOP_LABEL : START_LABEL}
+      </Button>
+      {said ? (
+        <p role="alert" className="w-full text-xs leading-relaxed text-amber-600 dark:text-amber-400">
+          {said}
+        </p>
+      ) : null}
+    </>
   )
 }
 

@@ -74,6 +74,7 @@ import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM } from './doorPlaces.ts'
 import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
+import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   exitedLine,
@@ -1572,6 +1573,12 @@ const runs = new Map<string, number>()
 /** The exit code of each module's last run that has ended; null when a signal ended it. */
 const exits = new Map<string, number | null>()
 
+/**
+ * Modules a person stopped from the Kehikko modules menu, until they press Start on one (or the app
+ * starts again: nothing writes this down). Nothing here is started by the host's own rules. `stopModule.ts`.
+ */
+const stoppedByPerson = new StoppedByPerson()
+
 /** A module the host ran that stopped again without answering, until something clears it. */
 const failures = new Map<string, { line: string; detail: string[] }>()
 
@@ -1720,6 +1727,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
   for (const id of [...starting.keys()]) if (!here.has(id)) starting.delete(id)
   for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
   for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
+  stoppedByPerson.forgetAllBut(here)
   staleness.forgetAllBut(here)
   releases.forgetAllBut(here)
   auto.forgetAllBut(here)
@@ -1750,7 +1758,8 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
       /* An update in hand counts too: it decides for itself whether to start
          the module again, and nothing else may in the meantime. */
       starting: isStarting(presence.id, now) || inHand.has(presence.id),
-      failed: failures.has(presence.id),
+      /* Stopped by a person counts as not to be started again on its own, as a start that failed does. */
+      failed: failures.has(presence.id) || stoppedByPerson.has(presence.id),
     }
   })
 }
@@ -1779,6 +1788,8 @@ function begin(id: string): void {
   /* Somebody else was running it and it has only just gone: theirs to bring
      back first. See `THEIRS_TO_RESTART_MS`. */
   if (theirs.has(id)) return
+  /* A person stopped it from the modules menu: it stays stopped until they press Start. */
+  if (stoppedByPerson.has(id)) return
   /* A newer release is being put in place while it is stopped (`whileStopped`);
      started when that is done. */
   if (releases.applying(id)) return
@@ -2692,10 +2703,16 @@ function told(view: Swept): Swept {
     ...view,
     presences: view.presences.map((seen) => {
       const startedAt = nursery.startedAt(seen.id)
-      const presence = startedAt === null ? seen : { ...seen, run: startedAt }
+      const held = startedAt === null ? seen : { ...seen, run: startedAt }
+      /* Said only while nothing answers: a module somebody else started is running, whatever was pressed. */
+      const presence = stoppedByPerson.has(seen.id) && seen.condition === 'silent' && !seen.reached ? { ...held, stopped: true as const } : held
       const lifecycle = saidOf(presence, now)
       if (!lifecycle) {
         if (presence.condition !== 'silent') return presence
+        /* Nothing is wrong and nothing is coming: said as that, with the one thing to do. */
+        if ('stopped' in presence && presence.stopped) {
+          return { ...presence, line: `${presence.name ?? nameFromId(presence.id)} was stopped. It stays stopped until you press Start.` }
+        }
         const log = logFile(presence.id)
         const said = silentSaid({ ...presence, name: presence.name ?? nameFromId(presence.id) }, {
           failed: failures.get(presence.id) ?? null,
@@ -3508,8 +3525,34 @@ const restartModuleDoor = restartModuleDesk({
   busy: (id) => inHand.has(id) || working.has(id),
   held: (id) => nursery.holds(id),
   reached: async (registration) => (await look(registration)).reached,
-  restart: (id, registration, runnable, within) => restart(id, registration, runnable, within, undefined, true),
+  restart: (id, registration, runnable, within) => {
+    /* A person's press on Restart starts it again, so it is no longer stopped. */
+    stoppedByPerson.pressed(id)
+    return restart(id, registration, runnable, within, undefined, true)
+  },
   patient: (request) => patient(request),
+})
+
+/* "Stop", in the modules menu: the held child, by its handle, as Restart stops it; remembered until a press on Start. `stopModule.ts`. */
+const stopModuleDoor = stopModuleDesk({
+  registration: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id) ?? null,
+  busy: (id) => inHand.has(id) || working.has(id),
+  held: (id) => nursery.holds(id),
+  reached: async (registration) => (await look(registration)).reached,
+  stop: async (id, registration) => {
+    stoppedByPerson.stop(id)
+    starting.delete(id)
+    failures.delete(id)
+    const was = halt(id)
+    if (was === 'stopped') {
+      console.log(`kehikko: stopped ${id} — a person pressed Stop; it stays stopped until they press Start`)
+      await gone(registration.url, WELL_KNOWN)
+    }
+    void sweep()
+      .then((view) => govern(view.presences))
+      .catch(() => null)
+      .finally(() => wakes.registryChanged())
+  },
 })
 
 /** `applying` is the checkout having moved: from there nothing is cancelled. */
@@ -5143,6 +5186,8 @@ async function answerRequest(request: Request): Promise<Response> {
        * the registered directory — the case of modules a previous host started
        * and this one inherited. The proof and its limits are in `takeover.ts`.
        */
+      /* A person's press: what they stopped is theirs to start again. */
+      stoppedByPerson.pressed(named)
       const done = await startOnce(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
       if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [], ...(done.kept ? { kept: true } : {}) }, 409)
       return json({
@@ -5164,6 +5209,10 @@ async function answerRequest(request: Request): Promise<Response> {
     /* Restarting a module this host started, on a person's press. `restartModule.ts`. */
     const restartModuleAnswer = await restartModuleDoor.route(request, url)
     if (restartModuleAnswer) return restartModuleAnswer
+
+    /* Stopping a module this host started, on a person's press. `stopModule.ts`. */
+    const stopModuleAnswer = await stopModuleDoor.route(request, url)
+    if (stopModuleAnswer) return stopModuleAnswer
 
     /* Messages between agent sessions, for the person's view, and their clearing. `messageRoutes.ts`. */
     const messagesAnswer = await messageRoutes.route(request, url)

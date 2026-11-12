@@ -16,7 +16,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
  */
 
 const inChild = process.env.MODULE_MENU_ROWS_DOM === '1'
-const TESTS = 7
+const TESTS = 11
 
 const LONG = 'Your standing lists for every change, kept per epic. Agents answer each line as they work, and you see what is owed.'
 
@@ -137,12 +137,15 @@ afterAll(async () => {
 let unmount: (() => void) | null = null
 afterEach(() => {
   if (!inChild) return
+  registry = { ...registry, presences: [ALPHA, BETA, RETIRED] }
+  globalThis.fetch = (async () => new Response('{}', { status: 404 })) as unknown as typeof fetch
   act(() => unmount?.())
   unmount = null
   document.body.innerHTML = ''
 })
 
-const registry: RegistryView = { presences: [ALPHA, BETA, RETIRED], sweep: { dir: '/registry', rejected: [] }, protocol: 2 }
+let registry: RegistryView = { presences: [ALPHA, BETA, RETIRED], sweep: { dir: '/registry', rejected: [] }, protocol: 2 }
+const setRegistry = (presences: Presence[]) => void (registry = { ...registry, presences })
 const placed: string[] = []
 const unplaced: string[] = []
 
@@ -190,12 +193,88 @@ describe('a row', () => {
     expect(document.body.textContent).not.toContain('Add to this kehikko')
   })
 
-  test('its badges are on a line of their own, under the name', async () => {
+  test('its badges are on the same line as the name when they fit, wrapped under it only when they do not', async () => {
     await render()
-    const badges = row('me.long').querySelector('[data-module-badges]')!
+    const line = row('me.long').querySelector('[data-module-line]')!
+    const badges = line.querySelector('[data-module-badges]')!
     expect(badges.textContent).toContain('Deprecated')
+    /* Beside the name, in the one wrapping line (not on a row of their own), and outside the toggle. */
+    expect(line.contains(toggle('me.long'))).toBe(true)
+    expect(toggle('me.long').parentElement).toBe(badges.parentElement)
     expect(toggle('me.long').contains(badges)).toBe(false)
     expect(toggle('me.long').textContent).not.toContain('Deprecated')
+    /* What does the wrapping: the line wraps, the badges are not cut or shrunk, the name wraps its own words. */
+    expect(line.className).toContain('flex-wrap')
+    expect(badges.className).toContain('shrink-0')
+    expect(badges.className).not.toContain('truncate')
+    expect(toggle('me.long').className).toContain('max-w-full')
+    const name = toggle('me.long').querySelector('[data-module-name]')!
+    expect(name.className).toContain('[overflow-wrap:anywhere]')
+    expect(name.className).not.toContain('truncate')
+    /* Its short badges share the line too: the scope chip and the Deprecated one are in one group. */
+    expect(badges.children.length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('the dot says in words what it means, and its shape is not colour alone', async () => {
+    setRegistry([ALPHA, { ...RETIRED, condition: 'silent', reached: false }])
+    await render()
+    const dot = (id: string) => row(id).querySelector<HTMLElement>('[data-run-state]')!
+    expect(dot('me.alpha').getAttribute('aria-label')).toBe('Running')
+    expect(dot('me.alpha').getAttribute('title')).toBe('Running')
+    expect(dot('me.alpha').className).toContain('emerald')
+    expect(dot('me.long').getAttribute('aria-label')).toBe('Asleep: starts when a kehikko uses it')
+    expect(dot('me.long').dataset.shape).toBe('ring')
+    expect(dot('me.long').className).not.toContain('emerald')
+  })
+
+  test('Stop on a running module the host started: it posts to the stop route, once, with the module', async () => {
+    setRegistry([{ ...ALPHA, run: 1, dir: '/m/alpha' }])
+    const posted: string[] = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') posted.push(`${url} ${init.body}`)
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
+    }) as unknown as typeof fetch
+    await render()
+    await act(async () => toggle('me.alpha').click())
+    const stop = row('me.alpha').querySelector<HTMLButtonElement>('[data-row-run="stop"]')!
+    expect(stop.textContent).toBe('Stop')
+    expect(stop.disabled).toBe(false)
+    await act(async () => stop.click())
+    expect(posted).toEqual(['/host/stop-module {"module":"me.alpha"}'])
+  })
+
+  test('a module started outside Kehikot has Stop disabled, with the reason, and nothing is posted', async () => {
+    setRegistry([{ ...ALPHA, dir: '/m/alpha' }])
+    const posted: string[] = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') posted.push(String(url))
+      return new Response('{}', { status: 404 })
+    }) as unknown as typeof fetch
+    await render()
+    await act(async () => toggle('me.alpha').click())
+    const holder = row('me.alpha').querySelector<HTMLElement>('[data-row-run="stop"]')!
+    expect(holder.getAttribute('aria-disabled')).toBe('true')
+    expect(holder.querySelector('button')!.disabled).toBe(true)
+    expect(holder.textContent).toContain('Started outside Kehikot: stop it where it runs')
+    expect(holder.getAttribute('aria-label')).toContain('Started outside Kehikot: stop it where it runs')
+    await act(async () => holder.querySelector('button')!.click())
+    expect(posted).toEqual([])
+  })
+
+  test('a stopped module shows Start, which posts to the start route', async () => {
+    setRegistry([{ ...BETA, condition: 'silent', reached: false, stopped: true, dir: '/m/beta', module: undefined, line: '' } as Presence])
+    const posted: string[] = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') posted.push(`${url} ${init.body}`)
+      return new Response(JSON.stringify({ ok: true }), { status: 200 })
+    }) as unknown as typeof fetch
+    await render()
+    expect(row('me.beta').querySelector('[data-run-state]')!.getAttribute('aria-label')).toBe('Stopped: press Start to run it')
+    await act(async () => toggle('me.beta').click())
+    const start = row('me.beta').querySelector<HTMLButtonElement>('[data-row-run="start"]')!
+    expect(start.textContent).toBe('Start')
+    await act(async () => start.click())
+    expect(posted).toEqual(['/host/start {"module":"me.beta"}'])
   })
 
   test('a long name is never truncated before the status: it wraps, and the status is what gives way', async () => {
