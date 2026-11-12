@@ -52,8 +52,39 @@ export function helpSlideTitle(name: string): string {
 
 /** The dialog's accessible name, and the "?"'s, for a module. */
 export function introTitle(name: string): string {
-  return `Introduction to ${name}`
+  return `What ${name} is`
 }
+
+/** What the "What <name> is" dialog is filled from, beyond the module's name. */
+export interface ModuleAbout {
+  /** What it says it is: its summary, whole. */
+  summary?: string | null
+  intro?: Intro | null
+  help?: Help | null
+  /** What it follows, narrows to and works with (`worksWithSaid` in `moduleMenu.ts`); empty for none. */
+  works?: readonly string[]
+  /** Its version and releases, a line each; empty when nothing is known. */
+  version?: readonly string[]
+}
+
+/**
+ * The dialog's slides, in one order: what it is, its introduction, how to use it, what it works with,
+ * and its version. Each part is there only when the module has it, except the first, which is never
+ * missing. The long words about a module live here and not in the modules list, whose row says one
+ * sentence.
+ */
+export function slidesOfModule(name: string, about: ModuleAbout): ShownSlide[] {
+  return [
+    { id: 'what', title: introTitle(name), body: about.summary?.trim() || 'This module says nothing more about itself.' },
+    ...(about.intro ? slidesOfIntro(about.intro) : []),
+    ...(about.help ? slidesOfHelp(name, about.help) : []),
+    ...(about.works?.length ? [{ id: 'works', title: WORKS_TITLE, body: '', points: about.works }] : []),
+    ...(about.version?.length ? [{ id: 'version', title: VERSION_TITLE, body: '', points: about.version }] : []),
+  ]
+}
+
+export const WORKS_TITLE = 'Works with'
+export const VERSION_TITLE = 'Version and releases'
 
 /* ------------------------------------------------------------------ *
  * Adding the module from the dialog

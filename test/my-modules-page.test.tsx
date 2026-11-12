@@ -100,7 +100,7 @@ async function render(): Promise<HTMLElement> {
   await act(async () => {
     root.render(
       <Tooltip.TooltipProvider>
-        <Modules.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+        <Modules.ModuleList registry={registry} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} />
       </Tooltip.TooltipProvider>,
     )
   })

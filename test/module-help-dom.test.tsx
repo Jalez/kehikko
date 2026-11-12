@@ -192,10 +192,10 @@ describe('the modules list', () => {
     }
     const asked: string[] = []
     await render(
-      <Lists.ModuleList registry={registry} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} onIntro={(id) => asked.push(id)} />,
+      <Lists.ModuleList registry={registry} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} onIntro={(id) => asked.push(id)} />,
     )
     const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-module-help-button]')]
-    expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['Introduction to Lists', 'Introduction to Plain'])
+    expect(buttons.map((one) => one.getAttribute('aria-label'))).toEqual(['What Lists is', 'What Plain is'])
     await act(async () => buttons[0]!.click())
     expect(asked).toEqual(['kehikot.lists'])
   })

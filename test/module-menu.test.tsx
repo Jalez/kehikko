@@ -164,7 +164,7 @@ describe('the list, drawn', () => {
   }
   const html = renderToStaticMarkup(
     <TooltipProvider>
-      <ModuleList registry={registry} onCanvas={new Set(['kehikot.diff'])} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+      <ModuleList registry={registry} onCanvas={new Set(['kehikot.diff'])} onPlace={() => {}} onUnplace={() => {}} openAtFirst="all" />
     </TooltipProvider>,
   )
 
@@ -241,10 +241,9 @@ describe('what a module is built from, and what it says wrongly about itself', (
         <ModuleList
           registry={{ presences, sweep: { dir: '/registry', rejected: [] }, protocol: 2 }}
           onCanvas={new Set()}
-          canvases={[]}
-          open={null}
           onPlace={() => {}}
           onUnplace={() => {}}
+          openAtFirst="all"
         />
       </TooltipProvider>,
     )
@@ -274,7 +273,7 @@ describe('a deprecated module, and Uninstall', () => {
   const draw = (presences: Presence[], official: Parameters<typeof rowsOf>[2] = null) =>
     renderToStaticMarkup(
       <TooltipProvider>
-        <ModuleList registry={{ presences, sweep: { dir: '/registry', rejected: [] }, protocol: 2 }} onCanvas={new Set()} canvases={[]} open={null} onPlace={() => {}} onUnplace={() => {}} />
+        <ModuleList registry={{ presences, sweep: { dir: '/registry', rejected: [] }, protocol: 2 }} onCanvas={new Set()} onPlace={() => {}} onUnplace={() => {}} openAtFirst="all" />
       </TooltipProvider>,
     )
 
@@ -294,7 +293,7 @@ describe('a deprecated module, and Uninstall', () => {
   test('every installed module has Uninstall, which is not the same button as remove', () => {
     const html = draw([old, paper, own])
     expect(html.match(/>Uninstall</g)).toHaveLength(3)
-    expect(html.match(/>add</g)).toHaveLength(3)
+    expect(html.match(/>Add to this kehikko</g)).toHaveLength(3)
   })
 
   test('the confirm says what happens: a copy Kehikot installed is deleted, a person’s own checkout only unregistered', () => {
