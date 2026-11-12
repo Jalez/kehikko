@@ -70,6 +70,15 @@ beforeEach(() => {
 afterEach(() => spy?.mockRestore())
 
 describe('inbox.read fits the protocol', () => {
+  test('a tracker notice of a ref no epic names: "Tracker" by-line, and "Not in any epic · <host>" for its place', () => {
+    const notice = entry('gitlab:gitlab.example.org/group/project!4721', { module: 'kehikko.trackers', name: '', label: '!4721 · changes requested by mona' })
+    const item = read(door({ entries: () => [notice] })).items[0]!
+    expect(item.by).toBe('Tracker')
+    expect(item.where).toBe('Not in any epic · gitlab.example.org')
+    const inEpic = read(door({ entries: () => [{ ...notice, place: { epic: 'auth' } }], names: () => ({ epic: () => 'Auth', part: () => null, kehikko: () => null }) })).items[0]!
+    expect(inEpic.where).toBe('Auth')
+  })
+
   test('a question with more choices than the protocol carries: at most six, the last one kept', () => {
     const choices = read(door({ entries: () => [asking] })).items[0]!.question!.choices
     expect(choices.length).toBe(LIMITS.MESSAGE_CHOICES)

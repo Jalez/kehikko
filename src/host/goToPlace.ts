@@ -153,6 +153,15 @@ function planNotice(
 ): GoPlan {
   const ref = item.refs?.[0]
   const notes: string[] = []
+  /*
+   * A ref no epic names: no kehikko shows it — every module there narrows to an epic — so picking it
+   * would lead nowhere. It goes to the change itself: a module here that shows pages, else the
+   * person's browser (`outsideHow`).
+   */
+  if (ref !== undefined && item.place?.epic === undefined) {
+    steps.push({ kind: 'outside' })
+    return { steps, note: null }
+  }
   const takes = (one: KehikkoAt) => one.modules.some((module) => reactsOf?.(module)?.includes(PICKS) === true)
   const pickers = ref !== undefined && reactsOf ? target.kehikot.filter(takes) : []
   const on = pickers.find((one) => one.key === at.kehikko) ?? pickers[0] ?? null
@@ -166,4 +175,14 @@ function planNotice(
   else if (ref !== undefined) steps.push({ kind: 'outside' })
   else if (epic === undefined) notes.push(NO_EPIC)
   return { steps, note: notes.length ? notes.join(' ') : null }
+}
+
+/**
+ * Where a notice's page goes when its step is `outside`: into a module on the open kehikko that shows
+ * pages (`readers`), else straight to the person's browser when the address may open there — the
+ * person pressed Open on it, so it is not offered a second time — else the offer.
+ */
+export function outsideHow(readers: readonly string[], url: string, opensOutside: (url: string) => boolean): 'reader' | 'browser' | 'offer' {
+  if (readers.length > 0) return 'reader'
+  return opensOutside(url) ? 'browser' : 'offer'
 }

@@ -15,7 +15,7 @@ import { readNotices, TrackerNotices, writeNotices } from '../server/trackerNoti
 import type { Adapter, Wanted } from '../server/trackers/common.ts'
 import { epicsByRef, Trackers } from '../server/trackers/reading.ts'
 import type { Source } from '../server/trackers/sources.ts'
-import { planGo } from '../src/host/goToPlace.ts'
+import { outsideHow, planGo } from '../src/host/goToPlace.ts'
 import { isLive } from '../src/host/inbox.ts'
 import {
   DEFAULT_NOTICES,
@@ -27,6 +27,7 @@ import {
   noticesStored,
   phrases,
   TRACKER_NOTICES_MODULE,
+  notInAnEpic,
   type Seen,
 } from '../src/host/trackerNotices.ts'
 
@@ -421,17 +422,36 @@ describe('the store and the Inbox', () => {
     const reactsOf = (module: string) => reacts[module]
     const here = { project: 1, epic: 'other', parts: [], kehikko: 'k1' }
     const both = { project: 1, kehikot: [{ key: 'k1', name: 'One', modules: ['kehikot.a'] }, { key: 'k2', name: 'Two', modules: ['kehikot.b'] }], epics: ['thesis', 'other'] }
-    const item = { module: TRACKER_NOTICES_MODULE, refs: ['!9'] }
-    expect(planGo(item, here, both, reactsOf)).toEqual({ steps: [{ kind: 'kehikko', key: 'k2' }, { kind: 'pick', refs: ['!9'] }], note: null })
-    expect(planGo({ ...item, place: { epic: 'thesis' } }, here, both, reactsOf).steps).toEqual([
+    const item = { module: TRACKER_NOTICES_MODULE, refs: ['!9'], place: { epic: 'thesis' } }
+    expect(planGo(item, here, both, reactsOf).steps).toEqual([
       { kind: 'kehikko', key: 'k2' },
       { kind: 'epic', epic: 'thesis', parts: [] },
       { kind: 'pick', refs: ['!9'] },
     ])
     const none = { ...both, kehikot: [both.kehikot[0]!] }
-    expect(planGo(item, here, none, reactsOf)).toEqual({ steps: [{ kind: 'outside' }], note: null })
+    expect(planGo(item, here, { ...none, epics: null }, reactsOf).steps.at(-1)).toEqual({ kind: 'outside' })
     /* Another project: switched first, the rest planned again on arrival. */
     expect(planGo(item, here, { ...both, project: 2 }, reactsOf).steps[0]).toEqual({ kind: 'project', project: 2 })
+  })
+
+  test('Open on a notice of a ref no epic names goes to the change itself, never to a pick nobody shows', () => {
+    const reactsOf = (module: string) => (module === 'kehikot.b' ? ['selection'] : undefined)
+    const here = { project: 1, epic: 'other', parts: [], kehikko: 'k1' }
+    const target = { project: 1, kehikot: [{ key: 'k2', name: 'Two', modules: ['kehikot.b'] }], epics: ['other'] }
+    const item = { module: TRACKER_NOTICES_MODULE, refs: ['!4721'] }
+    expect(planGo(item, here, target, reactsOf)).toEqual({ steps: [{ kind: 'outside' }], note: null })
+    expect(planGo(item, here, { ...target, project: 2 }, reactsOf).steps).toEqual([{ kind: 'project', project: 2 }, { kind: 'outside' }])
+    /* The change itself: a module here that shows pages, else the person's browser, never a second offer. */
+    const https = (url: string) => url.startsWith('https:')
+    expect(outsideHow(['kehikot.pages'], 'https://gitlab.example.org/g/p/-/merge_requests/4721', https)).toBe('reader')
+    expect(outsideHow([], 'https://gitlab.example.org/g/p/-/merge_requests/4721', https)).toBe('browser')
+    expect(outsideHow([], 'http://intranet/x', https)).toBe('offer')
+  })
+
+  test('a notice of a ref no epic names says so and where it is, not an empty place', () => {
+    expect(notInAnEpic('gitlab:gitlab.example.org/group/sub/project!4721')).toBe('Not in any epic · gitlab.example.org')
+    expect(notInAnEpic('github:github.com/o/r#3')).toBe('Not in any epic · github.com')
+    expect(notInAnEpic('0abc1234:tail/of/a/long/path!9')).toBe('Not in any epic')
   })
 
   test('going to an item goes to its epic and lights nothing; without an epic it says so', () => {

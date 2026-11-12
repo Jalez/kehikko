@@ -36,6 +36,7 @@ import {
   type LogRow,
 } from './inbox.ts'
 import { mayMute } from './inboxUse.ts'
+import { TRACKER_NOTICES_MODULE, notInAnEpic } from './trackerNotices.ts'
 import type { Said } from './inboxClient.ts'
 import type { Answer } from './conversation.ts'
 
@@ -139,7 +140,9 @@ function fitted(item: InboxItem, method = 'inbox.read'): InboxItem | null {
   return null
 }
 
-const placeOf = (entry: Pick<Entry, 'place'>, names: Namer, projectName: string | null): string => {
+const placeOf = (entry: Pick<Entry, 'place' | 'module' | 'id'>, names: Namer, projectName: string | null): string => {
+  /* A tracker notice of a ref no epic names says so, and where it is: not the project's name. */
+  if (entry.module === TRACKER_NOTICES_MODULE && entry.place?.epic === undefined && entry.place?.kehikko === undefined) return notInAnEpic(entry.id)
   const { here, epic } = placeLines(entry, names)
   return [here, epic].filter(Boolean).join(' · ') || projectName || PROJECT_GROUP
 }
@@ -209,7 +212,11 @@ export function readOf(door: InboxDoor): InboxReadResult {
       project: { id: project.id, name },
       items: items(entries, (entry) => ({
         ...itemOf(entry, names, at, name),
-        where: clip([entry.place?.epic, entry.place?.parts?.join(' + ')].filter(Boolean).join(' · ') || name, LIMITS.TITLE * 2),
+        where: clip(
+          [entry.place?.epic, entry.place?.parts?.join(' + ')].filter(Boolean).join(' · ') ||
+            (entry.module === TRACKER_NOTICES_MODULE ? notInAnEpic(entry.id) : name),
+          LIMITS.TITLE * 2,
+        ),
         here: false,
       })),
     })

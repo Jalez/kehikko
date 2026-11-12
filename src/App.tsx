@@ -109,6 +109,7 @@ import { navigatesOf, type ShowingManifest } from 'kehikot-module-protocol'
 import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, readersOn, SHOWS_PAGES, type Addresses, type Asker, type Offer } from '@/host/address.ts'
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
+import { outsideHow } from './host/goToPlace.ts'
 import { kehikkoOnWire, toWireContext, type Subject } from './host/context.ts'
 import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
@@ -2123,14 +2124,19 @@ export function App() {
   }
 
   /**
-   * A tracker notice's page, when no kehikko here takes its ref as a pick: into a module on the open
-   * kehikko that shows pages, else the address offer (open in the person's browser, https only, or
-   * add a module that shows pages). The host's own handing, so not held to connections.
+   * A tracker notice's page, when no kehikko here takes its ref as a pick or no epic names it: into a
+   * module on the open kehikko that shows pages, else the person's browser (https only: they pressed
+   * Open), else the address offer (`outsideHow`). The host's own handing, so not held to connections.
    */
   const showLinkRef = useRef<(link: NoticeLink) => void>(() => undefined)
   showLinkRef.current = (link) => {
     if (openId === null || !open) {
       if (opensOutside(link.url)) openExternal(link.url)
+      return
+    }
+    const readers = readersOn(open.placements.map((p) => p.i), reactsOf)
+    if (outsideHow(readers, link.url, opensOutside) === 'browser') {
+      openExternal(link.url)
       return
     }
     const out = handed(addressesRef.current, {
@@ -2139,7 +2145,7 @@ export function App() {
       ...(link.title ? { title: `${link.ref} ${link.title}`.slice(0, 200) } : {}),
       asker: { by: TRACKER_NOTICES_MODULE },
       at: new Date().toISOString(),
-      readers: readersOn(open.placements.map((p) => p.i), reactsOf),
+      readers,
     })
     if (out.next !== addressesRef.current) {
       addressesRef.current = out.next
