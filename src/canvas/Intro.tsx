@@ -1,11 +1,13 @@
-import { Compass } from 'lucide-react'
+import { Compass, RotateCcw } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { CANVAS_ROWS, COLUMNS } from '@/host/fit.ts'
 import { BUILT_IN_LAYOUTS } from '@/host/layouts.ts'
+import { MODULE_SCOPES } from 'kehikot-module-protocol'
+import { SCOPE_NAMES } from '@/host/scope.ts'
 import { KehikkoMark } from './Mark.tsx'
-import { IntroModal } from './IntroModal.tsx'
+import { IntroModal, type ModalSlide } from './IntroModal.tsx'
 
 /**
  * The introduction: a welcome, and what Kehikot brings — not a manual. How
@@ -22,6 +24,11 @@ import { IntroModal } from './IntroModal.tsx'
  * again from Help → Introduction. Closing it any way — Skip, the ✕, Escape,
  * or either button on the last slide — counts as seen. The ✕ has a row of its
  * own above the picture, so it never sits on one.
+ *
+ * A person who used the app before spaces gets "Introducing: Spaces"
+ * (`SPACES_NEWS`) first, once by itself and from then on at the head of the
+ * Introduction (`spacesDue` / `spacesNews` in `src/host/onboarding.ts`). It and
+ * the regular "Spaces" slide draw the same picture, `SpacesArt`.
  */
 
 export interface IntroSlide {
@@ -90,8 +97,135 @@ function Rows({ x, y, widths, gap = 9, className = line }: { x: number; y: numbe
   )
 }
 
+/**
+ * Spaces, in one loop of about nine seconds (`.ia-sp-*` in `index.css`): a
+ * piece of work with three boxes in it turns into a tree of spaces that goes
+ * deeper; a kehikko moves into the deepest space; the breadcrumb that says
+ * where you are appears in the bar. Every element's own style is the final
+ * frame, so with reduced motion the picture stands at the tree, the kehikko in
+ * its space and the breadcrumb.
+ */
+export function SpacesArt() {
+  /* The tree, left to right by depth: [x, y] of each space's box. */
+  const W = 56
+  const H = 15
+  const root: [number, number] = [20, 76]
+  const kids: [number, number][] = [
+    [98, 42],
+    [98, 76],
+    [98, 110],
+  ]
+  const grand: [number, number][] = [
+    [176, 64],
+    [176, 92],
+  ]
+  const deep: [number, number] = [254, 92]
+  const link = (from: [number, number], to: [number, number]) => {
+    const [x1, y1] = [from[0] + W, from[1] + H / 2]
+    const [x2, y2] = [to[0], to[1] + H / 2]
+    const mid = (x1 + x2) / 2
+    return `M${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`
+  }
+  const node = (at: [number, number], className = box, width = W) => (
+    <>
+      <rect x={at[0]} y={at[1]} width={width} height={H} rx="4" className={className} strokeWidth="1.25" />
+      <rect x={at[0] + 7} y={at[1] + 5.5} width={width * 0.55} height="4" rx="2" className="fill-foreground/45" />
+    </>
+  )
+  return (
+    <Art label="a piece of work with boxes inside it becoming a tree of spaces inside spaces; a kehikko moves into the deepest space, and the breadcrumb in the bar shows the path to it">
+      {/* Before: one piece of work, three boxes in it. */}
+      <g className="ia-sp-old" data-spaces-frame="before">
+        <rect x="56" y="40" width="208" height="92" rx="6" className={strong} strokeWidth="1.5" />
+        <rect x="68" y="50" width="70" height="5" rx="2.5" className="fill-foreground/55" />
+        {[70, 134, 198].map((x) => (
+          <g key={x}>
+            <rect x={x} y="68" width="52" height="50" rx="4" className={box} strokeWidth="1.25" />
+            <rect x={x + 8} y="78" width="30" height="4" rx="2" className={line} />
+          </g>
+        ))}
+      </g>
+      {/* After: spaces inside spaces, as deep as the work goes. */}
+      <g className="ia-sp-tree" data-spaces-frame="tree">
+        {kids.map((kid) => (
+          <path key={`l${kid[1]}`} d={link(root, kid)} className="stroke-muted-foreground/50 fill-none" strokeWidth="1.25" />
+        ))}
+        {node(root, strong)}
+        {kids.map((kid) => (
+          <g key={kid[1]}>{node(kid)}</g>
+        ))}
+      </g>
+      <g className="ia-sp-deep" data-spaces-frame="deeper">
+        {grand.map((one) => (
+          <path key={`l${one[1]}`} d={link(kids[1]!, one)} className="stroke-muted-foreground/50 fill-none" strokeWidth="1.25" />
+        ))}
+        {grand.map((one) => (
+          <g key={one[1]}>{node(one)}</g>
+        ))}
+      </g>
+      <g className="ia-sp-deeper" data-spaces-frame="deepest">
+        <path d={link(grand[1]!, deep)} className="stroke-muted-foreground/50 fill-none" strokeWidth="1.25" />
+        {node(deep, strong, 50)}
+      </g>
+      {/* A kehikko — modules side by side — moving into that space. */}
+      <g className="ia-sp-card" data-spaces-frame="kehikko">
+        <rect x="256" y="114" width="46" height="30" rx="3" className="fill-card stroke-primary" strokeWidth="1.25" />
+        <rect x="259" y="117" width="16" height="24" rx="1.5" className="fill-primary/25" />
+        <rect x="278" y="117" width="21" height="11" rx="1.5" className="fill-primary/25" />
+        <rect x="278" y="130" width="21" height="11" rx="1.5" className="fill-primary/25" />
+      </g>
+      {/* The breadcrumb in the bar: the path to where you are. */}
+      <g className="ia-sp-crumb" data-spaces-frame="breadcrumb">
+        <rect x="20" y="8" width="200" height="20" rx="4" className={box} strokeWidth="1.25" />
+        <text x="30" y="21.5" className="fill-foreground" fontSize="8.5" fontWeight="500">
+          Project › Space › Space › Space
+        </text>
+        <path d="M206 16 l3 3 l3 -3" className="stroke-muted-foreground fill-none" strokeWidth="1.3" strokeLinecap="round" />
+      </g>
+    </Art>
+  )
+}
+
 /** The five ways of working, and the built-in layout each starts from. */
 export const WAYS = ['design', 'research', 'development', 'review', 'learning'] as const
+
+/** "This computer, Project, Space, Sub-space or Kehikko": the scope names, as the Container menu says them. */
+function scopeList(): string {
+  const names = MODULE_SCOPES.map((scope) => SCOPE_NAMES[scope])
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`
+}
+
+/**
+ * "Introducing: Spaces", for a person who used the app before spaces: what
+ * changed, that nothing was lost, where to pick a space now, and the tour
+ * again. `onTour` is the Retake the tour button's.
+ */
+export function spacesNewsSlide(onTour: () => void): ModalSlide {
+  return {
+    id: 'spaces-news',
+    title: 'Introducing: Spaces',
+    body: 'Epics and parts are now spaces, and a space can hold spaces of its own, to any depth.',
+    points: [
+      'Nothing was lost: every epic is a space, every part is a space inside it, and your kehikkos are as they were.',
+      'Pick a space with the breadcrumb in the bar. Open it to see every space as a tree.',
+    ],
+    art: () => <SpacesArt />,
+    below: (close) => (
+      <Button
+        variant="outline"
+        size="sm"
+        data-intro-retake=""
+        onClick={() => {
+          close()
+          onTour()
+        }}
+      >
+        <RotateCcw className="size-3.5" />
+        Retake the tour
+      </Button>
+    ),
+  }
+}
 
 export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
@@ -121,9 +255,9 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'together',
     title: 'Every tool for one piece of work, together',
-    body: 'Your tools and your agents sit side by side on one kehikko, each in a container of its own, all on the same project and epic. Pick a part of the work and every one of them narrows to it.',
+    body: 'Your tools and your agents sit side by side on one kehikko, each in a container of its own, all on the same project and space. Pick a space inside it and every one of them narrows to it.',
     art: () => (
-      <Art label="the bar's project, epic and part above three modules; picking the part narrows all three">
+      <Art label="the bar's project and space above three modules; picking a space inside it narrows all three">
         <rect x="20" y="10" width="280" height="20" rx="4" className={box} strokeWidth="1.25" />
         <rect x="28" y="17" width="40" height="6" rx="3" className="fill-foreground/50" />
         <rect x="76" y="17" width="56" height="6" rx="3" className="fill-foreground/35" />
@@ -150,9 +284,15 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
     ),
   },
   {
+    id: 'spaces',
+    title: 'Spaces, inside spaces',
+    body: 'A space is one piece of work in a project, and a space can hold spaces of its own, as deep as the work goes. Every kehikko works in whichever space you pick. The breadcrumb in the bar says where you are; open it to pick any space.',
+    art: () => <SpacesArt />,
+  },
+  {
     id: 'scope',
     title: 'Every module says what it belongs to',
-    body: 'That is its scope: This computer, Project, Epic, Part or Kehikko. The Container menu says its scope, and a module that can work at more than one lets you pick.',
+    body: `That is its scope: ${scopeList()}. The Container menu says its scope, and a module that can work at more than one lets you pick.`,
     art: () => (
       <Art label="three modules, each with a small label on its header saying what its content belongs to">
         {[
@@ -250,7 +390,7 @@ export const INTRO_SLIDES: readonly IntroSlide[] = [
   {
     id: 'agents',
     title: 'Agents that know where they are',
-    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project, epic and parts, with the tools and skills of the modules beside it. Agents message each other, and a kehikko’s settings hold skills for this kehikko: instructions you write for all of them.',
+    body: 'Put an agent module on a kehikko, and every conversation it starts already knows the project and the space it is in, with the tools and skills of the modules beside it. Agents message each other, and a kehikko’s settings hold skills for this kehikko: instructions you write for all of them.',
     art: () => (
       <Art label="an agent conversation connected to the modules beside it">
         <Pane x={16} y={12} w={132} h={126} header="fill-primary/30" />
@@ -486,8 +626,11 @@ export function IntroDialog({
   onOpenChange,
   onTour,
   onExplore,
+  news = false,
 }: {
   open: boolean
+  /** Start on "Introducing: Spaces" (a person who used the app before spaces), its Retake the tour starting the tour. */
+  news?: boolean
   /** Closing in any way — Skip, ✕, Escape, or one of the last slide's buttons — is `false`. */
   onOpenChange(open: boolean): void
   /** "Show me around": the tour, from the first thing not done yet. */
@@ -499,7 +642,7 @@ export function IntroDialog({
     <IntroModal
       open={open}
       onOpenChange={onOpenChange}
-      slides={INTRO_SLIDES}
+      slides={news ? [spacesNewsSlide(onTour), ...INTRO_SLIDES] : INTRO_SLIDES}
       icon={<KehikkoMark working={false} className="size-4" />}
       name="Kehikot"
       closeLabel="Close the introduction"

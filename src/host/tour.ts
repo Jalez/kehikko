@@ -6,20 +6,24 @@
  * ## Two kinds of step
  *
  *   - WAIT — the first run's decisions, which the person makes: pick a
- *     project, create an epic, (look at) its parts, create a kehikko. The
- *     tour points at the control and waits; it moves on when the thing is
- *     DONE (`done`, judged from the app's facts), never on a press of Next.
- *     The epic may be skipped ("Skip for now"); the parts are optional
- *     ("Next"). A step already done is passed over — a person who has
- *     projects, epics and kehikot starts at the first one they have not, or
- *     goes straight to the explanations.
+ *     project, create a space, (look at) making a space inside it, create a
+ *     kehikko. The tour points at the control and waits; it moves on when
+ *     the thing is DONE (`done`, judged from the app's facts), never on a
+ *     press of Next. The space may be skipped ("Skip for now"); the space
+ *     inside it is optional ("Next"). A step already done is passed over — a
+ *     person who has projects, spaces and kehikot starts at the first one
+ *     they have not, or goes straight to the explanations.
  *   - SHOW — the explanations after: what each control of the top bar is for
- *     (project, epic, parts, kehikko and its skills, Pinned, Kehikko modules), a
- *     container's header, fold, menus and corners, then the Inbox,
- *     Updates, Settings (with Appearance) and Help. Next and Back; a stop whose element is not on screen (Parts on
- *     "All epics", a bar too narrow to draw one) is left out. Someone who
- *     already has a project, an epic and a kehikko gets only these, so the
- *     bar is explained to them too; the waiting steps are the first run's.
+ *     (project, the space breadcrumb and spaces inside spaces, kehikko and
+ *     its skills, Pinned, Kehikko modules), a container's header, fold, menus
+ *     and corners, then the Inbox, Updates, Settings (with Appearance) and
+ *     Help. Next and Back; a stop whose element is not on screen (a bar too
+ *     narrow to draw one) is left out. Someone who already has a project, a
+ *     space and a kehikko gets only these, so the bar is explained to them
+ *     too; the waiting steps are the first run's.
+ *
+ * Every word shown says "space"; the facts keep their older names (`epic`:
+ * a top-level space is chosen, `parts`: spaces inside it are picked).
  *
  * ## Frames
  *
@@ -44,9 +48,9 @@ export interface Facts {
   project: boolean
   /** How many projects there are besides that home folder: the menu's words differ when there are some to pick. */
   projects: number
-  /** An epic is chosen (or "All epics"). */
+  /** A space is chosen (or "All spaces"). The name is the older one, for a top-level space. */
   epic: boolean
-  /** Parts of the epic are picked. */
+  /** Spaces inside the chosen space are picked. The name is the older one. */
   parts: boolean
   /** A kehikko in this project has at least one container on it. */
   kehikko: boolean
@@ -128,36 +132,36 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
-    id: 'epic',
+    id: 'space',
     kind: 'wait',
     done: (facts) => facts.epic,
     pass: 'Skip for now',
     frames: [
       {
-        selectors: ['[data-tour="epic-form"]'],
-        title: 'Name your epic',
-        body: 'What is the piece of work? A feature, a chapter, a study. Give it a title and press Enter.',
+        selectors: ['[data-tour="space-form"]'],
+        title: 'Name your space',
+        body: 'What is the piece of work? A feature, a chapter, a study. Give it a name and press Enter.',
         side: 'right',
         align: 'start',
       },
       {
-        selectors: ['[data-tour="new-epic"]'],
-        title: 'Create your first epic',
-        body: 'Choose new epic… to make one — or pick an epic the project already has.',
+        selectors: ['[data-tour="new-space"]'],
+        title: 'Create your first space',
+        body: 'Choose new space… to make one — or pick a space the project already has.',
         side: 'right',
         align: 'center',
       },
       {
-        selectors: ['[data-tour="epic"]'],
-        title: 'Create your first epic',
-        body: 'An epic is one piece of work in this project, and every module works on the epic picked here. Open this menu to make one.',
+        selectors: ['[data-tour="space"]'],
+        title: 'Create your first space',
+        body: 'A space is one piece of work in this project, and every module works in the space picked here. Open this menu to make one.',
         side: 'bottom',
         align: 'start',
       },
     ],
   },
   {
-    id: 'parts',
+    id: 'sub-space',
     kind: 'wait',
     /* Optional: passed by Next. Counted done once there is a kehikko with
        something on it — a person past their first run is not walked here. */
@@ -165,16 +169,23 @@ export const TOUR_STEPS: readonly TourStep[] = [
     pass: 'Next',
     frames: [
       {
-        selectors: ['[data-tour="parts-menu"]'],
-        title: 'Its parts',
-        body: 'Add a part, or pick some: every module narrows to the parts you pick. Press Next when you are ready.',
+        selectors: ['[data-tour="space-form"]'],
+        title: 'Name the space inside it',
+        body: 'Give it a name and press Enter. Pick it, or a few side by side, and every module narrows to them. Press Next when you are ready.',
         side: 'right',
         align: 'start',
       },
       {
-        selectors: ['[data-tour="parts"]'],
-        title: 'Divide it into parts — if you like',
-        body: 'An epic can be split into parts. Pick one or a few and every module narrows to them. This one is optional.',
+        selectors: ['[data-tour="space-add"]'],
+        title: 'A space inside a space',
+        body: 'Press + on a row to make a space inside it. Spaces nest as deep as the work does. Press Next when you are ready.',
+        side: 'right',
+        align: 'center',
+      },
+      {
+        selectors: ['[data-tour="space"]'],
+        title: 'Spaces hold spaces — if you like',
+        body: 'A space can be divided into spaces of its own. Open this menu and press + on a row to make one. This one is optional.',
         side: 'bottom',
         align: 'start',
       },
@@ -212,7 +223,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       {
         selectors: ['[data-tour="kehikko"]'],
         title: 'Your kehikot live here',
-        body: 'A kehikko is a set of modules side by side, all on this project and epic — one for each way you work. Open this menu.',
+        body: 'A kehikko is a set of modules side by side, all on this project and space — one for each way you work. Open this menu.',
         side: 'bottom',
         align: 'start',
       },
@@ -233,28 +244,28 @@ export const TOUR_STEPS: readonly TourStep[] = [
     ],
   },
   {
-    id: 'epic-bar',
+    id: 'space-bar',
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-tour="epic"]', 'button[aria-label="the epic this project is on"]'],
-        title: 'The epic',
+        selectors: ['[data-tour="space"]', 'button[aria-label="the space this project is on"]'],
+        title: 'Where you are',
         body:
-          'An epic is one piece of work, and every module works on the epic picked here. Choose All epics to see the whole project; the list orders A–Z or by Recent.',
+          'The path to the space you are in: the project, then each space it sits in. Every module works in the space picked here. Open it for every space as a tree — pick one at any depth, or All spaces for the whole project.',
         side: 'bottom',
         align: 'start',
       },
     ],
   },
   {
-    id: 'parts-bar',
+    id: 'sub-space-bar',
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-tour="parts"]'],
-        title: 'Its parts',
+        selectors: ['[data-tour="space-add"]', '[data-tour="space"]', 'button[aria-label="the space this project is on"]'],
+        title: 'Spaces inside spaces',
         body:
-          'Pick one part or a few and every module narrows to them. Parts divide a single epic, so this is not here on All epics.',
+          'Any space can hold spaces of its own: in the tree, + on a row makes one inside it. Pick one or a few side by side and every module narrows to them.',
         side: 'bottom',
         align: 'start',
       },
@@ -268,7 +279,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
         selectors: ['[data-tour="kehikko"]', 'button[aria-label="switch kehikko"]'],
         title: 'Your kehikot',
         body:
-          'An epic can have several kehikot, each its own arrangement of modules. Switch between them here, or choose new kehikko… to make another.',
+          'A space can have several kehikot, each its own arrangement of modules. Switch between them here, or choose new kehikko… to make another.',
         side: 'bottom',
         align: 'start',
       },
@@ -295,7 +306,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
         selectors: ['[data-tour="pinned"]', '[data-testid="pinned-menu"]'],
         title: 'Pinned places',
         body:
-          'Pin the place you are on — project, epic, parts and kehikko — with the pin button or Alt+Shift+P. Come back to it in one click from this menu.',
+          'Pin the place you are on — project, space and kehikko — with the pin button or Alt+Shift+P. Come back to it in one click from this menu.',
         side: 'bottom',
         align: 'start',
       },

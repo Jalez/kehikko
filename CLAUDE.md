@@ -479,6 +479,27 @@
   folder: `scratchHost`, `server/machineDirs.ts`) with no `KEHIKOT_SEED_PROJECT`
   opens no project at all. Start test hosts with a scratch `HOME` and a seed.
 
+## Spaces (protocol 2.89.0)
+
+- A project's spaces are one tree, to any depth. The top two levels ARE the epic
+  files and their `parts` (same ids); `.kehikot/host/spaces.json` keeps the
+  top-level order and every deeper space (`server/spaces.ts`). Where the two
+  differ the epic files win; a node they lost stays in the file, unshown.
+- ONE writer: `editSpaces` (create, rename, move, remove with `confirm`). At the
+  top two levels it writes through `createEpic`/`retitleEpic`/`deleteEpic`/
+  `editParts`; `create_epic` and `set_parts` keep working. The page reaches it at
+  `POST /host/spaces`, agents through `edit_space`.
+- `migrateSpaces` runs on start and on project add: once, when there is no
+  `spaces.json`, it copies every epic file to `.kehikot/host/epics-before-spaces/`
+  (never moves or deletes one) and writes the tree. Idempotent.
+- The project's subject keeps epic and parts as before; `space` (ids, picked) is
+  stored beside them only when they cannot say it (deeper than a part). The
+  rules are `src/host/spaces.ts` (`standIn`, `heldSpaceOf`), shared by the page
+  and the server. Modules are told `context.space` and still `epic`/`parts`
+  (`epicPartsOf`).
+- Kehikkos are per project as before and work in every space at any depth.
+- Person-facing text says "space", never "epic" or "part"; wire names stay.
+
 ## The official module list
 
 - `modules.json` is the list of modules this host vouches for

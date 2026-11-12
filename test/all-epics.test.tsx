@@ -171,7 +171,7 @@ describe('a module that works on one epic at a time is covered', () => {
   })
 
   test('the sentence', () => {
-    expect(ONE_EPIC_AT_A_TIME).toBe('This module works on one epic at a time. Pick an epic to use it.')
+    expect(ONE_EPIC_AT_A_TIME).toBe('This module works in one space at a time. Pick a space to use it.')
   })
 })
 
@@ -277,7 +277,7 @@ describe('the door reports the scope', () => {
     const read = await call('read_canvas', {}, door(store, openness, seen))
     expect(read.text).not.toMatch(/a\.(files|board) \([A-Za-z]+\) — works on one epic/)
     expect(read.text).toContain('      scope: Project (default) — the files of this project')
-    expect(read.text).toContain('      scope: Project (changed by the person) — every epic’s cards; can also work for Epic (its default)')
+    expect(read.text).toContain('      scope: Project (changed by the person) — every epic’s cards; can also work for Space (its default)')
     expect(read.text).toContain('Only the person changes a scope; no tool here does.')
   })
 
@@ -289,6 +289,6 @@ describe('the door reports the scope', () => {
     const openness = new Openness()
     openness.reported('page-a', canvas.id)
     const done = await call('my_place', {}, door(store, openness, []))
-    expect(done.text).toContain('all epics (scope: project)')
+    expect(done.text).toContain('all spaces (scope: project)')
   })
 })

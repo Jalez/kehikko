@@ -129,7 +129,7 @@ describe('a module’s window', () => {
     const consumes = tab.querySelector('[data-side="consumes"]')!
     expect(provides.textContent).toContain('Paper follows the passage Notes points at.')
     expect(consumes.textContent).toContain('Notes follows the passage Paper points at.')
-    expect(consumes.textContent).toContain('Notes narrows to the parts picked in the bar.')
+    expect(consumes.textContent).toContain('Notes narrows to the sub-spaces picked in the bar.')
     /* Grouped by kind: one row for the passage, with both providers in it. */
     const passage = [...consumes.querySelectorAll('[data-connection-row]')].find((row) => row.textContent?.includes('A passage'))!
     expect(passage.querySelectorAll('[data-connection]').length).toBe(2)
@@ -191,12 +191,12 @@ describe('every module on the kehikko', () => {
     const search = q<HTMLInputElement>('[data-kehikko-connections] input[type="search"]')!
     await act(async () => {
       const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
-      set.call(search, 'parts')
+      set.call(search, 'sub-spaces')
       search.dispatchEvent(new Event('input', { bubbles: true }))
     })
     const kinds = all('[data-connection-row] h4').map((h) => h.textContent)
     expect(kinds.length).toBeGreaterThan(0)
-    expect(kinds.every((k) => k === 'The picked parts')).toBe(true)
+    expect(kinds.every((k) => k === 'The picked sub-spaces')).toBe(true)
     await act(async () => q('[data-see-all]')!.click())
     expect(q('[data-connections-tab="kehikot.notes"]')).not.toBeNull()
   })

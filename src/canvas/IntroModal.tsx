@@ -26,6 +26,8 @@ export interface ModalSlide {
   /** Drawn as a list under the body. */
   points?: readonly string[]
   art?: () => ReactNode
+  /** Drawn under the words: a button of the slide's own (the "Introducing" card's Retake the tour). Given the close. */
+  below?(close: () => void): ReactNode
 }
 
 /** Does the person ask for less motion? Read on each open; a test stubs `matchMedia`. */
@@ -138,6 +140,7 @@ export function IntroModal({
               ))}
             </ul>
           ) : null}
+          {slide.below ? <div className="pt-2" data-intro-below="">{slide.below(() => onOpenChange(false))}</div> : null}
         </div>
         </ModalBody>
 

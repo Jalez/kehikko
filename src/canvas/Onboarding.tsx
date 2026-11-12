@@ -11,6 +11,9 @@ import {
   onOpenTour,
   openTour,
   postOnboarding,
+  seenEdit,
+  spacesDue,
+  spacesNews,
   underway,
   type LayoutsMode,
   type Onboarding,
@@ -112,7 +115,7 @@ export function OnboardingHost({
   drawer,
   layout = true,
 }: {
-  /** What the tour's waiting steps wait for: a project open, an epic chosen, a kehikko made. */
+  /** What the tour's waiting steps wait for: a project open, a space chosen, a kehikko made. */
   facts?: Facts
   /** How the tour is drawn; driver.js unless a test says otherwise. */
   drawer?: Drawer
@@ -133,6 +136,8 @@ export function OnboardingHost({
 }) {
   const [state, setState] = useState<Onboarding | null>(null)
   const [intro, setIntro] = useState(false)
+  /* Whether the Introduction open now starts on "Introducing: Spaces". */
+  const [news, setNews] = useState(false)
   const [picker, setPicker] = useState<LayoutsMode | null>(null)
   const [saving, setSaving] = useState(false)
   const [installing, setInstalling] = useState<ReadonlySet<string>>(new Set())
@@ -177,9 +182,10 @@ export function OnboardingHost({
   )
 
   /* Once, at start: the introduction opens by itself when this one has not
-     been seen — after any window already standing (Settings' one-time
-     question) has been answered, never on top of it. A tour left running
-     picks up the same way. */
+     been seen, or — for a person who used the app before spaces — on
+     "Introducing: Spaces", once (`spacesDue`). After any window already
+     standing (Settings' one-time question) has been answered, never on top
+     of it. A tour left running picks up the same way. */
   useEffect(() => {
     let alive = true
     let stop = () => {}
@@ -187,7 +193,12 @@ export function OnboardingHost({
       if (!alive) return
       setState(got)
       stateRef.current = got
-      const then = introDue(got) ? () => alive && setIntro(true) : underway(got) ? () => alive && tour('resume') : null
+      const opening = () => {
+        if (!alive) return
+        setNews(spacesNews(got))
+        setIntro(true)
+      }
+      const then = introDue(got) || spacesDue(got) ? opening : underway(got) ? () => alive && tour('resume') : null
       if (!then) return
       void settingsAsked().then((asked) => {
         if (!alive) return
@@ -208,6 +219,7 @@ export function OnboardingHost({
     const off = [
       onOpenIntro(() => {
         guide.current?.stop()
+        setNews(spacesNews(stateRef.current))
         setIntro(true)
       }),
       /* After whatever menu opened it has closed and given focus back. */
@@ -277,8 +289,10 @@ export function OnboardingHost({
         open={intro}
         onOpenChange={(isOpen) => {
           setIntro(isOpen)
-          if (!isOpen && (state === null || introDue(state))) void postOnboarding({ intro: 'seen' }).then((got) => got && setState(got))
+          const edit = isOpen ? null : seenEdit(state, news)
+          if (edit) void postOnboarding(edit).then((got) => got && setState(got))
         }}
+        news={news}
         onTour={() => openTour('over')}
         onExplore={() => setTimeout(() => guideOf().point(EXPLORING), 0)}
       />

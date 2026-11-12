@@ -869,7 +869,7 @@ function TasksAgentPicker() {
         Agent for Kehikot's own tasks
       </h4>
       <p className="text-muted-foreground mb-2 text-xs leading-relaxed">
-        Kehikot starts a conversation with it for work of its own, such as finding which epic an item belongs to. It only proposes; you confirm.
+        Kehikot starts a conversation with it for work of its own, such as finding which space an item belongs to. It only proposes; you confirm.
       </p>
       {state.choices.length ? (
         <NativeSelect
@@ -954,7 +954,7 @@ function TrackerNotices({
       <Summary icon={Bell} title="Status">
         <p className="text-sm" data-status="notices">
           {notices.on
-            ? `On · ${notices.scope === 'roles' ? 'only where you have a role' : 'also everything your epics name'} · ${told} of ${NOTICE_EVENTS.length} events`
+            ? `On · ${notices.scope === 'roles' ? 'only where you have a role' : 'also everything your spaces name'} · ${told} of ${NOTICE_EVENTS.length} events`
             : 'Off · the Inbox says nothing from your issue trackers'}
         </p>
       </Summary>

@@ -253,10 +253,10 @@ describe('two conversations on two epics, and the person switching', () => {
     await issue(TOKEN_A, canvas.key)
     await issue(TOKEN_B, other.key)
     const a = await text('my_place', await doorFor(TOKEN_A))
-    expect(a.content[0]!.text).toContain(`This conversation belongs to ${project.name} (${folder}), epic methods (parts data) on kehikko "writing" — as kehikot.claude records it.`)
-    expect(a.content[0]!.text).toContain('The person is looking at something else now (epic results on kehikko "review")')
+    expect(a.content[0]!.text).toContain(`This conversation belongs to ${project.name} (${folder}), space methods (sub-spaces data) on kehikko "writing" — as kehikot.claude records it.`)
+    expect(a.content[0]!.text).toContain('The person is looking at something else now (space results on kehikko "review")')
     const b = await text('my_place', await doorFor(TOKEN_B))
-    expect(b.content[0]!.text).toContain('epic results on kehikko "review"')
+    expect(b.content[0]!.text).toContain('space results on kehikko "review"')
     expect(b.content[0]!.text).toContain('The person is looking at this place now.')
 
     const canvasA = (await text('read_canvas', await doorFor(TOKEN_A))).content[0]!.text
@@ -270,7 +270,7 @@ describe('two conversations on two epics, and the person switching', () => {
     expect((await text('my_place', await doorFor(TOKEN_A))).content[0]!.text).toContain('The person is looking at this place now.')
     const later = (await text('read_canvas', await doorFor(TOKEN_B))).content[0]!.text
     expect(later).toContain('epic: results — this conversation\'s epic.')
-    expect(later).toContain('The person is looking at something else now (epic methods (parts data) on kehikko "writing")')
+    expect(later).toContain('The person is looking at something else now (space methods (sub-spaces data) on kehikko "writing")')
   })
 
   test('set_parts and read_tracker default to the conversation’s epic, not the one on screen', async () => {
@@ -284,7 +284,7 @@ describe('two conversations on two epics, and the person switching', () => {
     await issue(TOKEN_A, canvas.key)
     records[TOKEN_A] = { ...records[TOKEN_A]!, epic: 'results', parts: [] }
     await new Promise((done) => setTimeout(done, 2100))
-    expect((await text('my_place', await doorFor(TOKEN_A))).content[0]!.text).toContain('epic results')
+    expect((await text('my_place', await doorFor(TOKEN_A))).content[0]!.text).toContain('space results')
   })
 
   test('a token whose module has no record is said, never guessed past', async () => {
@@ -343,7 +343,7 @@ describe('a conversation nobody started from a place', () => {
     expect(later.here?.via).toBe('session')
     const place = (await text('my_place', later)).content[0]!.text
     expect(place).toContain(`This conversation belongs to ${project.name}`)
-    expect(place).toContain('call set_my_place with the epic this conversation is for')
+    expect(place).toContain('call set_my_place with the space this conversation is for')
     expect(inbox.open(project.id)).toHaveLength(0)
   })
 

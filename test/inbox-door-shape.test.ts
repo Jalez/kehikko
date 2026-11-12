@@ -74,7 +74,7 @@ describe('inbox.read fits the protocol', () => {
     const notice = entry('gitlab:gitlab.example.org/group/project!4721', { module: 'kehikko.trackers', name: '', label: '!4721 · changes requested by mona' })
     const item = read(door({ entries: () => [notice] })).items[0]!
     expect(item.by).toBe('Tracker')
-    expect(item.where).toBe('Not in any epic · gitlab.example.org')
+    expect(item.where).toBe('Not in any space · gitlab.example.org')
     const inEpic = read(door({ entries: () => [{ ...notice, place: { epic: 'auth' } }], names: () => ({ epic: () => 'Auth', part: () => null, kehikko: () => null }) })).items[0]!
     expect(inEpic.where).toBe('Auth')
   })

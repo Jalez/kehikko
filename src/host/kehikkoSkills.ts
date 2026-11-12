@@ -12,7 +12,7 @@ export type KeptSkill = z.infer<typeof keptSkillSchema>
 
 /** What the window tells the person about who gets a skill and when. */
 export const DELIVERY_SAID =
-  'Every agent session on this kehikko gets these, whatever epic it works on. Sessions started from now on load them; '
+  'Every agent session on this kehikko gets these, whatever space it works in. Sessions started from now on load them; '
   + 'one already running is told at its next prompt and can read the new text, and loads it as a skill after a restart.'
 
 export const LIMITS_SAID = {

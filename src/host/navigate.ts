@@ -36,7 +36,7 @@ export const NAVIGATE_SAYS = {
   notFocused: 'Kehikot switches project only when you press for it, with Kehikot in front of you.',
   agentPressed: "An agent's press does not take you to another project. Press it yourself.",
   noPage: 'No page of Kehikot is open to switch project in.',
-  notArrived: (name: string) => `Kehikot opened ${name}, but its epics were not read in time to go further.`,
+  notArrived: (name: string) => `Kehikot opened ${name}, but its spaces were not read in time to go further.`,
 } as const
 
 /** A project as the page holds it, as far as finding one needs. */

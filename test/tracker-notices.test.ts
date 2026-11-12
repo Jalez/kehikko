@@ -449,9 +449,9 @@ describe('the store and the Inbox', () => {
   })
 
   test('a notice of a ref no epic names says so and where it is, not an empty place', () => {
-    expect(notInAnEpic('gitlab:gitlab.example.org/group/sub/project!4721')).toBe('Not in any epic · gitlab.example.org')
-    expect(notInAnEpic('github:github.com/o/r#3')).toBe('Not in any epic · github.com')
-    expect(notInAnEpic('0abc1234:tail/of/a/long/path!9')).toBe('Not in any epic')
+    expect(notInAnEpic('gitlab:gitlab.example.org/group/sub/project!4721')).toBe('Not in any space · gitlab.example.org')
+    expect(notInAnEpic('github:github.com/o/r#3')).toBe('Not in any space · github.com')
+    expect(notInAnEpic('0abc1234:tail/of/a/long/path!9')).toBe('Not in any space')
   })
 
   test('going to an item goes to its epic and lights nothing; without an epic it says so', () => {
@@ -459,7 +459,7 @@ describe('the store and the Inbox', () => {
     const here = { project: 1, epic: 'other', parts: [], kehikko: 'k1' }
     const target = { project: 1, kehikot: [{ key: 'k1', name: 'One', modules: ['kehikot.references'] }], epics: ['thesis', 'other'] }
     expect(planGo(item, here, target)).toEqual({ steps: [{ kind: 'epic', epic: 'thesis', parts: [] }], note: null })
-    expect(planGo({ module: TRACKER_NOTICES_MODULE }, here, target)).toEqual({ steps: [], note: 'No epic of this project names it.' })
+    expect(planGo({ module: TRACKER_NOTICES_MODULE }, here, target)).toEqual({ steps: [], note: 'No space of this project names it.' })
   })
 
   test('the epics naming each ref, read from the project', () => {

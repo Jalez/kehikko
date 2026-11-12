@@ -391,7 +391,7 @@ function ReadsChoice({
             Only what changed since the last read
           </label>
           <p className="leading-relaxed">
-            Less to read makes every read faster. A reference an epic or a module names is still read by name.
+            Less to read makes every read faster. A reference a space or a module names is still read by name.
             {reads.since ? ' Everything is read whole once a day.' : ''}
           </p>
           {s.tracker === 'github' ? (

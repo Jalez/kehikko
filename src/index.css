@@ -1037,6 +1037,64 @@ html[data-tour-corners] [data-tour-example] > .react-resizable-handle-se::after 
   70% { transform: translate(var(--dx), var(--dy)); opacity: 1; }
   88%, 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
 }
+/*
+ * Spaces (`SpacesArt` in `Intro.tsx`), one 9 s loop: the piece of work with
+ * boxes in it gives way to the tree (0-30%), the tree goes deeper (30-44%), a
+ * kehikko moves into the deepest space (46-64%), the breadcrumb appears
+ * (66-74%), and all of it fades back to the start (94-100%). The final frame
+ * is each element's own style: tree, kehikko in place, breadcrumb, no "before".
+ */
+.intro-art .ia-sp-old {
+  opacity: 0;
+  transform-origin: center;
+  animation: ia-sp-old 9s ease-in-out infinite;
+}
+@keyframes ia-sp-old {
+  0%, 14% { opacity: 1; transform: none; }
+  28%, 96% { opacity: 0; transform: translate(-34px, 0) scale(0.55); }
+  100% { opacity: 1; transform: none; }
+}
+.intro-art .ia-sp-tree {
+  animation: ia-sp-tree 9s ease-in-out infinite;
+}
+@keyframes ia-sp-tree {
+  0%, 18% { opacity: 0; transform: translate(10px, 0); }
+  30%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+.intro-art .ia-sp-deep {
+  animation: ia-sp-deep 9s ease-in-out infinite;
+}
+@keyframes ia-sp-deep {
+  0%, 30% { opacity: 0; transform: translate(-12px, 0); }
+  37%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+.intro-art .ia-sp-deeper {
+  animation: ia-sp-deeper 9s ease-in-out infinite;
+}
+@keyframes ia-sp-deeper {
+  0%, 37% { opacity: 0; transform: translate(-12px, 0); }
+  44%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+.intro-art .ia-sp-card {
+  animation: ia-sp-card 9s ease-in-out infinite;
+}
+@keyframes ia-sp-card {
+  0%, 46% { opacity: 0; transform: translate(-150px, 10px); }
+  50% { opacity: 1; transform: translate(-150px, 10px); }
+  64%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+.intro-art .ia-sp-crumb {
+  animation: ia-sp-crumb 9s ease-in-out infinite;
+}
+@keyframes ia-sp-crumb {
+  0%, 66% { opacity: 0; transform: translateY(-6px); }
+  74%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
 /* Still: every picture at its final frame. */
 [data-motion='still'] .intro-art,
 [data-motion='still'] .intro-art * {

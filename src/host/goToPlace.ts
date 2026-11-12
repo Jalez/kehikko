@@ -65,7 +65,7 @@ export interface GoPlan {
 }
 
 const NO_PLACE = 'This notice did not say where it came from, so its module is shown where it is.'
-const NO_EPIC = 'No epic of this project names it.'
+const NO_EPIC = 'No space of this project names it.'
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((one) => b.includes(one))
 
@@ -110,7 +110,7 @@ export function planGo(
   let epicStep: GoStep | null = null
   if (place?.epic !== undefined) {
     if (target.epics !== null && !target.epics.includes(place.epic)) {
-      notes.push(`This project has no epic ${place.epic} any more.`)
+      notes.push(`This project has no space ${place.epic} any more.`)
     } else {
       const parts = [...new Set(place.parts ?? [])]
       if (place.epic !== at.epic || !sameSet(parts, at.parts)) epicStep = { kind: 'epic', epic: place.epic, parts }
@@ -168,7 +168,7 @@ function planNotice(
   if (on && on.key !== at.kehikko) steps.push({ kind: 'kehikko', key: on.key })
   const epic = item.place?.epic
   if (epic !== undefined) {
-    if (target.epics !== null && !target.epics.includes(epic)) notes.push(`This project has no epic ${epic} any more.`)
+    if (target.epics !== null && !target.epics.includes(epic)) notes.push(`This project has no space ${epic} any more.`)
     else if (epic !== at.epic) steps.push({ kind: 'epic', epic, parts: [] })
   }
   if (on && ref !== undefined) steps.push({ kind: 'pick', refs: [ref] })

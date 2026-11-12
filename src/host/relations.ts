@@ -493,8 +493,8 @@ export function sentenceFor(name: string, relationship: Relationship): string {
 
   if (kind === 'navigation') {
     return relationship.told > 0
-      ? `${name} can ask this kehikko to show a different epic. The canvas moves its subject and tells every module on it — ${count(relationship.told)} beside this one right now — so everything here follows at once.`
-      : `${name} can ask this kehikko to show a different epic. The canvas would move its subject and tell every module on it; nothing else is on this one.`
+      ? `${name} can ask this kehikko to show a different space. The canvas moves its subject and tells every module on it — ${count(relationship.told)} beside this one right now — so everything here follows at once.`
+      : `${name} can ask this kehikko to show a different space. The canvas would move its subject and tell every module on it; nothing else is on this one.`
   }
 
   /*
@@ -560,7 +560,7 @@ export function sentenceFor(name: string, relationship: Relationship): string {
 
 /** The short thing that fits in a badge. Never prose — see the essay in `Bar.tsx`. */
 export function labelFor(relationship: Relationship): string {
-  if (relationship.kind === 'navigation') return 'moves the epic'
+  if (relationship.kind === 'navigation') return 'moves the space'
   if (relationship.kind === 'selection') {
     return relationship.role === 'reacts' ? 'follows the selection' : 'sets the selection'
   }

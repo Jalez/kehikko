@@ -46,9 +46,9 @@ const old = manifestSchema.parse({ ...base, id: 'kehikot.history', modes: [{ id:
 describe('a container’s scope', () => {
   test('is the module’s default until the person picks another it lists', () => {
     const at = scopeOfContainer(kanban, null)
-    expect(at).toMatchObject({ active: 'epic', name: 'Epic', isDefault: true, defaultScope: 'epic', says: 'the open epic’s issues and changes' })
+    expect(at).toMatchObject({ active: 'epic', name: 'Space', isDefault: true, defaultScope: 'epic', says: 'the open epic’s issues and changes' })
     expect(at.supported.map((one) => [one.scope, one.name, one.isDefault])).toEqual([
-      ['epic', 'Epic', true],
+      ['epic', 'Space', true],
       ['project', 'Project', false],
     ])
     expect(scopeOfContainer(kanban, 'project')).toMatchObject({ active: 'project', isDefault: false })
@@ -57,14 +57,14 @@ describe('a container’s scope', () => {
   })
 
   test('an old or missing word reads as Epic, with the scope’s own meaning for a line', () => {
-    expect(scopeOfContainer(old, null)).toMatchObject({ active: 'epic', name: 'Epic', says: 'The open epic.' })
+    expect(scopeOfContainer(old, null)).toMatchObject({ active: 'epic', name: 'Space', says: 'The open space.' })
     expect(scopeOfContainer({}, null).active).toBe('epic')
   })
 
   test('the tooltips say the name, default or changed, and the module’s line', () => {
-    expect(scopeTooltip(scopeOfContainer(kanban, null))).toBe('Scope: Epic (default). The open epic’s issues and changes.')
+    expect(scopeTooltip(scopeOfContainer(kanban, null))).toBe('Scope: Space (default). The open epic’s issues and changes.')
     expect(scopeTooltip(scopeOfContainer(kanban, 'project'))).toBe('Scope: Project (changed). Every epic’s issues and changes, each labelled.')
-    expect(scopeRowTooltip(scopeOfContainer(kanban, null))).toBe('Scope: Epic. The open epic’s issues and changes. Can also work for: Project.')
+    expect(scopeRowTooltip(scopeOfContainer(kanban, null))).toBe('Scope: Space. The open epic’s issues and changes. Can also work for: Project.')
     expect(scopeRowTooltip(scopeOfContainer(runs, null))).toBe('Scope: This computer. Every project’s test runs, whatever is open here.')
     expect(onlyScopeSaid(scopeOfContainer(runs, null))).toBe('This module only works for This computer.')
     expect(Object.keys(SCOPE_ICONS)).toEqual(['machine', 'project', 'epic', 'part', 'kehikko'])
@@ -151,10 +151,10 @@ describe('storage: the scope travels with the arrangement', () => {
 describe('agents read it; the modules list shows and finds it', () => {
   test('read_canvas says the scope, default or changed, and the others', () => {
     expect(scopeWords(scopeOfContainer(kanban, null))).toBe(
-      'scope: Epic (default) — the open epic’s issues and changes; can also work for Project — the person picks in its settings',
+      'scope: Space (default) — the open epic’s issues and changes; can also work for Project — the person picks in its settings',
     )
     expect(scopeWords(scopeOfContainer(kanban, 'project'))).toBe(
-      'scope: Project (changed by the person) — every epic’s issues and changes, each labelled; can also work for Epic (its default) — the person picks in its settings',
+      'scope: Project (changed by the person) — every epic’s issues and changes, each labelled; can also work for Space (its default) — the person picks in its settings',
     )
     expect(scopeWords(scopeOfContainer(runs, null))).toBe('scope: This computer (default) — every project’s test runs, whatever is open here')
   })

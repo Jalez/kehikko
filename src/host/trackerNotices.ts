@@ -48,7 +48,7 @@ export const TRACKER_NOTICES_MODULE = 'kehikko.trackers'
 export const TRACKER_NOTICES_BY = 'Tracker'
 
 /** What a notice of a ref no epic names says for its place, before the tracker's host. */
-export const NOT_IN_AN_EPIC = 'Not in any epic'
+export const NOT_IN_AN_EPIC = 'Not in any space'
 
 /** The tracker's host an item id names (`itemId`: `<tracker>:<host>/<repo>…`); null for a hashed one. */
 export function noticeHostOf(id: string): string | null {
@@ -99,13 +99,13 @@ export const NOTICE_WORDS = {
   title: 'Tracker notices',
   lead: 'A line in the Inbox when something happens on an issue, merge request or pull request: one line per item, updated as more happens. Your own actions are never told.',
   on: 'Tell me in the Inbox',
-  outside: "Tell me about my items that aren't in any epic",
+  outside: "Tell me about my items that aren't in any space",
   untracked: 'Not tracked',
   untrackedLead: 'Items you said not to track. Kehikot tells you nothing more about them in this project.',
   retrack: 'Track again',
   scopes: {
     roles: 'Only where I have a role (author, assignee or reviewer)',
-    epics: 'Also everything my epics name',
+    epics: 'Also everything my spaces name',
   } satisfies Record<NoticeScope, string>,
   events: {
     'review-requested': 'My review is asked for',

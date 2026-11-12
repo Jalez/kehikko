@@ -19,7 +19,7 @@ import {
   toInstall,
   type Layout,
 } from '../src/host/layouts.ts'
-import { continuable, edited, INTRO_VERSION, introDue, NOT_STARTED, underway } from '../src/host/onboarding.ts'
+import { continuable, edited, INTRO_VERSION, introDue, metBefore, NOT_STARTED, onboardingEditSchema, onboardingSchema, seenEdit, spacesDue, spacesNews, underway } from '../src/host/onboarding.ts'
 import { COLUMNS } from '../src/host/canvases.ts'
 import { CANVAS_ROWS } from '../src/host/fit.ts'
 
@@ -215,7 +215,7 @@ describe('the introduction is shown once', () => {
     expect(readOnboarding(store, {})).toEqual(NOT_STARTED)
     writeOnboarding(store, { intro: 'seen' }, {})
     writeOnboarding(store, { tour: { step: 'epic' } }, {})
-    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { step: 'epic', paused: false, finished: false } })
+    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, spaces: 'unseen', tour: { step: 'epic', paused: false, finished: false } })
     /* Paused: the step is kept, for Continue tour. */
     writeOnboarding(store, { tour: { step: 'epic', paused: true } }, {})
     expect(readOnboarding(store, {}).tour).toEqual({ step: 'epic', paused: true, finished: false })
@@ -225,8 +225,45 @@ describe('the introduction is shown once', () => {
     writeOnboarding(store, { tour: { step: 'parts' } }, {})
     expect(underway(readOnboarding(store, {}))).toBe(true)
     writeOnboarding(store, { tour: { step: null, finished: true } }, {})
-    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, tour: { step: null, paused: false, finished: true } })
+    expect(readOnboarding(store, {})).toEqual({ intro: INTRO_VERSION, spaces: 'unseen', tour: { step: null, paused: false, finished: true } })
     expect(continuable(readOnboarding(store, {}))).toBe(false)
+  })
+
+  test('"Introducing: Spaces": once, for a person who met the app before; a new user is taught it in the introduction instead', () => {
+    /* A row from before spaces has no field: it reads as unseen, and parses whole. */
+    const old = onboardingSchema.parse({ intro: 3, tour: { step: null, paused: false, finished: true } })
+    expect(old.spaces).toBe('unseen')
+    expect(metBefore(old)).toBe(true)
+    expect(spacesDue(old)).toBe(true)
+    /* Met before: an introduction of any version seen, or the tour started or finished. */
+    expect(metBefore(NOT_STARTED)).toBe(false)
+    expect(metBefore({ ...NOT_STARTED, intro: 1 })).toBe(true)
+    expect(metBefore({ ...NOT_STARTED, tour: { step: 'project', paused: true, finished: false } })).toBe(true)
+    expect(spacesDue(NOT_STARTED)).toBe(false)
+    expect(spacesDue(null)).toBe(false)
+    /* Shown once: closing the card records news, and it is not due again — but Help keeps it. */
+    const shown = edited(old, seenEdit(old, true)!)
+    expect(shown.spaces).toBe('news')
+    expect(spacesDue(shown)).toBe(false)
+    expect(spacesNews(shown)).toBe(true)
+    expect(seenEdit(shown, true)).toBeNull()
+    /* A new user closing the regular introduction: taught, never the card. */
+    const taught = edited(NOT_STARTED, seenEdit(NOT_STARTED, false)!)
+    expect(taught).toMatchObject({ intro: INTRO_VERSION, spaces: 'taught' })
+    expect(spacesDue(taught)).toBe(false)
+    expect(spacesNews(taught)).toBe(false)
+    expect(edited(taught, { spaces: 'taught' }).spaces).toBe('taught')
+    expect(edited(shown, { spaces: 'taught' }).spaces).toBe('news')
+    /* The route takes the field and nothing else new. */
+    expect(onboardingEditSchema.safeParse({ spaces: 'news' }).success).toBe(true)
+    expect(onboardingEditSchema.safeParse({ spaces: 'unseen' }).success).toBe(false)
+    const store = openDb(':memory:')
+    ensureOnboarding(store)
+    store.query("insert into settings (key, value) values ('onboarding', ?)").run(JSON.stringify({ intro: 3, tour: { step: null, paused: false, finished: true } }))
+    expect(readOnboarding(store, {}).spaces).toBe('unseen')
+    writeOnboarding(store, { spaces: 'news' }, {})
+    expect(readOnboarding(store, {}).spaces).toBe('news')
+    expect(readOnboarding(store, { KEHIKOT_ONBOARDING: 'off' }).spaces).toBe('taught')
   })
 
   test('a row from the first tour (numbered stops) reads as not started; a newer introduction is due again', () => {

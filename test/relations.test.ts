@@ -244,7 +244,7 @@ describe('the indirect kinds', () => {
 
   test('the badge itself carries no prose', () => {
     const found = relate([ATLAS, REFERENCES], NOWHERE)
-    expect(labelFor(found.get('kehikot.mapmaker')![0]!)).toBe('moves the epic')
+    expect(labelFor(found.get('kehikot.mapmaker')![0]!)).toBe('moves the space')
     expect(labelFor(found.get('kehikot.references')![0]!)).toBe('sets the selection')
   })
 })
