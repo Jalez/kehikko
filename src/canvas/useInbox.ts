@@ -8,6 +8,7 @@ import {
   isHostModule,
   isLive,
   isOpen,
+  isOffer,
   isSeen,
   rowKey,
   unreportedAfter,
@@ -426,7 +427,7 @@ export function useInbox(options: {
 
   const act = useCallback(
     (
-      what: 'seen' | 'dismiss' | 'forget' | 'seen-all',
+      what: 'seen' | 'dismiss' | 'forget' | 'seen-all' | 'took',
       keys: readonly { module: string; id: string }[] | undefined,
       narrowing?: Narrowing | null,
       /** Another project's record; the open one's when absent. */
@@ -435,21 +436,25 @@ export function useInbox(options: {
       const id = inProject ?? projectRef.current
       if (id === null) return
       /* The guess, so the dot goes at once. */
-      if (keys && (what === 'seen' || what === 'dismiss')) {
+      if (keys && (what === 'seen' || what === 'dismiss' || what === 'took')) {
         const named = new Set(keys.map(rowKey))
         setSnap(id, (was) => {
           const base = was ?? { rev: 0, open: [], earlier: 0 }
           return {
             rev: base.rev,
             earlier: base.earlier,
-            open: base.open.map((one) =>
+            open: base.open.flatMap((one) =>
               !named.has(rowKey(one))
-                ? one
-                : what === 'seen' && one.state === 'done'
-                  ? { ...one, seen: one.entered }
-                  : what === 'dismiss' && one.state !== 'working'
-                    ? { ...one, dismissed: one.entered }
-                    : one,
+                ? [one]
+                : what === 'took'
+                  ? isOffer(one)
+                    ? []
+                    : [one]
+                  : what === 'seen' && one.state === 'done'
+                    ? [{ ...one, seen: one.entered }]
+                    : what === 'dismiss' && one.state !== 'working'
+                      ? [{ ...one, dismissed: one.entered }]
+                      : [one],
             ),
           }
         })

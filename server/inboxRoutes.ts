@@ -24,7 +24,8 @@ import type { NoticeLink } from '../src/host/trackerNotices.ts'
  * entries of a module that is not installed, a kehikko or an epic that is gone
  * (`present`, `Inbox.retire`).
  *  - `POST /host/inbox/notice` — one legacy `kehikot.notifications@1` line (`events.emit`).
- *  - `POST /host/inbox/act` — see, dismiss, forget: the person's.
+ *  - `POST /host/inbox/act` — see, dismiss, forget, and `took` (an agent's offer the person went to,
+ *    closed as taken): the person's.
  *  - `POST /host/inbox/migrate` — what the page kept in its own storage, once.
  *  - `POST /host/inbox/use` — `{ module, use }`: the person's "Use inbox" switch for one module,
  *    machine-wide (`Inbox.use`). Every project's record is said to have changed.
@@ -253,8 +254,11 @@ export function inboxDesk(deps: InboxDeps) {
         changed = inbox.seeAll(project, narrowing).changed
       } else if (act === 'forget') {
         changed = inbox.forget(project, keys ? keys.data : null, narrowing).forgotten
+      } else if (act === 'took') {
+        if (!keys) return reply({ ok: false, why: 'took names the offers: keys.' }, 400)
+        changed = inbox.took(project, keys.data).changed
       } else {
-        return reply({ ok: false, why: 'do is one of seen, dismiss, seen-all, forget.' }, 400)
+        return reply({ ok: false, why: 'do is one of seen, dismiss, seen-all, forget, took.' }, 400)
       }
       if (changed) deps.changed(project, inbox.rev(project))
       return reply({ ok: true, changed, ...inbox.snapshot(project) })

@@ -68,9 +68,13 @@ import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE } from './trackerNotices.ts'
 export type Priority = 'urgent' | 'normal' | 'low'
 export type Place = NonNullable<ActivityItem['place']>
 
-/** How an entry came to close, or where it came from. */
-export type Origin = 'activity' | 'notice' | 'imported'
-export type Closing = 'listed' | 'silent' | 'unreported' | 'gone' | 'notice' | 'imported'
+/**
+ * How an entry came to close, or where it came from. `offer` is an agent's offer to take the person
+ * somewhere (`offerEntry`), filed by the host for the session that made it: `taken` closes it once
+ * the person went there, `replaced` once the same session offered somewhere else.
+ */
+export type Origin = 'activity' | 'notice' | 'imported' | 'offer'
+export type Closing = 'listed' | 'silent' | 'unreported' | 'gone' | 'notice' | 'imported' | 'taken' | 'replaced'
 
 /**
  * The host's own lists (`kehikko`), the tracker notices
@@ -143,6 +147,11 @@ export interface Entry {
   question?: EntryQuestion
   /** The person answered the question from the Inbox; it counts while `entered` is the one answered. */
   answered?: EntryAnswer
+  /**
+   * Where an offer takes the person beyond its `place` (protocol 2.87.0, `go`): the step, and its
+   * title for the Go back mark. Only on an `offer`; its presence is what makes the item one to go to.
+   */
+  go?: EntryGo
   /** When it entered `state`: the module's own `since`, else when the host first held it there. */
   entered: number
   /** When it was first reported. */
@@ -156,6 +165,15 @@ export interface Entry {
   dismissed: number | null
   origin: Origin
 }
+
+/** What an offer carries beyond its place: the step to walk the kehikko to, and the step's title. Text only. */
+export interface EntryGo {
+  step?: number
+  title?: string
+}
+
+/** Whether an entry is an agent's offer to take the person somewhere: its press goes there with Go back. */
+export const isOffer = (entry: Pick<Entry, 'origin'>): boolean => entry.origin === 'offer'
 
 /** A state an entry entered, and when. The current state's is the last. */
 export interface Move {
@@ -291,6 +309,10 @@ export function applyList(
   options: ListOptions,
 ): Applied {
   const { now } = options
+  /* An agent's offer is the host's, filed for a session of the module: never the module's list to close or
+     overwrite. An item of the list with an offer's id is the module's word against the host's, and left out. */
+  const offers = new Set(have.filter(isOffer).map((one) => one.id))
+  if (offers.size) have = have.filter((one) => !isOffer(one))
   const byId = new Map(have.map((one) => [one.id, one]))
   const baseline = have.length === 0
   const loadedAt = options.loadedAt ?? 0
@@ -300,6 +322,7 @@ export function applyList(
   const gone = options.gone
   for (const item of items) {
     if (gone?.(item.place)) continue
+    if (offers.has(item.id)) continue
     listed.add(item.id)
     const was = byId.get(item.id)
     const entered = item.since ?? (was && was.state === item.state ? was.entered : now)
@@ -490,6 +513,49 @@ export function noticeEntry(
     origin: 'notice',
   }
   return { entry, move: { module, id, state, at: now, label } }
+}
+
+/** The id an agent session's offer is filed under: one per session, so a new offer replaces its last. */
+export const offerId = (session: string): string => `offer:${session}`.slice(0, LIMITS.ACTIVITY_ID)
+
+/**
+ * An agent's offer to take the person somewhere, as an open entry of the module that runs the
+ * session (its registered name is the by-line). A thing said, at normal priority — not one that
+ * needs the person. `place` is where it goes as the agent named it (what is left out stays where the
+ * person is when they take it), `go` the step. Every string is text; `label` is clipped to the limit.
+ */
+export function offerEntry(
+  module: string,
+  name: string,
+  session: string,
+  label: string,
+  place: Place | undefined,
+  go: EntryGo,
+  now: number,
+): { entry: Entry; move: Move } {
+  const clean = label.replace(/\s+/g, ' ').trim()
+  const said = clean.length > LIMITS.ACTIVITY_LABEL ? `${clean.slice(0, LIMITS.ACTIVITY_LABEL - 1)}\u2026` : clean
+  const id = offerId(session)
+  const entry: Entry = {
+    module,
+    name,
+    id,
+    state: 'done',
+    label: said,
+    ...(clean.length > LIMITS.ACTIVITY_LABEL ? { detail: clean.slice(0, LIMITS.ACTIVITY_DETAIL) } : {}),
+    ...(place ? { place } : {}),
+    priority: 'normal',
+    refs: [],
+    go: { ...(go.step !== undefined ? { step: go.step } : {}), ...(go.title ? { title: go.title.slice(0, LIMITS.TITLE) } : {}) },
+    entered: now,
+    opened: now,
+    closed: null,
+    how: null,
+    seen: null,
+    dismissed: null,
+    origin: 'offer',
+  }
+  return { entry, move: { module, id, state: 'done', at: now, label: said } }
 }
 
 /* ---- where an entry belongs, and scope ---- */
@@ -704,6 +770,9 @@ export function closedWords(entry: Pick<Entry, 'state' | 'how' | 'origin'>): str
   if (entry.how === 'silent') return `stopped answering, was ${STATE_WORDS[entry.state]}`
   if (entry.how === 'unreported') return `not said again after the module restarted, was ${STATE_WORDS[entry.state]}`
   if (entry.how === 'gone') return `its module or place is gone, was ${STATE_WORDS[entry.state]}`
+  if (entry.how === 'taken') return 'offer taken: you went there'
+  if (entry.how === 'replaced') return 'offer replaced by a newer one'
+  if (entry.origin === 'offer') return 'offer withdrawn'
   if (entry.state === 'attention') return 'no longer needs you'
   if (entry.state === 'done') return 'finished'
   return 'stopped'

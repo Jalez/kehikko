@@ -97,7 +97,9 @@ describe('the door says what it is and what it offers', () => {
        what needs the person, and what happened while they were away — and
        marks nothing: seeing and dismissing are the person's. And one jumps
        the view, because the person asked for it (#208): marked with Go back,
-       which restores their place — see `test/jump.test.ts`. */
+       which restores their place — see `test/jump.test.ts`. And one offers
+       to, when the person did not ask: an item in their Inbox they take or
+       dismiss, which moves nothing — see `test/offer-jump.test.ts`. */
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'create_epic',
       'fold_modules',
@@ -107,6 +109,7 @@ describe('the door says what it is and what it offers', () => {
       'module_settings',
       'module_versions',
       'my_place',
+      'offer_jump',
       'open_address',
       'pin_version',
       'place_modules',

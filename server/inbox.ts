@@ -17,6 +17,9 @@ import {
   isSeen,
   logRows,
   noticeEntry,
+  offerEntry,
+  offerId,
+  isOffer,
   placeGone,
   retire,
   rowKey,
@@ -24,6 +27,7 @@ import {
   type Entry,
   type EntryAnswer,
   type EntryEvent,
+  type EntryGo,
   type EntryQuestion,
   type LogRow,
   type Move,
@@ -85,12 +89,13 @@ interface ItemRow {
   seen: number | null
   dismissed: number | null
   origin: string
+  go?: string | null
 }
 
 const STATES = new Set<string>(['working', 'attention', 'done'])
 const PRIORITIES = new Set<string>(['urgent', 'normal', 'low'])
-const HOWS = new Set<string>(['listed', 'silent', 'unreported', 'gone', 'notice', 'imported'])
-const ORIGINS = new Set<string>(['activity', 'notice', 'imported'])
+const HOWS = new Set<string>(['listed', 'silent', 'unreported', 'gone', 'notice', 'imported', 'taken', 'replaced'])
+const ORIGINS = new Set<string>(['activity', 'notice', 'imported', 'offer'])
 
 function parseJson<T>(text: string | null, fallback: T): T {
   if (!text) return fallback
@@ -127,6 +132,19 @@ function answeredOf(text: string | null): { answered?: EntryAnswer } {
     : {}
 }
 
+/** Where an offer goes beyond its place (protocol 2.87.0), read leniently: a whole step from 1, a title as text. */
+function goOf(text: string | null | undefined): { go?: EntryGo } {
+  const value = parseJson<unknown>(text ?? null, null)
+  if (typeof value !== 'object' || value === null) return {}
+  const { step, title } = value as Record<string, unknown>
+  return {
+    go: {
+      ...(typeof step === 'number' && Number.isInteger(step) && step >= 1 ? { step } : {}),
+      ...(typeof title === 'string' && title ? { title } : {}),
+    },
+  }
+}
+
 function toEntry(row: ItemRow): Entry {
   const place = parseJson<Place | null>(row.place, null)
   const refs = parseJson<unknown>(row.refs, [])
@@ -144,6 +162,7 @@ function toEntry(row: ItemRow): Entry {
     ...eventOf(row.event),
     ...questionOf(row.question ?? null),
     ...answeredOf(row.answered ?? null),
+    ...(row.origin === 'offer' ? goOf(row.go) : {}),
     entered: row.entered,
     opened: row.opened,
     closed: row.closed,
@@ -371,14 +390,15 @@ export class Inbox {
       .query(
         `insert into inbox_items
            (project, module, id, name, state, label, detail, place, priority, refs, grp, event, question, answered,
-            entered, opened, closed, how, seen, dismissed, origin, touched)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            entered, opened, closed, how, seen, dismissed, origin, touched, go)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict (project, module, id) do update set
            name = excluded.name, state = excluded.state, label = excluded.label, detail = excluded.detail,
            place = excluded.place, priority = excluded.priority, refs = excluded.refs, grp = excluded.grp, event = excluded.event,
            question = excluded.question, answered = excluded.answered,
            entered = excluded.entered, closed = excluded.closed, how = excluded.how,
-           seen = excluded.seen, dismissed = excluded.dismissed, touched = excluded.touched`,
+           seen = excluded.seen, dismissed = excluded.dismissed, touched = excluded.touched,
+           origin = excluded.origin, go = excluded.go, opened = excluded.opened`,
       )
       .run(
         project,
@@ -404,6 +424,7 @@ export class Inbox {
         entry.dismissed,
         entry.origin,
         this.clock(),
+        entry.go ? JSON.stringify(entry.go) : null,
       )
   }
 
@@ -514,6 +535,66 @@ export class Inbox {
       this.#move(project, made.move)
       this.#trim(project)
       return { rev: this.#bump(project), open: this.open(project), earlier: this.snapshot(project).earlier, news: [] }
+    })
+    return run()
+  }
+
+  /**
+   * An agent session's offer to take the person somewhere (`offer_jump`), filed as an open entry of
+   * the module that runs the session (`offerEntry`). One open offer per session: the new one takes
+   * the place of the last, in this project (the same id), and closes it as `replaced` in any other.
+   * Answers this project's new rev and every other project it closed one in.
+   */
+  offer(
+    project: number,
+    module: string,
+    name: string,
+    session: string,
+    label: string,
+    place: Place | undefined,
+    go: EntryGo,
+  ): { rev: number; others: { project: number; rev: number }[]; replaced: boolean } {
+    const now = this.clock()
+    const run = this.db.transaction(() => {
+      const id = offerId(session)
+      const others: { project: number; rev: number }[] = []
+      let replaced = false
+      const elsewhere = this.db
+        .query<ItemRow, [string, string, number]>('select * from inbox_items where module = ? and id = ? and project != ? and closed is null')
+        .all(module, id, project)
+      for (const row of elsewhere) {
+        const was = toEntry(row)
+        if (!isOffer(was)) continue
+        this.#write(row.project, { ...was, closed: now, how: 'replaced' })
+        others.push({ project: row.project, rev: this.#bump(row.project) })
+        replaced = true
+      }
+      const before = this.entry(project, module, id)
+      if (before && isOffer(before) && before.closed === null) replaced = true
+      const made = offerEntry(module, name, session, label, place, go, now)
+      this.#write(project, made.entry)
+      this.#move(project, made.move)
+      this.#trim(project)
+      return { rev: this.#bump(project), others, replaced }
+    })
+    return run()
+  }
+
+  /**
+   * The person took offers (pressed Take me there and arrived): each is marked seen and closed as
+   * `taken` — an offer is done once taken. Only offers, and only open ones. The person's act alone.
+   */
+  took(project: number, keys: readonly { module: string; id: string }[]): { changed: number; rev: number } {
+    const now = this.clock()
+    const run = this.db.transaction(() => {
+      let changed = 0
+      for (const key of keys) {
+        const entry = this.entry(project, key.module, key.id)
+        if (!entry || !isOffer(entry) || entry.closed !== null) continue
+        this.#write(project, { ...entry, seen: entry.entered, closed: now, how: 'taken' })
+        changed += 1
+      }
+      return { changed, rev: changed ? this.#bump(project) : this.rev(project) }
     })
     return run()
   }
@@ -757,6 +838,8 @@ export function ensureInbox(db: Database): void {
   /* An act in an entry's timeline that is not a state it entered ('answered'); null for a state. */
   const moveColumns = db.query<{ name: string }, []>('pragma table_info(inbox_moves)').all()
   if (!moveColumns.some((one) => one.name === 'act')) db.exec('alter table inbox_moves add column act text')
+  /* Where an agent's offer goes beyond its place (protocol 2.87.0): `{ step?, title? }` JSON, on an `offer` only. */
+  if (!columns.some((one) => one.name === 'go')) db.exec('alter table inbox_items add column go text')
 }
 
 /** A list of items read off a request body: refused whole when the protocol would refuse it. */

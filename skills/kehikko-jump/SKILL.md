@@ -10,7 +10,7 @@ The kehikko door (the `kehikko` MCP server, Kehikot's own) has `jump`: it moves 
 
 - The person asked to be taken somewhere: a project, a kehikko, an epic, parts of an epic, a step.
 - You are walking them through something step by step (a plan, a list of steps, a walk-through) and they started that walkthrough: jump to each step as the conversation reaches it.
-- Never otherwise. Do not jump the view on your own initiative to show something you find relevant; say it and offer to take them there.
+- Never otherwise. Do not jump the view on your own initiative to show something you find relevant: call `offer_jump` instead, with the same target arguments and a `why` sentence ("The failing test is in the auth epic, part 3."). It files one item in the person's Inbox with **Take me there** and moves nothing; the person decides. A new offer replaces your last open one.
 
 ## How
 

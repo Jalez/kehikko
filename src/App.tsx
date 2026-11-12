@@ -72,7 +72,7 @@ import {
   type JumpOrder,
 } from './host/canvases.ts'
 import { keptFor, keptWritten } from './host/kept.ts'
-import { markAfter, markStands, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
+import { JUMP_SIGNED, markAfter, markStands, offerAsk, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
 import { JumpMark } from './canvas/JumpMark.tsx'
 import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
 import { targetOf } from './host/pinnedPlaces.ts'
@@ -131,7 +131,7 @@ import { visitFor, type Here } from './host/pickerOrder.ts'
 import { noteVisit } from './host/pickerStore.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
 import type { Namer } from './host/activity.ts'
-import { nextOf, rowKey, type Entry, type NoticeLine } from './host/inbox.ts'
+import { isOffer, nextOf, rowKey, type Entry, type NoticeLine } from './host/inbox.ts'
 import { INBOX_CAPABILITY, addWords, chordGoes, countLook, inboxModuleOf, needingCount, topItems, type InboxListed } from './host/inboxBar.ts'
 import { answerInbox, type InboxDoor, type NextTold } from './host/inboxDoor.ts'
 import { useInboxColour, type InboxCountView } from './canvas/InboxCount.tsx'
@@ -3670,6 +3670,39 @@ export function App() {
       await answerPress(order.id, { ok: true, why: '', ...(came.told ? { told: came.told } : {}) })
     })()
   }
+  /**
+   * An agent's offer, taken on the person's press (protocol 2.87.0, `go`): planned and gone to as the
+   * agent's `jump` would have gone (`offerAsk`, `planJump`), marked with Go back, and closed as taken
+   * — an offer is done once taken. Already there: taken, nothing moves. Refused or not arrived: the
+   * offer stays, and the page says why.
+   */
+  const takeOfferRef = useRef<(entry: Entry, project: number) => void>(() => {})
+  takeOfferRef.current = (entry, project) => {
+    const before = placeRef.current
+    if (!before) return
+    const took = () => inbox.act('took', [{ module: entry.module, id: entry.id }], null, project)
+    const plan = planAgentJump(offerAsk(entry, project, before.project), before, {
+      projects,
+      kehikotOf: (one) => inProject(canvasesRef.current, one).flatMap((c) => (c.key ? [{ key: c.key, name: c.name }] : [])),
+      subjectOf: (one) => subjectOf(subjects, one),
+    })
+    if (plan.kind === 'ignored') {
+      took()
+      return
+    }
+    if (plan.kind === 'refused') {
+      setTrouble(`That offer could not be taken: ${plan.why}`)
+      return
+    }
+    void goPlace(plan.target).then((came) => {
+      if (!came.ok) {
+        setTrouble(`That offer could not be taken: ${came.why}`)
+        return
+      }
+      setJumpMark((was) => ({ ...markAfter(was, before, came.at, entry.go?.title, entry.name || JUMP_SIGNED), offer: true }))
+      took()
+    })
+  }
   /* Go back: the person's place, exactly — project, kehikko, epic, parts and step. Theirs, so not paced or marked. */
   const jumpBack = () => {
     const mark = jumpMarkRef.current
@@ -4031,6 +4064,12 @@ export function App() {
   const goToEntry = useCallback(
     (entry: Entry, project: number | null = projectId) => {
       if (project === null) return
+      /* An agent's offer goes as its jump would, with Go back, and is closed once taken. */
+      if (isOffer(entry)) {
+        setInboxOpen(false)
+        takeOfferRef.current(entry, project)
+        return
+      }
       if (entry.state === 'done') inbox.see([entry], project)
       setInboxOpen(false)
       /* The agent sync's lines have no place on a canvas: they are about Settings. */
