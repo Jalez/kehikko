@@ -135,6 +135,9 @@ export type News =
      something (`autoUpdates.ts`). Carries nothing; the page re-reads
      `/host/updates` (without asking GitHub) and What's new. */
   | { updates: true }
+  /* An install or an update began, moved to another step, or ended (`jobSteps.ts`). Carries
+     nothing; the page re-reads `/host/steps`, and keeps reading while one runs. */
+  | { steps: true }
 
 /**
  * One item of a module's header to press, handed to the page that has the
@@ -350,6 +353,11 @@ export class Wakes {
    */
   updatesChanged(): void {
     this.#tell({ updates: true })
+  }
+
+  /** Say that an install or update began, changed step or ended. Sent by `JobSteps` only. */
+  stepsChanged(): void {
+    this.#tell({ steps: true })
   }
 
   /**

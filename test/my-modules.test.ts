@@ -220,7 +220,7 @@ describe('adding a repository', () => {
     const dir = join(w.root, 'kehikot.flows')
     /* Every call that fetches or runs anything; the list reads the checkout's remote afterwards, to say where it is from. */
     expect(w.gitCalls.map((call) => call.argv.join(' ')).filter((one) => !one.endsWith('remote get-url origin'))).toEqual([
-      `git clone --quiet https://github.com/jaakkorajalasol/kehikko-flows.git ${dir}`,
+      `git clone --quiet --progress https://github.com/jaakkorajalasol/kehikko-flows.git ${dir}`,
       `${process.execPath} install --frozen-lockfile`,
     ])
     expect(readRegistration('kehikot.flows.json', readFileSync(join(w.registry, 'kehikot.flows.json'), 'utf8'))).toEqual({
@@ -326,7 +326,7 @@ describe('adding a repository', () => {
     expect(await w.mine.add('https://gitlab.com/group/sub/flows')).toMatchObject({ ok: true, id: 'kehikot.flows' })
     expect(w.asked.every((argv) => argv.slice(0, 4).join(' ') === 'glab api --hostname gitlab.com')).toBe(true)
     expect((await settled(w, 'kehikot.flows')).installed).toBe(true)
-    expect(w.gitCalls[0]!.argv.join(' ')).toBe(`git clone --quiet https://gitlab.com/group/sub/flows.git ${join(w.root, 'kehikot.flows')}`)
+    expect(w.gitCalls[0]!.argv.join(' ')).toBe(`git clone --quiet --progress https://gitlab.com/group/sub/flows.git ${join(w.root, 'kehikot.flows')}`)
   })
 })
 
@@ -349,7 +349,7 @@ describe('installing and updating through the shared path', () => {
     expect((await post(w, '/host/mine/install', { module: 'kehikot.flows' }))?.status).toBe(202)
     expect((await settled(w, 'kehikot.flows')).installed).toBe(true)
     const said = w.gitCalls.map((call) => call.argv.join(' '))
-    const pull = said.indexOf(`git -C ${join(w.root, 'kehikot.flows')} pull --ff-only --quiet`)
+    const pull = said.indexOf(`git -C ${join(w.root, 'kehikot.flows')} pull --ff-only --quiet --progress`)
     expect(pull).toBeGreaterThan(-1)
     expect(pull).toBeLessThan(said.lastIndexOf(`${process.execPath} install --frozen-lockfile`))
     expect(said.filter((one) => one.startsWith('git clone'))).toHaveLength(1)

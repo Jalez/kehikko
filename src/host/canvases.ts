@@ -8,6 +8,7 @@ import { foldNoteIn, type FoldNote } from './folds.ts'
 import { arranged, dragged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
+import { announceStepsChanged } from './jobSteps.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
 import { registryIn, type RegistryView } from './registry.ts'
 import { scopeKeeps } from './scope.ts'
@@ -705,6 +706,8 @@ export function watchCanvases(
       /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
          menu and What's new read again, each on its own (`onUpdatesChanged`). */
       if ((parsed as { updates?: unknown })?.updates === true) announceUpdatesChanged()
+      /* An install or update began, changed step or ended (`server/jobSteps.ts`): the steps are read again. */
+      if ((parsed as { steps?: unknown })?.steps === true) announceStepsChanged()
       const project = (parsed as { epics?: unknown })?.epics
       if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
       const inbox = (parsed as { inbox?: unknown })?.inbox

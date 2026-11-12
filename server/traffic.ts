@@ -334,6 +334,8 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/trackers': 'a project’s tracker sources',
   '/host/dispositions': 'the page reads why refs closed',
   '/host/updates': 'update check',
+  '/host/steps': 'install and update progress',
+  '/host/steps/cancel': 'install and update progress',
   '/host/module-release': 'a module’s release details',
   '/host/release-notes': 'release notes',
   '/host/releases': 'release list',

@@ -656,6 +656,13 @@ html.tour-rows .react-grid-item [data-rows='hide'] > .container-reveal:not([data
 @keyframes updates-fade-in { from { opacity: 0; } }
 @keyframes updates-fade-out { to { opacity: 0; } }
 
+/* `Progress` with no value: a third of the track sliding across, for a step that cannot say how far it has got. */
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.progress-indeterminate { animation: progress-slide 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate { animation: none; width: 100%; opacity: 0.5; }
+}
+
 /* A container shown from the activity menu (a press on an item with no place):
    a ring for a moment, so the eye finds it. An outline, so nothing moves; and
    not at all where motion is asked to be less. See `revealContainer` in App. */

@@ -6,6 +6,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
 import { buildBun, markInstalled } from './moduleBuilds.ts'
+import { Cancelled, gitFraction, type Job, type JobSteps, type StepName } from './jobSteps.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
 import type { Runner } from './versions.ts'
@@ -122,6 +123,12 @@ export interface Deps {
   bun?: typeof buildBun
   /** One line of the host's log: the full output of an install that failed. */
   log?(line: string): void
+  /**
+   * Where each install says how far it has got, step by step, and takes its
+   * turn (`jobSteps.ts`). Without it an install still runs, unseen but for
+   * `Installing.step`, and does not wait for a turn.
+   */
+  steps?: JobSteps
 }
 
 const CLONE_TIMEOUT_MS = 5 * 60_000
@@ -216,11 +223,27 @@ export function installDesk(deps: Deps) {
 
   const list = (): Promise<Listed[]> => listOf(entries())
 
-  async function work(entry: Installable): Promise<void> {
+  async function work(entry: Installable, job: Job | null): Promise<void> {
+    /* Its turn first: a few run at once, and the rest say how many are ahead. */
+    const release = job && deps.steps ? await deps.steps.slots.take(job) : () => {}
+    try {
+      await steps(entry, job)
+    } finally {
+      release()
+    }
+  }
+
+  async function steps(entry: Installable, job: Job | null): Promise<void> {
     const dir = join(deps.root, entry.id)
     const step = (now: Step) => jobs.set(entry.id, { state: 'installing', step: now })
+    /* The page's steps: each throws once Cancel was pressed, so the install stops there. */
+    const to = (now: StepName, detail: string | null = null) => job?.to(now, detail)
+    const watch = job ? job.watch(gitFraction) : undefined
+    const plain = job ? job.watch() : undefined
+    const cancelled = () => job?.signal.aborted === true
 
     step('cloning')
+    to(existsSync(dir) ? 'fetching' : 'cloning')
     /** Why a clone left by an earlier attempt could not be updated, when it could not. */
     let stale: string | null = null
     if (existsSync(dir)) {
@@ -239,12 +262,14 @@ export function installDesk(deps: Deps) {
          Fast-forward only: nothing here is anybody's work, and if it cannot
          fast-forward the install goes on with what is there and says so
          should it then fail. */
-      const pulled = await deps.run(['git', '-C', dir, 'pull', '--ff-only', '--quiet'], { timeoutMs: CLONE_TIMEOUT_MS })
+      const pulled = await deps.run(['git', '-C', dir, 'pull', '--ff-only', '--quiet', '--progress'], { timeoutMs: CLONE_TIMEOUT_MS, watch })
+      if (cancelled()) throw new Cancelled('fetching')
       if (!pulled.ok) {
         /* A clone an earlier attempt already put on a release is detached and
            cannot pull: its tags are fetched instead, and it is put on the
            newest release below. */
-        const tags = await deps.run(['git', '-C', dir, 'fetch', '--quiet', '--tags', 'origin'], { timeoutMs: CLONE_TIMEOUT_MS })
+        const tags = await deps.run(['git', '-C', dir, 'fetch', '--quiet', '--progress', '--tags', 'origin'], { timeoutMs: CLONE_TIMEOUT_MS, watch })
+        if (cancelled()) throw new Cancelled('fetching')
         if (!tags.ok || !deps.releases) stale = pulled.why
       }
     } else {
@@ -253,9 +278,11 @@ export function installDesk(deps: Deps) {
          uses gh's or glab's credential helper for a private one), and then
          over ssh for a person whose git is set up that way. */
       const host = hostOf(entry)
-      const https = await deps.run(['git', 'clone', '--quiet', `https://${host}/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
+      const https = await deps.run(['git', 'clone', '--quiet', '--progress', `https://${host}/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS, watch })
+      if (cancelled()) throw new Cancelled('cloning')
       if (!https.ok) {
-        const ssh = await deps.run(['git', 'clone', '--quiet', `git@${host}:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS })
+        const ssh = await deps.run(['git', 'clone', '--quiet', '--progress', `git@${host}:${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS, watch })
+        if (cancelled()) throw new Cancelled('cloning')
         if (!ssh.ok) throw new Error(`${repoSaid(entry)} could not be cloned: ${https.why}${ssh.why === https.why ? '' : ` Over SSH: ${ssh.why}`}`)
       }
     }
@@ -264,16 +291,20 @@ export function installDesk(deps: Deps) {
        out before anything is installed. A repository with no release yet
        stays on main. */
     if (deps.releases) {
+      to('checkout')
       const settled = await deps.releases.settle({ id: entry.id, name: entry.name, dir })
       if (!settled.ok) throw new Error(`${entry.name} was cloned, and ${settled.why}`)
+      if (settled.tag) to('checkout', settled.tag)
     }
 
     step('installing')
+    to('installing')
     /* Kehikot's own Bun, as the builds use: the modules' lockfiles are written
        by it, and another Bun on the person's PATH may read the same lockfile as
        needing changes. Frozen stays frozen; a mismatch is told, not papered over. */
     const own = (deps.bun ?? buildBun)()
-    const installed = await deps.run([own.bun, 'install', '--frozen-lockfile'], { cwd: dir, env: own.env, timeoutMs: INSTALL_TIMEOUT_MS })
+    const installed = await deps.run([own.bun, 'install', '--frozen-lockfile'], { cwd: dir, env: own.env, timeoutMs: INSTALL_TIMEOUT_MS, watch: plain })
+    if (cancelled()) throw new Cancelled('installing')
     if (!installed.ok) {
       const old = stale ? ` — and the clone, left by an earlier attempt, could not be brought up to date first: ${stale}` : ''
       deps.log?.(`kehikko: ${entry.id}: bun install --frozen-lockfile failed in ${dir} with Bun ${Bun.version}: ${installed.why}`)
@@ -287,6 +318,7 @@ export function installDesk(deps: Deps) {
        that failed — the module runs from source, and the host's log says why. */
     if (deps.build) {
       step('preparing')
+      to('building')
       await deps.build({ id: entry.id, name: entry.name, dir }).catch(() => null)
     }
 
@@ -332,13 +364,17 @@ export function installDesk(deps: Deps) {
     if (running?.state === 'installing') return { ok: true, install: running }
 
     jobs.set(entry.id, { state: 'installing', step: 'cloning' })
-    void work(entry).then(
+    const job = deps.steps?.begin(entry.id, entry.name, 'install') ?? null
+    void work(entry, job).then(
       () => {
         jobs.delete(entry.id)
+        job?.done()
         deps.installed?.(entry.id)
       },
       (error: unknown) => {
-        jobs.set(entry.id, { state: 'failed', why: (error as Error).message })
+        const why = error instanceof Cancelled ? cancelledSaid(entry.name, error.step) : (error as Error).message
+        jobs.set(entry.id, { state: 'failed', why })
+        job?.fail(why)
       },
     )
     return { ok: true, install: jobs.get(entry.id) ?? null }
@@ -349,7 +385,10 @@ export function installDesk(deps: Deps) {
 
   /** Forget a failed install's sentence: the entry it was for is gone. */
   function forget(id: string): void {
-    if (!busy(id)) jobs.delete(id)
+    if (!busy(id)) {
+      jobs.delete(id)
+      deps.steps?.forget(id)
+    }
   }
 
   /** `/host/official` (the list) and `/host/official/install`; null for any other request. */
@@ -376,6 +415,20 @@ export function installDesk(deps: Deps) {
 }
 
 export type InstallDesk = ReturnType<typeof installDesk>
+
+/** What a cancelled install says: where it stopped, and that pressing Install again starts over. */
+export function cancelledSaid(name: string, step: StepName): string {
+  const at = step === 'queued' ? 'before it started' : `while ${STEP_DOING[step] ?? 'installing'}`
+  return `Installing ${name} was cancelled ${at}. Nothing was registered; press Install to try again.`
+}
+
+const STEP_DOING: Partial<Record<StepName, string>> = {
+  fetching: 'fetching it',
+  cloning: 'downloading it',
+  checkout: 'checking out its release',
+  installing: 'installing its dependencies',
+  building: 'building its page',
+}
 
 export type Begun = { ok: true; install: Installing | null } | { ok: false; why: string; status: number }
 

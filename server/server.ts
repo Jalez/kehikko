@@ -182,6 +182,7 @@ import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.
 import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
+import { JobSteps, type Job } from './jobSteps.ts'
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -320,6 +321,9 @@ const openness = new Openness()
  * time, so no event fires. See `wake.ts`.
  */
 const wakes = new Wakes()
+
+/* How far each install and update has got, step by step, for the page (`jobSteps.ts`): `/host/steps`. */
+const jobSteps = new JobSteps({ changed: () => wakes.stepsChanged() })
 
 /**
  * The shared tracker reading, one per project, for every module and every page.
@@ -693,6 +697,7 @@ const installs = installDesk({
   /* And built at that release before it is registered (`moduleBuilds.ts`). */
   build: (copy) => builds.build(copy),
   log: (line) => console.log(line),
+  steps: jobSteps,
 })
 
 /* "My modules": what the person installs from a repository that is on no
@@ -2767,10 +2772,11 @@ const PATIENT_FROM_MS = 60_000
  * asked. The wait ends early when the process ends: a script that has exited
  * will not answer, and the reason is in what it printed.
  */
-async function bringUp(id: string, runnable: Runnable, within: number, onInstalling?: () => void): Promise<Came> {
+async function bringUp(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
   exits.delete(id)
   const ran = run(id, runnable)
   if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
+  onStarted?.()
   const alive = () => !ran.child || ran.child.alive()
   const paths = [WELL_KNOWN]
   const began = Date.now()
@@ -3314,6 +3320,35 @@ type ModuleOutcome =
  * started, and what starts now runs the checkout as it is now.
  */
 async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Promise<unknown> {
+  const job = jobSteps.begin(place.id, place.name, 'update')
+  /* Its turn first: a few updates and installs run at once, the rest say how many are ahead. */
+  let release: () => void
+  try {
+    release = await jobSteps.slots.take(job)
+  } catch {
+    job.fail(`Updating ${place.name} was cancelled before it started. Nothing was changed.`)
+    return { error: `Cancelled — ${place.name} was not changed.` }
+  }
+  try {
+    /* Reading the checkout as it is now comes first, and is part of moving it. */
+    job.say('checkout')
+    const said = await updateModuleNow(place, AbortSignal.any([signal, job.signal]), phase, job)
+    const error = (said as { error?: string }).error
+    const done = (said as { done?: { installFailed?: string | null; module?: ModuleOutcome } }).done
+    if (error !== undefined) job.fail(error)
+    else if (done?.installFailed) job.fail(`${place.name} was updated, but its dependencies could not be installed: ${done.installFailed}`, 'installing')
+    else if (done?.module?.ran === 'failed') job.fail(done.module.why)
+    else job.done()
+    return said
+  } catch (error) {
+    job.fail((error as Error).message)
+    throw error
+  } finally {
+    release()
+  }
+}
+
+async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, job: Job): Promise<unknown> {
   const id = place.id
   const registration = await registrationOf(id)
   const can = startable(registration)
@@ -3358,6 +3393,7 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
       },
       installing: () => phase('installing'),
       preparing: () => phase('preparing'),
+      job,
     })
     if (!done.ok) return { error: done.why }
 
@@ -3375,8 +3411,18 @@ async function updateModule(place: Place, signal: AbortSignal, phase: Phase): Pr
       /* The container goes on saying it is being updated; only the row needs
          to know which step this is. */
       phase('restarting')
+      job.say('starting')
       /* The row says it is installing while that is what the wait is for. */
-      const came = await bringUp(id, can.run, ANSWERS_WITHIN_UPDATE_MS, () => phase('installing'))
+      const came = await bringUp(
+        id,
+        can.run,
+        ANSWERS_WITHIN_UPDATE_MS,
+        () => {
+          phase('installing')
+          job.say('installing', 'as it starts')
+        },
+        () => job.say('waiting'),
+      )
       if (!came.ok) outcome = { ran: 'failed', why: came.why, detail: came.detail ?? [] }
       else if (!came.answered) {
         const waited = Math.round(came.waited / 60_000)
@@ -4605,6 +4651,21 @@ async function answerRequest(request: Request): Promise<Response> {
         return json({ error: `The restart could not be asked for: ${(error as Error).message}` }, 500)
       }
       return json({ ok: true })
+    }
+
+    /*
+     * How far each install and update has got, step by step (`jobSteps.ts`), and Cancel for one of
+     * them: it stops the processes that job started, by pid, and nothing else. Cancel is the page's
+     * alone (`PAGE_ONLY`).
+     */
+    if (url.pathname === '/host/steps' && request.method === 'GET') {
+      return json({ jobs: jobSteps.said(), active: jobSteps.active() })
+    }
+    if (url.pathname === '/host/steps/cancel' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
+      const id = moduleIn(body?.id)
+      if (!id) return json({ error: 'A cancel names one module.' }, 400)
+      return json({ cancelled: jobSteps.cancel(id) })
     }
 
     /* Cancel: the only way to stop an update a page started. Before the merge it

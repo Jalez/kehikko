@@ -156,7 +156,7 @@ describe('installing an official module', () => {
 
     const dir = join(root, 'kehikot.slides')
     expect(calls.map((call) => call.argv.join(' '))).toEqual([
-      `git clone --quiet https://github.com/Jalez/kehikko-slides.git ${dir}`,
+      `git clone --quiet --progress https://github.com/Jalez/kehikko-slides.git ${dir}`,
       '/host/own-bun install --frozen-lockfile',
     ])
     expect(calls[1]!.cwd).toBe(dir)
@@ -202,10 +202,10 @@ describe('installing an official module', () => {
   })
 
   test('falls back to ssh when https cannot clone, and says why when neither can', async () => {
-    const overSsh = world((argv) => (argv[1] === 'clone' && String(argv[3]).startsWith('https') ? { ok: false, why: 'no route' } : { ok: true, out: '' }))
+    const overSsh = world((argv) => (argv[1] === 'clone' && String(argv[4]).startsWith('https') ? { ok: false, why: 'no route' } : { ok: true, out: '' }))
     await overSsh.desk.install('kehikot.slides')
     expect((await settled(overSsh.desk, 'kehikot.slides')).installed).toBe(true)
-    expect(overSsh.calls[1]!.argv[3]).toBe('git@github.com:Jalez/kehikko-slides.git')
+    expect(overSsh.calls[1]!.argv[4]).toBe('git@github.com:Jalez/kehikko-slides.git')
 
     const neither = world((argv) => (argv[1] === 'clone' ? { ok: false, why: 'could not resolve host' } : { ok: true, out: '' }))
     await neither.desk.install('kehikot.slides')
@@ -245,7 +245,7 @@ describe('installing an official module', () => {
     await desk.install('kehikot.slides')
     expect((await settled(desk, 'kehikot.slides')).installed).toBe(true)
     const said = calls.map((call) => call.argv.join(' '))
-    const pull = said.indexOf(`git -C ${join(root, 'kehikot.slides')} pull --ff-only --quiet`)
+    const pull = said.indexOf(`git -C ${join(root, 'kehikot.slides')} pull --ff-only --quiet --progress`)
     /* The fix for a repository that would not install arrives as a commit, so
        the pull has to come BEFORE the second install, not merely happen. */
     expect(pull).toBeGreaterThan(-1)
