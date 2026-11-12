@@ -283,8 +283,8 @@ export function updateRows(
   app: AppUpdateStatus | null,
   checkouts: readonly Reading[],
   outcomes: Readonly<Record<string, Outcome>>,
-  /** The checkout this page is updating right now, and how far that has got. */
-  running: { id: string; phase: Phase } | null,
+  /** The checkouts this page is updating right now, and how far each has got: one, or several by id. */
+  running: { id: string; phase: Phase } | Readonly<Record<string, Phase>> | null,
   pins: Readonly<Record<string, PinCount>> = {},
   told: Readonly<Record<string, Told>> = {},
 ): UpdateRow[] {
@@ -293,12 +293,19 @@ export function updateRows(
     moduleRow(
       one,
       outcomes[one.id],
-      running?.id === one.id ? running.phase : null,
+      runningPhase(running, one.id),
       Object.hasOwn(pins, one.id) ? pins[one.id] : undefined,
       Object.hasOwn(told, one.id) ? told[one.id] : undefined,
     ),
   )
   return first ? [first, ...modules] : modules
+}
+
+function runningPhase(running: { id: string; phase: Phase } | Readonly<Record<string, Phase>> | null, id: string): Phase | null {
+  if (!running) return null
+  /* One `{ id, phase }`, or a record by module id (no module is called `id` or `phase`). */
+  if (typeof running.id === 'string' && typeof running.phase === 'string') return running.id === id ? (running.phase as Phase) : null
+  return Object.hasOwn(running, id) ? ((running as Record<string, Phase>)[id] ?? null) : null
 }
 
 export interface Indicator {

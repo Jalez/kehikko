@@ -3,6 +3,8 @@ import { join } from 'node:path'
 
 import { whyOfFailure } from './gitAuth.ts'
 import { clearStaleLocks, lockNamedIn, lockSaid } from './gitLocks.ts'
+import type { Job } from './jobSteps.ts'
+import { streamed } from './versions.ts'
 import { because } from './traffic.ts'
 import { adoptedReadyBuilt, buildBun, markInstalled, type Built } from './moduleBuilds.ts'
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
@@ -433,9 +435,17 @@ export interface UpdateHooks {
   preparing?(): void
   /** The Bun an installed copy's install runs with; `buildBun` when not given. */
   bun?: typeof buildBun
+  /**
+   * The page's steps for this update (`jobSteps.ts`): checking out, installing
+   * dependencies, building. Its pid is held while `bun install` runs, so Cancel
+   * stops that and nothing else; a cancelled install is `installFailed`.
+   */
+  job?: Job
 }
 
 export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHooks = {}): Promise<Updating> {
+  /* Never throws: from the merge on nothing is cancelled but a running install. */
+  const say = (step: Parameters<Job['to']>[0], detail: string | null = null) => hooks.job?.say(step, detail)
   clearStaleLocks(place.dir)
   const before = await readCheckout(place, false)
   if ('error' in before) return { ok: false, why: before.error, status: 409 }
@@ -455,6 +465,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   /* A copy that runs releases is checked out at the newer release's tag;
      anything else is fast-forwarded along its branch. */
   const release = before.release && before.release.follows !== 'main' ? before.release.target : null
+  say('checkout', release ?? before.upstream)
   const merged = release
     ? await git(place.dir, ['checkout', '--quiet', '--detach', `refs/tags/${release}`])
     : await git(place.dir, ['merge', '--ff-only', '--quiet', '@{u}'])
@@ -470,6 +481,7 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const dependencies = lockfileReset || changed.some((file) => file === 'package.json' || file === 'bun.lock')
   if (dependencies && existsSync(join(place.dir, 'bun.lock'))) {
     hooks.installing?.()
+    say('installing')
     /* An installed copy installs exactly what its release's bun.lock says, as
        its run.sh would: a rewritten lockfile is a change to a tracked file,
        which no build is stamped from and which the next update must refuse. */
@@ -483,9 +495,14 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
       stderr: 'pipe',
       env: own ? { ...process.env, ...own.env } : process.env,
     })
-    const err = await new Response(child.stderr).text()
+    const held = hooks.job?.hold(child.pid)
+    const job = hooks.job
+    const err = job ? await streamed(child.stderr, () => job.touched()) : await new Response(child.stderr).text()
     const code = await child.exited
-    if (code === 0) {
+    held?.()
+    if (code !== 0 && job?.signal.aborted) {
+      installFailed = 'installing its dependencies was cancelled; it installs them when it next starts'
+    } else if (code === 0) {
       installed = true
       /* And marked as its run.sh marks one, so its next start does not install again. */
       if (installedCopy) markInstalled(place.dir)
@@ -500,7 +517,10 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
      dependencies, while its module is stopped. Never a reason the update failed. */
   let built: Built['kind'] | undefined
   if (place.build) {
-    if (adoptedReadyBuilt(place.dir)) hooks.preparing?.()
+    if (adoptedReadyBuilt(place.dir)) {
+      hooks.preparing?.()
+      say('building')
+    }
     built = (await place.build(place).catch((error: unknown): Built => ({ kind: 'failed', why: String(error) }))).kind
   }
 

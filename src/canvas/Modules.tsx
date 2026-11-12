@@ -5,6 +5,7 @@ import { ArrowDownLeft, ArrowUpRight, Compass, Eye, LoaderCircle, MousePointerCl
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { StepProgress, useJob } from './StepProgress.tsx'
 import { appEngine } from '@/host/appUpdate.ts'
 import type { Canvas } from '@/host/canvases.ts'
 import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
@@ -335,7 +336,10 @@ function AvailableRow({
   refused: string | null
 }) {
   const install = row.entry.install
-  const working = install?.state === 'installing'
+  /* How far it has got, step by step, with a bar (`StepProgress`); a failure says the step and why. */
+  const job = useJob(row.id)
+  const shownJob = job && job.kind === 'install' && (working(install) || job.failed) ? job : null
+  const isWorking = working(install)
   const failed = install?.state === 'failed' ? install.why : refused
   return (
     <li className="flex items-start gap-2.5 p-3">
@@ -354,23 +358,34 @@ function AvailableRow({
           <p className="text-muted-foreground mt-1 text-xs leading-relaxed" title={protocolDetailSaid(row.entry.newer.protocol, row.entry.newer.has)} data-needs-newer>
             {row.entry.newer.app ? `Needs Kehikot ${row.entry.newer.app} or later.` : 'Needs a newer version of Kehikot than this one.'}
           </p>
+        ) : shownJob ? (
+          <StepProgress job={shownJob} className="mt-1.5" />
         ) : failed ? (
           <p role="alert" className="mt-1 text-xs leading-relaxed text-amber-600 dark:text-amber-400">
             <GitSaid said={failed} />
           </p>
+        ) : install?.state === 'installing' ? (
+          <p className="text-muted-foreground mt-1 text-xs">{installStepSaid(install.step)}…</p>
         ) : null}
-        {onRemove && !working ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
+        {onRemove && !isWorking ? <RemoveMine name={row.name} installed={false} onRemove={onRemove} /> : null}
       </div>
       {onIntro ? <IntroButton name={row.name} onIntro={onIntro} /> : null}
       {row.entry.newer ? null : (
         <Hint label={`clone ${repoSaid(row.entry)}, install it and register it on this computer`} side="left">
-          <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={working} onClick={onInstall}>
-            {working ? `${install.step}…` : failed ? 'try again' : 'install'}
+          <Button variant="secondary" size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={isWorking} onClick={onInstall}>
+            {isWorking ? 'installing…' : failed ? 'try again' : 'install'}
           </Button>
         </Hint>
       )}
     </li>
   )
+}
+
+const working = (install: Available['entry']['install']): boolean => install?.state === 'installing'
+
+/** An install's step from an older host, which says no more than this. */
+function installStepSaid(step: string): string {
+  return step === 'cloning' ? 'Downloading' : step === 'installing' ? 'Installing dependencies' : step === 'preparing' ? 'Building the page' : step === 'registering' ? 'Registering' : step
 }
 
 function ModuleRow({

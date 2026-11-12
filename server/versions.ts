@@ -1,4 +1,5 @@
 import { whyOfFailure } from './gitAuth.ts'
+import type { Watch } from './jobSteps.ts'
 import { QUIET_ENV } from './updates.ts'
 import { because, noteHit } from './traffic.ts'
 
@@ -141,7 +142,15 @@ export function tagsFromLsRemote(out: string): string[] {
 export type Ran = { ok: true; out: string } | { ok: false; why: string }
 
 /** Run a program with no terminal and no prompts. `cwd` defaults to this process's. */
-export type Runner = (argv: readonly string[], options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<Ran>
+export type Runner = (argv: readonly string[], options?: RunOptions) => Promise<Ran>
+
+export interface RunOptions {
+  cwd?: string
+  timeoutMs?: number
+  env?: Record<string, string>
+  /** An install or update this runs for (`jobSteps.ts`): stderr as it arrives, and the pid, so Cancel stops exactly this. */
+  watch?: Watch
+}
 
 export const RUN_TIMEOUT_MS = 20_000
 
@@ -161,16 +170,38 @@ export const run: Runner = async (argv, options = {}) => {
     return { ok: false, why: `${argv[0]} could not be run: ${(error as Error).message}` }
   }
   const timer = setTimeout(() => child.kill(), timeout)
+  const watch = options.watch
+  const ended = watch?.child?.(child.pid)
   const [out, err, code] = await Promise.all([
     new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    watch?.output ? streamed(child.stderr, watch.output) : new Response(child.stderr).text(),
     child.exited,
   ])
   clearTimeout(timer)
+  ended?.()
   if (code === 0) return { ok: true, out: out.trim() }
   if (child.signalCode) return { ok: false, why: `${argv.slice(0, 2).join(' ')} took longer than ${Math.round(timeout / 1000)}s and was stopped` }
   const plain = (err.trim() || out.trim() || `${argv.slice(0, 2).join(' ')} failed`).split('\n').slice(-3).join(' ')
   return { ok: false, why: argv[0] === 'git' ? whyOfFailure(err, argv, plain) : plain }
+}
+
+/** All of a stream as text, each piece handed to `each` as it arrives. */
+export async function streamed(stream: ReadableStream<Uint8Array>, each: (text: string) => void): Promise<string> {
+  const decoder = new TextDecoder()
+  const reader = stream.getReader()
+  let all = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    const text = decoder.decode(value, { stream: true })
+    all += text
+    try {
+      each(text)
+    } catch {
+      /* What watches is not what runs. */
+    }
+  }
+  return all + decoder.decode()
 }
 
 /**

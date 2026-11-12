@@ -4,6 +4,7 @@ import type { ModuleCondition } from 'kehikot-module-protocol'
 import { cn } from '@/lib/utils'
 import { coverSentence, type Waiting } from '@/host/standing.ts'
 import { ModuleIcon } from './ModuleIcon.tsx'
+import { StepProgress, useJob } from './StepProgress.tsx'
 
 /**
  * The three conditions, made distinguishable at a glance.
@@ -249,6 +250,7 @@ export function ModuleCover({
   /** The module's own words for `loading` (protocol 2.84.0). Text. */
   label?: string | null
 }) {
+  const job = useJob(id)
   return (
     <div
       className="flex h-full min-w-0 flex-col items-center justify-center gap-3 overflow-x-hidden overflow-y-auto px-6 py-8 text-center"
@@ -258,6 +260,8 @@ export function ModuleCover({
     >
       <CoverIcon id={id} name={name} className="size-10" />
       <p className="text-muted-foreground max-w-[46ch] text-balance text-sm leading-relaxed">{coverSentence(state, name, label)}</p>
+      {/* An update under way says its step, how long, and a bar — never just "Updating". */}
+      {job && (state === 'updating' || state === 'restarting' || state === 'installing') ? <StepProgress job={job} className="w-full max-w-[18rem] text-left" /> : null}
       {detail ? <p className="text-muted-foreground/80 max-w-[46ch] text-balance text-xs">{detail}</p> : null}
       <p className="text-muted-foreground/70 max-w-full font-mono text-[11px] break-all">{at}</p>
     </div>

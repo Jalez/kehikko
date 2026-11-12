@@ -74,6 +74,7 @@ import { MovedNotesDialog, NotesButton, useModuleNotes, useReleaseNotes } from '
 import { APP_NAME, APP_REPO, tagFor } from '@/host/releaseNotes.ts'
 import { needsNewerSaid, needsNewerTip, releaseInView, releaseSaid, stepBackAsked, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { openWhatsNew, pokeWhatsNew, readInUpdates } from '@/host/whatsNew.ts'
+import { StepList, StepProgress, useJobSteps } from './StepProgress.tsx'
 
 /**
  * One update system: the desktop app itself and every module, in one menu and
@@ -187,8 +188,11 @@ function drawn(since: number, signal: AbortSignal, markMs: number): Promise<void
 type Phase =
   | { kind: 'idle' }
   | { kind: 'checking' }
-  /* `reached` is how far the server says the one at `at` has got. */
-  | { kind: 'updating'; ids: string[]; at: number; reached: UpdatePhase }
+  /* `running` is how far the server says each update under way has got; `finished` counts those that ended. */
+  | { kind: 'updating'; ids: string[]; running: Readonly<Record<string, UpdatePhase>>; finished: number }
+
+/** How many of an "Update all" this page runs at once. The server takes its own turns as well (`server/jobSteps.ts`). */
+export const UPDATES_AT_ONCE = 2
 
 /**
  * How long an armed "Restart anyway" stays armed in the page. Longer than the
@@ -229,8 +233,8 @@ export function Updates({
   const [now, setNow] = useState(() => new Date())
   const controller = useRef<AbortController | null>(null)
   const busy = useRef(false)
-  /** The checkout whose update this page started and has not seen end: closing the panel leaves it running. */
-  const updateId = useRef<string | null>(null)
+  /** The checkouts whose updates this page started and has not seen end: closing the panel leaves them running. */
+  const updateIds = useRef<Set<string>>(new Set())
   /** The job in flight, so a press can stop a quiet check and wait it out. */
   const pending = useRef<Promise<void> | null>(null)
   /** The desktop app's updater: its last status, and the commands. Null outside the app. */
@@ -347,7 +351,7 @@ export function Updates({
    * A check is the page's own request, so Cancel and closing still end that.
    */
   const cancel = () => {
-    if (updateId.current !== null) void cancelUpdate(updateId.current).catch(() => {})
+    for (const id of updateIds.current) void cancelUpdate(id).catch(() => {})
     controller.current?.abort()
   }
 
@@ -400,7 +404,7 @@ export function Updates({
       /* Closing cancels a check this page is waiting on, never an update: that
          is the server's, the header chip and the reopened panel show it, and
          only Cancel stops it. */
-      if (updateId.current === null) controller.current?.abort()
+      if (updateIds.current.size === 0) controller.current?.abort()
       setArmed(null)
       setAsked(null)
       setOpen(false)
@@ -446,15 +450,25 @@ export function Updates({
         if (!abort.signal.aborted) setNotice(`GitHub could not be asked, so the local checkouts were not fetched: ${(error as Error).message}`)
       }
     }
-    for (const [at, id] of ids.entries()) {
-      if (abort.signal.aborted) break
-      setPhase({ kind: 'updating', ids, at, reached: 'updating' })
-      const since = Date.now()
-      updateId.current = id
+    /* A few at a time: each is a different module, and most of an update is waiting on a network or a start. */
+    let running: Record<string, UpdatePhase> = {}
+    let finished = 0
+    const show = () => setPhase({ kind: 'updating', ids, running, finished })
+    const one = async (id: string): Promise<void> => {
+      running = { ...running, [id]: 'updating' }
+      show()
+      updateIds.current.add(id)
       try {
         /* No signal: the request is only where the page reads the update's steps. */
-        const done = await applyUpdate(id, undefined, (reached) => setPhase({ kind: 'updating', ids, at, reached }), Object.hasOwn(back, id) ? back[id] : undefined)
-        await drawn(since, abort.signal, markMs)
+        const done = await applyUpdate(
+          id,
+          undefined,
+          (reached) => {
+            running = { ...running, [id]: reached }
+            show()
+          },
+          Object.hasOwn(back, id) ? back[id] : undefined,
+        )
         replace(done.checkout)
         const outcome = outcomeOf(id, done)
         setOutcomes((was) => ({ ...was, [id]: outcome }))
@@ -466,16 +480,29 @@ export function Updates({
              what is true is read back from there. */
           void reread()
           if (id !== 'host') pokeWhatsNew({ updated: id })
-          continue
+          return
         }
-        await drawn(since, abort.signal, markMs)
         const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
         setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
         if (id !== 'host') pokeWhatsNew({ failed: id })
       } finally {
-        updateId.current = null
+        updateIds.current.delete(id)
+        const { [id]: _gone, ...rest } = running
+        running = rest
+        finished += 1
+        show()
       }
     }
+    /* The host's own checkout alone, after the modules: it may ask for a restart of everything. */
+    const queue = ids.filter((id) => id !== 'host')
+    const workers = Array.from({ length: Math.min(UPDATES_AT_ONCE, queue.length) }, async () => {
+      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+        if (abort.signal.aborted) return
+        await one(id)
+      }
+    })
+    await Promise.all(workers)
+    if (ids.includes('host') && !abort.signal.aborted) await one('host')
     if (abort.signal.aborted) setNotice('Update cancelled. Anything not marked as updated was left as it was.')
     busy.current = false
     controller.current = null
@@ -609,22 +636,25 @@ export function Updates({
   const checkouts = check?.checkouts ?? []
   const unfetched = unfetchedCount(checkouts, pins)
   const updating = phase.kind === 'updating' ? phase : null
-  const current = updating ? (updating.ids[updating.at] ?? null) : null
+  /* Every install and update the host is running, step by step (`StepProgress`). */
+  const steps = useJobSteps()
+  /** The checkouts this page is updating now. */
+  const mine = (id: string) => updating !== null && Object.hasOwn(updating.running, id)
   /* What the server says beyond the checkouts. An update this page is running
      is told by its own stream, which is ahead of the last check. */
   const told: Record<string, Told> = {}
-  for (const [id, reached] of Object.entries(check?.progress ?? {})) if (id !== current) told[id] = { phase: reached }
+  for (const [id, reached] of Object.entries(check?.progress ?? {})) if (!mine(id)) told[id] = { phase: reached }
   for (const [id, why] of Object.entries(check?.stale ?? {})) told[id] = { ...told[id], stale: why }
   for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
   /* An installed copy being built, or whose build did not finish (`moduleBuilds.ts`). */
-  for (const [id, build] of Object.entries(check?.builds ?? {})) if (id !== current) told[id] = { ...told[id], build }
+  for (const [id, build] of Object.entries(check?.builds ?? {})) if (!mine(id)) told[id] = { ...told[id], build }
   /* Why the switch has not put a module's update in place yet: "Terminal updates when its sessions end". */
-  for (const [id, wait] of Object.entries(check?.auto?.waiting ?? {})) if (id !== current) told[id] = { ...told[id], auto: wait }
+  for (const [id, wait] of Object.entries(check?.auto?.waiting ?? {})) if (!mine(id)) told[id] = { ...told[id], auto: wait }
   /* Only on a module something is already said about: being kept is not news. */
   for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
   /* Whether a restart ends its sessions: only said on a restart button, so only where one can be drawn. */
   for (const id of check?.holds ?? []) if (Object.hasOwn(told, id) || outcomes[id]?.kind === 'failed') told[id] = { ...told[id], holds: true }
-  const rows = updateRows(app, checkouts, outcomes, updating && current ? { id: current, phase: updating.reached } : null, pins, told)
+  const rows = updateRows(app, checkouts, outcomes, updating ? updating.running : null, pins, told)
   const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
   const shown = indicator(rows)
   const checking = phase.kind === 'checking' || quietly || appOne?.state === 'checking'
@@ -654,7 +684,7 @@ export function Updates({
     : phase.kind === 'checking'
       ? 'Asking GitHub what is new for Kehikot and each module…'
       : updating
-        ? `${updating.reached === 'restarting' ? 'Restarting' : updating.reached === 'preparing' ? 'Preparing' : 'Updating'} ${nameOf(checkouts, current ?? '')}${updating.ids.length > 1 ? ` (${updating.at + 1} of ${updating.ids.length})` : ''}…`
+        ? updatingStatus(updating, (id) => nameOf(checkouts, id))
         : summaryOf(check, lastFailed, count, unfetched)
 
   return (
@@ -743,6 +773,8 @@ export function Updates({
             <div className="flex flex-col gap-2" data-testid="updates-results">
               {notice ? <p className="text-muted-foreground text-xs">{notice}</p> : null}
               {lastFailed ? <p className="text-destructive text-xs">{lastFailed.why}</p> : null}
+              {/* Installs and updates with no row of their own here (an install, an automatic update): each with its step. */}
+              <StepList jobs={Object.values(steps).filter((job) => !attention.some((one) => one.id === job.id))} />
 
               {check && !lastFailed && attention.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-3 text-center" data-testid="updates-calm">
@@ -768,7 +800,7 @@ export function Updates({
                     row={moduleRow(
                       one,
                       outcome,
-                      updating && current === one.id ? updating.reached : null,
+                      updating && mine(one.id) ? updating.running[one.id]! : null,
                       Object.hasOwn(pins, one.id) ? pins[one.id] : undefined,
                       Object.hasOwn(told, one.id) ? told[one.id] : undefined,
                     )}
@@ -781,7 +813,7 @@ export function Updates({
                     onStepBack={(to) => void updateAll([one.id], [], { [one.id]: to })}
                     /* Only this page's own update, and only before the checkout
                        has moved: from then on nothing is cancelled. */
-                    onCancel={updating && current === one.id && updating.reached === 'updating' ? cancel : null}
+                    onCancel={updating && mine(one.id) && updating.running[one.id] === 'updating' ? cancel : null}
                     onRetry={() => void retry(one.id)}
                     armed={armed?.id === one.id ? armed.sentence : null}
                     onAnyway={() => void restartAnyway(one.id)}
@@ -791,6 +823,7 @@ export function Updates({
                     onNotes={(release, opener) => showModuleNotes(one.id, one.name, release, opener)}
                     have={{ app: app?.current ?? null, protocol: check?.protocol ?? null }}
                   />
+                  {Object.hasOwn(steps, one.id) && steps[one.id]!.kind === 'update' ? <StepProgress job={steps[one.id]!} className="mt-1 px-1" /> : null}
                   </div>
                 )
               })}
@@ -1351,6 +1384,16 @@ function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): O
     return { kind: 'updated', note: "Updated. Nothing it runs changed, so it wasn't restarted.", restart: null, installFailed: done.installFailed }
   }
   return { kind: 'updated', note: moduleNote(done.module), restart: null, installFailed: done.installFailed }
+}
+
+/** The panel's status line while this page updates: "Updating Notes and Terminal (1 of 3 done)…". */
+export function updatingStatus(updating: { ids: readonly string[]; running: Readonly<Record<string, UpdatePhase>>; finished: number }, name: (id: string) => string): string {
+  const now = Object.entries(updating.running)
+  const verb = (phase: UpdatePhase) => (phase === 'restarting' ? 'Restarting' : phase === 'preparing' ? 'Preparing' : phase === 'installing' ? 'Installing for' : 'Updating')
+  const count = updating.ids.length > 1 ? ` (${updating.finished} of ${updating.ids.length} done)` : ''
+  if (now.length === 0) return `Updating${count}…`
+  if (now.length === 1) return `${verb(now[0]![1])} ${name(now[0]![0])}${count}…`
+  return `Updating ${now.map(([id]) => name(id)).join(' and ')}${count}…`
 }
 
 function nameOf(checkouts: readonly Reading[], id: string): string {
