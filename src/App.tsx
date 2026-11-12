@@ -36,7 +36,9 @@ import { Button } from './components/ui/button.tsx'
 import { LayoutTemplate } from 'lucide-react'
 import { openSettings, SETTINGS_INBOX_MODULE } from './host/agentSettings.ts'
 import { Container } from './canvas/Container.tsx'
-import { Missing } from './canvas/Missing.tsx'
+import { Absent } from './canvas/Arriving.tsx'
+import { rememberedModules, rememberModules } from './host/arriving.ts'
+import { tellStartup } from './host/startupReport.ts'
 import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
 import { Followed } from './canvas/Followed.tsx'
@@ -405,6 +407,13 @@ function showLanded(modules: readonly string[]): void {
 
 export function App() {
   const [registry, setRegistry] = useState<RegistryView | null>(null)
+  /* Each module's name and icon as the last reading gave them, for the covers drawn before this
+     page's first reading lands (`host/arriving.ts`). Its icons stand until that reading. */
+  const [lastModules] = useState(() => {
+    const found = rememberedModules()
+    setRegisteredIcons([...found].map(([id, one]) => ({ id, icon: one.icon })))
+    return found
+  })
   /* What a `view.goto { show }` asked to have shown, and the kehikko it is for:
      in memory only, like an address — asking is a request made once. */
   const [shownTo, setShownTo] = useState<HeldShow | null>(null)
@@ -1188,6 +1197,7 @@ export function App() {
   const take = useCallback((view: RegistryView) => {
     if (!newerReading(heldReading.current, view)) return
     heldReading.current = view
+    tellStartup('page modules read')
     /* A module the host has restarted gets a new document, not the one the
        old server sent. See `Runs` in `host/standing.ts`. */
     const again = runs.current.seen(view.presences, (id) => liveRef.current[id]?.condition === 'ready')
@@ -1200,6 +1210,7 @@ export function App() {
     }
     setRegistry(view)
     setRegisteredIcons(view.presences)
+    rememberModules(view.presences)
     setTrouble(null)
     /* A sweep replaces what the server knew; it does not replace what a frame
        has since found out. Live findings are kept for modules still present
@@ -4725,6 +4736,7 @@ export function App() {
   const watcherFor = useCallback(
     (id: string): ConversationWatcher => ({
       ready: (_protocol, build, hold) => {
+        tellStartup(`greeted ${id}`)
         covers.answered(id)
         setDrawingOf(id, hold === true)
         setLoadingOf(id, undefined)
@@ -5139,9 +5151,10 @@ export function App() {
               open ? pinViews.get(`${open.id}|${placement.i}`) : undefined,
             )
             if (!presence) {
+              /* Missing only once a reading of the whole registry says so; until then, on its way. */
               return (
                 <div key={placement.i}>
-                  <Missing id={placement.i} onRemove={() => onUnplace(placement.i)} />
+                  <Absent id={placement.i} reading={registry} name={lastModules.get(placement.i)?.name ?? null} onRemove={() => onUnplace(placement.i)} />
                 </div>
               )
             }

@@ -507,3 +507,47 @@ describe('the Updates menu says what waits, and does not count it', () => {
     expect(row.autoSaid).toContain('could not be updated to 1.6.0: bun install failed')
   })
 })
+
+describe('AutoUpdates: several at once, when asked', () => {
+  function overlapping(atOnce?: number) {
+    const facts: Facts = { name: '', installed: true, pinned: [], running: false, onScreen: false, holdsShells: false, kept: false, busy: false }
+    let running = 0
+    let most = 0
+    const order: string[] = []
+    const auto = new AutoUpdates({
+      on: () => true,
+      facts: (id) => ({ ...facts, name: id }),
+      async apply(id) {
+        order.push(id)
+        running += 1
+        most = Math.max(most, running)
+        await new Promise((done) => setTimeout(done, 5))
+        running -= 1
+        return { ok: true, checkout: null }
+      },
+      changed: () => {},
+      log: () => {},
+      now: () => NOW,
+      ...(atOnce ? { atOnce } : {}),
+    })
+    return { auto, order, most: () => most }
+  }
+
+  test('one at a time unless said, in the order queued', async () => {
+    const h = overlapping()
+    await h.auto.found([reading('a'), reading('b'), reading('c')])
+    expect(h.order).toEqual(['a', 'b', 'c'])
+    expect(h.most()).toBe(1)
+  })
+
+  test('`atOnce` side by side, still started in the order queued, each pending until it is done', async () => {
+    const h = overlapping(2)
+    const going = h.auto.found([reading('a'), reading('b'), reading('c')])
+    expect(h.auto.pending('a')).toBe(true)
+    expect(h.auto.pending('c')).toBe(true)
+    await going
+    expect(h.order).toEqual(['a', 'b', 'c'])
+    expect(h.most()).toBe(2)
+    expect(['a', 'b', 'c'].some((id) => h.auto.pending(id))).toBe(false)
+  })
+})

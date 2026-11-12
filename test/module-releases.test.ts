@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { noneRunsSaid, notesBetween, pickNewest, protocolPin, releaseFollower, ASK_AT_MOST_EVERY_MS } from '../server/moduleReleases.ts'
 import { releaseNotesDesk } from '../server/releaseNotes.ts'
 import { hasUpdate, readCheckout, update, type Checkout, type Place } from '../server/updates.ts'
-import { tagsFromLsRemote, type Tags } from '../server/versions.ts'
+import { run, tagsFromLsRemote, type Runner, type Tags } from '../server/versions.ts'
 import {
   isRelease,
   needsNewerSaid,
@@ -528,4 +528,40 @@ test('releasesMoved: every release after from up to to, newest first; to alone w
   expect(releasesMoved('1.5.0', '1.6.0', all)).toEqual(['v1.6.0', 'v1.5.1'])
   expect(releasesMoved(null, '1.6.0', all)).toEqual(['v1.6.0', 'v1.5.1', 'v1.5.0', 'v1.4.0'])
   expect(releasesMoved('1.5.0', '1.6.0', [])).toEqual(['v1.6.0'])
+})
+
+describe('reading a copy at host start', () => {
+  test('a copy on its newest release asks only that release which protocol it needs, not every release it has', async () => {
+    const m = module()
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.5.0']) m.release(version)
+    m.clone()
+    const shown: string[] = []
+    const counted: Runner = (argv, options) => {
+      if (argv.includes('show')) shown.push(argv[argv.length - 1]!)
+      return run(argv, options)
+    }
+    const followerFor = () => releaseFollower({ tags: { tags: async () => ({ ok: true, tags: [], at: 0 }) }, have: '2.5.0', entryProtocol: () => undefined, run: counted })
+    const settling = followerFor()
+    expect(await settling.settle({ id: 'kehikot.m', name: 'M', dir: m.copy, releases: settling })).toEqual({ ok: true, tag: 'v1.5.0' })
+    /* A new host start: nothing remembered from the one before. */
+    const follower = followerFor()
+    const place: Place = { id: 'kehikot.m', name: 'M', dir: m.copy, releases: follower }
+    shown.length = 0
+    const reading = await read(place, false)
+    expect(reading.release).toMatchObject({ follows: 'release', installed: 'v1.5.0', target: null })
+    expect(shown).toHaveLength(1)
+  })
+
+  test('the newest it can run is still found past releases that need a newer Kehikot', async () => {
+    const m = module()
+    m.release('1.0.0')
+    m.clone()
+    const f = followerOf(m.origin)
+    expect(await f.follower.settle(m.place(f))).toEqual({ ok: true, tag: 'v1.0.0' })
+    m.release('1.1.0')
+    m.release('1.2.0', '3.0.0')
+    m.release('1.3.0', '3.1.0')
+    const reading = await read(m.place(f))
+    expect(reading.release).toMatchObject({ installed: 'v1.0.0', newest: 'v1.1.0', target: 'v1.1.0', needsNewer: { tag: 'v1.3.0', protocol: '3.1.0' } })
+  })
 })

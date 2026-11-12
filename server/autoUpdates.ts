@@ -85,6 +85,11 @@ export interface AutoUpdatesDeps {
   steppedBack?(id: string, name: string, to: string): void
   log(line: string): void
   now?(): number
+  /**
+   * How many updates go at once: different copies, different folders, so nothing of one waits for
+   * another — a build waits its turn in `moduleBuilds.ts` either way. One unless said.
+   */
+  atOnce?: number
 }
 
 /** How many finished updates are said in the Updates menu. */
@@ -99,7 +104,7 @@ export class AutoUpdates {
   #failed = new Map<string, { target: string; at: number; why: string }>()
   #updated: AutoDone[] = []
   #queue: string[] = []
-  #current: string | null = null
+  #running = new Set<string>()
   #draining: Promise<void> | null = null
 
   constructor(deps: AutoUpdatesDeps) {
@@ -143,7 +148,7 @@ export class AutoUpdates {
 
   /** Queued or being put in place: the module is not to be started meanwhile. */
   pending(id: string): boolean {
-    return this.#current === id || this.#queue.includes(id)
+    return this.#running.has(id) || this.#queue.includes(id)
   }
 
   /** Why one module's update waits, if it does. */
@@ -231,17 +236,23 @@ export class AutoUpdates {
   #drain(): Promise<void> {
     if (this.#draining) return this.#draining
     if (!this.#queue.length) return Promise.resolve()
+    /* In the order queued: at host start the modules on screen are read, and so queued, first. */
+    const worker = async () => {
+      while (this.#queue.length) {
+        const id = this.#queue.shift()!
+        this.#running.add(id)
+        try {
+          await this.#one(id)
+        } finally {
+          this.#running.delete(id)
+        }
+      }
+    }
+    const workers = Math.max(1, Math.floor(this.#deps.atOnce ?? 1))
     this.#draining = (async () => {
       try {
-        while (this.#queue.length) {
-          const id = this.#queue[0]!
-          this.#current = id
-          this.#queue.shift()
-          await this.#one(id)
-          this.#current = null
-        }
+        await Promise.all(Array.from({ length: workers }, worker))
       } finally {
-        this.#current = null
         this.#draining = null
       }
     })()

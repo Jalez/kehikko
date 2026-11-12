@@ -182,7 +182,16 @@ import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.
 import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
-import { JobSteps, type Job } from './jobSteps.ts'
+import { JobSteps, SLOTS, type Job } from './jobSteps.ts'
+import { pageStep, StartupTimeline } from './startupTimeline.ts'
+import { bootReadsNow, DEFER_FOR_MS, deferredMayRun } from './startOrder.ts'
+
+/* When each step of this start happened, from the process's own start: `startupTimeline.ts`. */
+const startup = new StartupTimeline()
+startup.mark('server code loaded')
+/** How long after the open kehikko is up the timeline is written, and when it is written anyway. */
+const TIMELINE_AFTER_UP_MS = 15_000
+setTimeout(() => startup.write('two minutes passed'), 120_000).unref?.()
 
 /**
  * The whole of the host's server. Four jobs and no fifth.
@@ -257,6 +266,7 @@ const FOLLOW_EVERY_MS = 5_000
  * not a page that loads, looks fine, and cannot save anything.
  */
 const db = open()
+startup.mark('database open')
 /* Before anything reads or writes a project: the guard in `projectRoot.ts`
    learns which folder each project is, so a ghost an older host left at a
    project's path is missing rather than written into. */
@@ -297,6 +307,7 @@ ensurePinnedPlaces(db)
    files and database rows under the old module ids — migrated once, before any
    registration is read or project file synced. `formerName.ts`; to be removed. */
 forgetFormerName(db)
+startup.mark('projects settled')
 
 /**
  * Every project's kehikot, read from the project's own file before anything is
@@ -342,6 +353,7 @@ const trackers = new Trackers({
     }
   },
   landed: (root, rows, me) => {
+    startup.mark('tracker first read landed')
     const here = listProjects(db).filter((project) => project.path === root)
     if (!here.length) return
     const epics = epicsByRef(root)
@@ -619,7 +631,7 @@ const appProtocols = appProtocolSource({
   fetch: (url, init) => github.raw(url, init),
   log: (line) => console.log(line),
 })
-void appProtocols.refresh()
+void appProtocols.refresh().finally(() => startup.mark('app protocols read'))
 
 
 /* Feedback on a module, filed as an issue in its repository. The repository is
@@ -660,7 +672,7 @@ const official = officialSource({
   cache: officialListFile(),
   log: (line) => console.log(line),
 })
-void official.refresh()
+void official.refresh().finally(() => startup.mark('official list read'))
 
 /* The storage overview: what every module's data takes in every project, and
    this machine's own Kehikot data. Measured only when asked (the page's Storage
@@ -722,6 +734,7 @@ const mine = myModulesDesk({
 void mine
   .adoptable()
   .then((found) => {
+    startup.mark('installs scanned')
     for (const one of found) {
       console.log(`kehikko: ${one.id} is installed from ${one.from}, which is on no list; the modules list offers to keep it as one of your modules`)
     }
@@ -766,15 +779,22 @@ async function survey(kept = false): Promise<{
   /** The host's own door and whether the agent has been told about it. See `hostDoor`. */
   host: { id: string; as: string; url: string; agent: AgentAwareness }
   sweep: RegistrationSweep
+  /**
+   * Whether this reading rests on the registry read whole: what lets the page say a module is not
+   * installed here. False when the folder was there and could not be read (`unreadable`).
+   */
+  scanned: boolean
   protocol: number
 }> {
   const swept = ++sweeps
   const found = await readRegistrations()
+  startup.mark('registry read')
   /* From each module's kept manifest when it is fresh: see `manifests.ts`. `kept`: whatever is
      kept, however old — the sweep after the host's wait for one module, which changed nothing else. */
   manifests.keepOnly(found.registrations.map((registration) => registration.id))
   /* Copies: what follows writes names and icons onto them, and the kept one is what the module said. */
   const presences = await Promise.all(found.registrations.map(async (registration) => ({ ...(await manifests.read(registration, { kept })) })))
+  startup.mark('first sweep')
   const knows = agentKnows()
 
   callers.clear()
@@ -936,6 +956,7 @@ async function survey(kept = false): Promise<{
       agent: awarenessAt(own, knows),
     },
     sweep: found,
+    scanned: found.unreadable !== true,
     protocol: PROTOCOL,
   }
 }
@@ -1588,7 +1609,7 @@ function doing(id: string): Doing {
     installing: ranAt !== null && alive && installing(logFile(id)),
     asleep: sleeping.has(id),
     /* Its copy is being put on a newer release, or built, or read at host start for one: started after. */
-    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || (booting && isInstalledId(id)),
+    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || bootHolds(id),
   }
 }
 
@@ -1644,6 +1665,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
        the project's next modules (`toWarm`) waited the whole `STARTING_FOR_MS`
        behind it. */
     if (presence.condition !== 'silent') starting.delete(presence.id)
+    if (presence.reached && startup.has(`started ${presence.id}`)) startup.mark(`answered ${presence.id}`)
     return {
       id: presence.id,
       needed: needed.has(presence.id),
@@ -1691,7 +1713,7 @@ function begin(id: string): void {
   /* "Keep modules up to date automatically" is putting a newer release in
      place, or has one queued (`autoUpdates.ts`); started when that is done.
      At host start, an installed copy waits until its own tags were read. */
-  if (auto.pending(id) || (booting && isInstalledId(id))) return
+  if (auto.pending(id) || bootHolds(id)) return
   /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
      a module, so the start waits for that one build. Started when it ends. */
   if (builds.busy(id)) return
@@ -1707,7 +1729,7 @@ function begin(id: string): void {
   /* The copy as it is starts now; whether a newer release is out is asked
      beside it, never before it. See `releaseWait.ts`. */
   const place = installedPlace(id)
-  if (place) void releases.started(place)
+  if (place) checkWhenUp(place)
   /* Under its own reason: it is started from whatever request decided to start it (a page's
      report, a page's read of the modules), and its asks were filed under that, as the page's. */
   void because('the host waits for a module it started', () => untilAnswered(id, can.run.url))
@@ -1759,7 +1781,9 @@ async function untilAnswered(id: string, url: string): Promise<void> {
  */
 const releases = new ReleaseWaits({
   check: async (place) => {
+    startup.mark('first release check begins')
     const reading = await readCheckout(place, true)
+    startup.mark('first release check done')
     /* The same reading decides "Keep modules up to date automatically": no check of its own. */
     void auto.found([reading])
     return foundIn(reading)
@@ -1796,6 +1820,8 @@ function isInstalledId(id: string): boolean {
  * `updateModule` a press runs, so the restart rules are a press's. What it
  * waits for — off screen, stopped — is decided again whenever `act` runs.
  */
+/** How many automatic updates go at once (`AutoUpdates`): as many as installs and updates have slots (`jobSteps.ts`). */
+const AUTO_UPDATES_AT_ONCE = SLOTS
 const auto = new AutoUpdates({
   on: () => readAutoUpdates(db),
   facts(id) {
@@ -1816,6 +1842,8 @@ const auto = new AutoUpdates({
   changed: () => wakes.updatesChanged(),
   steppedBack: (_id, name, to) => tellSteppedBack(name, to),
   log: (line) => console.log(line),
+  /* A restart that brings several modules along puts them on their releases side by side. */
+  atOnce: AUTO_UPDATES_AT_ONCE,
 })
 
 /**
@@ -1852,40 +1880,111 @@ async function applyAutomatically(id: string): Promise<Applied> {
  * a newer release it can run — fetched by a check before the restart — is put
  * on it before the module is first started, so "Restart to update" brings the
  * modules along in the same restart. Nothing is asked of the network; a copy
- * read takes a few git calls. Until each copy is read, it is not started
- * (`booting`, at most `BOOT_READ_MS`).
+ * read takes a few git calls. Until its own copy is read, a module is not
+ * started (`bootHolds`, at most `BOOT_READ_MS`) — and the copies of the modules
+ * on screen are read first, all together, the rest a few at a time
+ * (`bootReadsNow` in `startOrder.ts`, which says why).
  */
 const BOOT_READ_MS = 8_000
+/** Installed copies not yet read at this start, each held back from starting until it is. */
+const bootHeld = new Map<string, Place>()
+/** The held copies being read now. */
+const bootReading = new Set<string>()
+/** Whether this module is held back at host start: every installed copy until the first sweep, then each until its copy is read. */
+function bootHolds(id: string): boolean {
+  return bootHeld.has(id) || (booting && isInstalledId(id))
+}
 /** Called with the host's first sweep, whoever asked for it: no sweep of its own. */
 async function bootAutoUpdates(first: Promise<Swept>): Promise<void> {
   if (!booting || bootRead) return
   bootRead = true
-  try {
-    /* What answers now: a module kept running across the restart is running, and waits for its stop. */
-    const view = await first.catch(() => null)
-    if (!view) return
+  startup.mark('auto-update first look begins')
+  /* What answers now: a module kept running across the restart is running, and waits for its stop. */
+  const view = await first.catch(() => null)
+  if (view) {
     notice(view.presences, Date.now())
-    const places = [...registered.keys()].map((id) => installedPlace(id)).filter((place): place is Place => place !== null)
-    if (!places.length) return
-    const read = Promise.all(places.map((place) => readCheckout(place, false).catch(() => null)))
-    const readings = await Promise.race([read, new Promise<null>((done) => setTimeout(() => done(null), BOOT_READ_MS).unref?.())])
-    /* Queued synchronously: from here `auto.pending` holds each one back. */
-    if (readings) void auto.found(readings.filter((one): one is Reading => one !== null))
-  } finally {
-    booting = false
-    /* What was held back starts now, decided from the sweep in hand: nothing is asked again. The
-       pages are told with that reading: a copy held back that is not started now no longer says
-       "starting", and none of them asks for it. */
-    if (seen) {
-      void seen
-        .then(async (view) => {
-          govern(view.presences)
-          wakes.registryChanged(await pageView(view))
-        })
-        .catch(() => null)
+    for (const id of registered.keys()) {
+      const place = installedPlace(id)
+      if (place) bootHeld.set(id, place)
     }
   }
+  booting = false
+  if (!bootHeld.size) return bootDone()
+  /* The cap: whatever is still held starts as it is, and its read, when it lands, changes nothing. */
+  setTimeout(() => {
+    if (!bootHeld.size) return
+    bootHeld.clear()
+    bootDone()
+  }, BOOT_READ_MS).unref?.()
+  bootPump()
 }
+
+/** Start reading the held copies `bootReadsNow` picks; each one read is let go, and the next picked. */
+function bootPump(): void {
+  if (!bootHeld.size) return
+  for (const id of bootReadsNow(bootHeld.keys(), bootReading, wantedNow())) {
+    const place = bootHeld.get(id)
+    if (!place) continue
+    bootReading.add(id)
+    void readCheckout(place, false)
+      .catch(() => null)
+      .then((reading) => {
+        bootReading.delete(id)
+        /* Let go by the cap meanwhile: it has started as it was. */
+        if (!bootHeld.delete(id)) return
+        /* Queued synchronously: from here `auto.pending` holds it back. */
+        if (reading) void auto.found([reading])
+        if (!bootHeld.size) return bootDone()
+        bootLetGo()
+        bootPump()
+      })
+  }
+}
+
+function bootDone(): void {
+  startup.mark('auto-update first look done')
+  bootLetGo()
+}
+
+/**
+ * What was held back starts now, decided from the sweep in hand: nothing is asked again. The pages
+ * are told with that reading: a copy held back that is not started now no longer says "starting",
+ * and none of them asks for it. Several copies read in one moment are let go together.
+ */
+let lettingGo = false
+function bootLetGo(): void {
+  if (lettingGo || !seen) return
+  lettingGo = true
+  setTimeout(() => {
+    lettingGo = false
+    if (!seen) return
+    void seen
+      .then(async (view) => {
+        govern(view.presences)
+        wakes.registryChanged(await pageView(view))
+      })
+      .catch(() => null)
+  }, 0)
+}
+
+/*
+ * A release check waits until the open kehikko is up, or `DEFER_FOR_MS` after this host began:
+ * see `deferredMayRun` in `startOrder.ts`. Held by module, so a module started twice meanwhile is
+ * checked once.
+ */
+const BEGAN = Date.now()
+const heldChecks = new Map<string, Place>()
+function checkWhenUp(place: Place): void {
+  if (deferredMayRun(Date.now(), BEGAN, startup.at('open kehikko up'))) void releases.started(place)
+  else heldChecks.set(place.id, place)
+}
+function runHeldChecks(): void {
+  if (!heldChecks.size) return
+  startup.mark('held release checks run')
+  for (const place of heldChecks.values()) void releases.started(place)
+  heldChecks.clear()
+}
+setTimeout(runHeldChecks, DEFER_FOR_MS).unref?.()
 
 /**
  * Installed modules are built once, here, at install and at update — never at
@@ -1979,6 +2078,7 @@ function backfill(): void {
   if (backfilled) return
   backfilled = true
   setTimeout(() => because('the host builds installed copies', () => {
+    startup.mark('build backfill begins')
     const copies: Copy[] = []
     for (const registration of registered.values()) {
       if (registration.dir && isInstalled(registration.dir)) copies.push({ id: registration.id, name: knownName(registration.id) ?? registration.id, dir: registration.dir })
@@ -2127,6 +2227,8 @@ function run(id: string, runnable: Runnable): Started {
     void ended(id, at, code)
   })
   if (!ran.ok || !ran.child) return ran
+  /* Whoever started it — the open kehikko, an update, a press: the timeline's start of it. */
+  startup.mark(`started ${id}`)
   nursery.keep(id, { child: ran.child, at, url: runnable.url, ...(ran.token ? { token: ran.token } : {}) })
   if (anyPort) ran.anyPort = true
   manifests.forget(id)
@@ -2270,6 +2372,8 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
      may go now — decided before anything is started, so a module it takes is
      held back (`auto.pending`) rather than started on the old release. */
   void auto.moved()
+  /* A kehikko opened while copies are still being read at host start: its copies go first. */
+  bootPump()
   if (mayStart) {
     for (const id of toStart(standing)) begin(id)
     /* The rest of the open project, in the background: nothing while the
@@ -2279,6 +2383,12 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
     /* Once the open kehikko's modules are up, the copies installed before
        modules were built are built, in the background (`backfill`). */
     if (!backfilled && openUp(standing)) backfill()
+    if (!startup.has('open kehikko up') && openUp(standing)) {
+      startup.mark('open kehikko up')
+      runHeldChecks()
+      /* Written a little after, so that what waits for this moment is in it too. */
+      setTimeout(() => startup.write('the open kehikko is up'), TIMELINE_AFTER_UP_MS).unref?.()
+    }
   }
 
   /* The versions containers are pinned to, by the same rule as the modules:
@@ -3628,6 +3738,7 @@ const serving = {
 }
 
 const server = Bun.serve<SocketData>({ hostname: '127.0.0.1', port: PORT, ...serving })
+startup.mark('listening')
 listeners.push(server)
 
 /*
@@ -3670,6 +3781,7 @@ async function answerRequest(request: Request): Promise<Response> {
       /* `fresh=1`: a person pressed something (look again, Start, an install), so every
          manifest is asked again; otherwise what `manifests` keeps stands. */
       const press = url.searchParams.get('fresh') === '1'
+      startup.mark('page asked for the modules')
       const view = await sweep(press)
       /* And then act on it. A sweep is the only moment the host knows both what
          is running and what is wanted, so it is where a module on the open
@@ -3678,7 +3790,9 @@ async function answerRequest(request: Request): Promise<Response> {
          whatever was just run, and the container says so instead of sitting on
          a sentence about a program that is not running. */
       govern(view.presences)
-      return json(await pageView(view, press))
+      const answer = await pageView(view, press)
+      startup.mark('page given the modules')
+      return json(answer)
     }
 
     /* A module's versions, for the picker in a container's header: its own
@@ -4272,6 +4386,7 @@ async function answerRequest(request: Request): Promise<Response> {
       const asked = Number(url.searchParams.get('project') ?? '')
       const project = Number.isInteger(asked) ? projectById(db, asked) : null
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
+      startup.mark('page asked for the tracker')
       const signal = trackers.signal(project.path)
       const reading = trackers.get(project.path, { refs: [] })
       const listing = await trackers.describe(project.path)
@@ -5073,6 +5188,18 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ ok: true, kehikko: true, version: HOST_VERSION, api: PORT, page: BUNDLED ? PORT : PORT + 1 })
     }
 
+    /* When each step of this start happened (`startupTimeline.ts`), and the page's own steps, told by it. */
+    if (url.pathname === '/host/startup' && request.method === 'GET') return json({ ok: true, steps: startup.list() })
+    if (url.pathname === '/host/startup' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { step?: unknown; at?: unknown } | null
+      const step = pageStep(body?.step)
+      if (!step) return json({ ok: false, error: 'Not a step a page reports.' }, 400)
+      /* The page's wall clock, the same machine's: turned into this process's own time. */
+      const at = typeof body?.at === 'number' && Number.isFinite(body.at) ? body.at - performance.timeOrigin : undefined
+      startup.mark(step, at)
+      return json({ ok: true })
+    }
+
     /* Whether this host is up, for the desktop app that started it. */
     if (url.pathname === '/host/health' && request.method === 'GET') {
       return json({ ok: true, version: HOST_VERSION, bundled: BUNDLED })
@@ -5121,6 +5248,7 @@ async function answerRequest(request: Request): Promise<Response> {
           ? body.kehikko
           : null
       openness.reported(page, kehikko)
+      if (kehikko !== null) startup.mark('page reported its kehikko')
       /* A page on its way out has no frames left to have declared anything. */
       if (kehikko === null) headerDesk.held.forget(page)
       /* A kehikko was just opened, so the set of modules anybody is looking at
@@ -5339,6 +5467,7 @@ async function answerRequest(request: Request): Promise<Response> {
 
     /* Bundled, everything that is not the API is the page. */
     if (PAGE && !url.pathname.startsWith('/host/')) {
+      if (url.pathname === '/' || url.pathname === '/index.html') startup.mark('page served')
       const page = servePage(PAGE, request, url.pathname)
       if (page) return page
     }

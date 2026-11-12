@@ -10,6 +10,10 @@ import './index.css'
 
 import { App } from './App.tsx'
 import { announce } from './host/theme.ts'
+import { tellStartup } from './host/startupReport.ts'
+
+/* The page's steps of a start, for the host's startup timeline (`host/startupReport.ts`). */
+tellStartup('page script')
 
 /* Tell the desktop shell, if this page is inside one, what the blocking script
    in `index.html` decided the theme was. The shell keeps a copy so it can paint
@@ -33,3 +37,5 @@ createRoot(root).render(
     <App />
   </StrictMode>,
 )
+/* The frame after the first one React drew: what was painted first. */
+requestAnimationFrame(() => requestAnimationFrame(() => tellStartup('page first paint')))

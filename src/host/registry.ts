@@ -264,6 +264,12 @@ export interface RegistryView {
     rejected: { file: string; why: string }[]
   }
   protocol: number
+  /**
+   * Whether the host read its registry whole for this reading — what lets the page say a module is
+   * not installed here (`placementShows` in `host/arriving.ts`). False when the registry could not
+   * be read. Absent from an older host, which is read as true.
+   */
+  scanned?: boolean
   /** What each container pinned to a version is doing — see `server/pins.ts`. Absent from an older host. */
   pins?: import('./versions.ts').PinView[]
 }
@@ -278,9 +284,15 @@ export interface RegistryView {
 export async function fetchRegistry(signal?: AbortSignal, fresh = false): Promise<RegistryView> {
   /* `fresh`: a person pressed something, so the host asks every module again rather than reading
      the manifests it keeps (`server/manifests.ts`). */
-  /* Once per page, before the first reading is used: whether frames can be on their stable addresses. */
-  await checkAddresses()
-  const response = await fetch(fresh ? '/host/modules?fresh=1' : '/host/modules', { signal, cache: 'no-store' })
+  /* Once per page, before the first reading is used: whether frames can be on their stable addresses.
+     Asked beside the reading rather than before it — the first reading of a start is what every
+     container waits for, and the check can take a while (`CHECK_TIMEOUT_MS`). */
+  const addresses = checkAddresses()
+  const asked = fetch(fresh ? '/host/modules?fresh=1' : '/host/modules', { signal, cache: 'no-store' })
+  /* Handled here too, so a failure while the check is still out is not reported as unhandled; it is thrown below. */
+  asked.catch(() => null)
+  await addresses
+  const response = await asked
   if (!response.ok) throw new Error(`the host's server answered ${response.status}`)
   const body = registryIn(await response.json())
   if (!body) throw new Error("the host's server answered something else")
