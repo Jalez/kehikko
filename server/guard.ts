@@ -184,6 +184,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds/rename',
   '/host/sounds/remove',
   '/host/layouts',
+  '/host/kehikot/copy',
   '/host/kehikko-skills',
   '/host/kehikko-settings',
   '/host/onboarding',

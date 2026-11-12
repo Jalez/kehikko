@@ -110,6 +110,7 @@ describe('the door says what it is and what it offers', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'arrange_modules',
       'create_epic',
+      'create_kehikko',
       'edit_space',
       'fold_modules',
       'jump',

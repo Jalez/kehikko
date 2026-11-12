@@ -292,7 +292,7 @@ export function fromGrid(
   })
 }
 
-const canvasSchema = z.object({
+export const canvasSchema = z.object({
   id: z.number().int(),
   /**
    * The kehikko's stable key, from the project's own `kehikot.json` — see

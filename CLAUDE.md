@@ -1696,3 +1696,16 @@
   background and the page reads `GET /host/inbox/task` until it started or
   failed. Every failure names the agent and says why, in words. Never put a
   module round trip back on the path of a page's call.
+
+## A kehikko from another project
+
+- The New kehikko dialog's "From another project" and the door's `create_kehikko`
+  with `from` share ONE writer: `copyKehikko` in `server/fromProject.ts`. The
+  rules (what is copied, what is not) are `src/host/fromProject.ts`; change them
+  there and in `test/from-project.test.ts`, never in a caller.
+- The arrangement always comes; General (connection choices), Skills and Primary
+  agent are checkboxes, all on by default. Never copy a container's
+  `selected`, `pinned`, `filters` or `version`, a module's state, or the
+  project's epic, spaces or selection.
+- A module not installed here keeps its container (drawn by `Missing.tsx`);
+  never drop it. `POST /host/kehikot/copy` is in `PAGE_ONLY`.

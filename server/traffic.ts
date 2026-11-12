@@ -324,6 +324,8 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/parts': 'the page edits an epic’s parts',
   '/host/layouts': 'the page’s suggested layouts',
   '/host/kehikko-skills': 'the person’s skills for a kehikko',
+  '/host/kehikot/elsewhere': 'the page reads other projects’ kehikot',
+  '/host/kehikot/copy': 'the page makes a kehikko from another project’s',
   '/host/kehikko-settings': 'a kehikko’s own settings',
   '/host/projects': 'the page reads the projects',
   '/host/projects/followed': 'the page reads the projects',

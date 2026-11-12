@@ -178,6 +178,7 @@ import { embeddedPage, servePage } from './page.ts'
 import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { readShelves, saveLayout } from './layouts.ts'
+import { copiedSaid, copyKehikko, elsewhere as kehikotElsewhere } from './fromProject.ts'
 import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
 import { editKehikkoSettings, ensureKehikkoSettings, readKehikkoSettings, takesNewsAt } from './kehikkoSettings.ts'
 import { choiceDue, shownPrimary } from '../src/host/kehikkoSettings.ts'
@@ -4210,6 +4211,23 @@ async function answerRequest(request: Request): Promise<Response> {
       const saved = saveLayout(canvas, project?.path ?? null, body)
       if (!saved.ok) return json({ error: saved.why }, saved.status)
       return json({ layout: saved.layout }, 201)
+    }
+
+    /* "From another project" in the New kehikko dialog (`server/fromProject.ts`): every other
+       project, recent first, with its kehikot — the frame's rows and each kehikko's skill names,
+       nothing of the project's data. The copy itself is the page's alone (`PAGE_ONLY`); an agent
+       makes one through the door's `create_kehikko`. */
+    if (url.pathname === '/host/kehikot/elsewhere' && request.method === 'GET') {
+      const id = Number(url.searchParams.get('project'))
+      return json({ projects: kehikotElsewhere(db, Number.isInteger(id) && id > 0 ? id : null) })
+    }
+    if (url.pathname === '/host/kehikot/copy' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { from?: unknown; into?: unknown; name?: unknown; take?: unknown } | null
+      if (!body) return json({ error: 'Say which kehikko to copy and into which project.' }, 400)
+      const copied = copyKehikko(db, body)
+      if (!copied.ok) return json({ error: copied.why }, copied.status)
+      wakes.woke(copied.canvas.id)
+      return json({ canvas: copied.canvas, said: copiedSaid(copied, []) }, 201)
     }
 
     /* A kehikko's own skills (`server/kehikkoSkills.ts`, protocol 2.53.0):

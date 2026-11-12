@@ -11,7 +11,9 @@
  * For each card and the dialog, no element may have `scrollWidth >
  * clientWidth` — except one that truncates on purpose (`text-overflow:
  * ellipsis`), which must itself lie inside its card — and nothing may be drawn
- * past the dialog's edge. Runs on a scratch host (`dev/scratch-host.mjs`).
+ * past the dialog's edge. Then the same of "From another project": a long list
+ * of projects with long names, and kehikot naming many modules, some not
+ * installed. Runs on a scratch host (`dev/scratch-host.mjs`).
  */
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -46,6 +48,21 @@ const LONG_OFFICIAL = [
   { ...{ id: LONG[2], installed: false }, name: 'Unbreakablemodulenamewithoutanyseparatorsatallinitatall' },
 ]
 
+/** "From another project": many projects, long names, and kehikot naming many modules, some not here. */
+const ELSEWHERE = {
+  projects: Array.from({ length: 9 }, (_, p) => ({
+    id: 900 + p,
+    name: p === 0 ? 'A project with an extraordinarily long name that nobody would ever type out in full' : `Project ${p}`,
+    path: `/Users/somebody/Projects/${'deeply/nested/'.repeat(4)}project-${p}`,
+    visited: 1000 - p,
+    missing: false,
+    kehikot: [
+      { id: 9000 + p * 10, key: `k${p}a`, name: 'Everything at once, with a very long kehikko name indeed', containers: MANY.map(container), folded: 3, skills: ['review-checklist', 'write-tests'], primary: MANY[0], connections: true },
+      { id: 9001 + p * 10, key: `k${p}b`, name: 'Long', containers: LONG.map(container), folded: 0, skills: [], primary: null, connections: false },
+    ],
+  })),
+}
+
 /** Every element under `root` that scrolls sideways, and everything drawn past the dialog's right edge. */
 const MEASURE = () => {
   const dialog = document.querySelector('[data-layout-picker]')
@@ -54,7 +71,7 @@ const MEASURE = () => {
   for (const el of [dialog, ...dialog.querySelectorAll('*')]) {
     if (el.closest('svg') && el.tagName !== 'svg') continue
     const style = getComputedStyle(el)
-    const card = el.closest('[data-layout-card]')
+    const card = el.closest('[data-layout-card], [data-elsewhere-card]')
     const name = `${el.tagName.toLowerCase()}${el.dataset.layoutCard ? `[${el.dataset.layoutCard}]` : ''}.${String(el.getAttribute('class') ?? '').split(' ').slice(0, 3).join('.')} "${(el.textContent ?? '').slice(0, 30)}"`
     const cut = style.textOverflow === 'ellipsis'
     if (el.scrollWidth > el.clientWidth + 0 && !cut && el.clientWidth > 1) bad.push(`${name}: scrollWidth ${el.scrollWidth} > clientWidth ${el.clientWidth}`)
@@ -90,6 +107,7 @@ async function drive(kind, browserType) {
         const body = await (await route.fetch()).json()
         await route.fulfill({ json: { ...body, builtIn: [...body.builtIn, ...EXTRA] } })
       })
+      await page.route(/\/host\/kehikot\/elsewhere(\?|$)/, (route) => route.fulfill({ json: ELSEWHERE }))
       await page.route(/\/host\/official(\?|$)/, async (route) => {
         const body = await (await route.fetch()).json()
         await route.fulfill({ json: { ...body, modules: [...(body.modules ?? []), ...LONG_OFFICIAL] } })
@@ -115,11 +133,21 @@ async function drive(kind, browserType) {
         const here = await page.evaluate(MEASURE)
         for (const line of here) if (!bad.includes(line)) bad.push(line)
       }
-      say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: ${cards.length} templates${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
+      /* And "From another project": the projects, the cards and the settings to take. */
+      await page.locator('[data-layout-source-tab="project"]').click()
+      await page.waitForSelector('[data-elsewhere-card]', { timeout: 15000 })
+      await page.locator('[data-elsewhere-card]').first().click()
+      await page.waitForSelector('[data-elsewhere-take]', { timeout: 15000 })
+      await page.waitForTimeout(300)
+      for (const line of await page.evaluate(MEASURE)) if (!bad.includes(line)) bad.push(line)
+      for (const key of await page.evaluate(() => [...document.querySelectorAll('[data-elsewhere-card]')].map((c) => c.getAttribute('data-elsewhere-card')))) {
+        await page.locator(`[data-elsewhere-card="${key}"]`).scrollIntoViewIfNeeded()
+        for (const line of await page.evaluate(MEASURE)) if (!bad.includes(line)) bad.push(line)
+      }
+      say(`${bad.length ? 'FAIL' : 'ok  '} ${run}: ${cards.length} templates and From another project${bad.length ? `\n      ${bad.slice(0, 6).join('\n      ')}` : ''}`)
       if (bad.length) failures.push(`${run}: ${bad.length} overflow(s), first: ${bad[0]}`)
       if (SHOTS) {
         mkdirSync(SHOTS, { recursive: true })
-        await page.locator('[data-layout-card="builtin:many"]').scrollIntoViewIfNeeded()
         await page.screenshot({ path: join(SHOTS, `${kind}-${scheme}-${label}.png`) })
       }
       await context.close()
@@ -138,6 +166,6 @@ try {
 if (failures.length) {
   console.log(`\n${failures.length} failure(s):`)
   for (const failure of failures) console.log(`  - ${failure}`)
-} else console.log('\nno template overflows its card, in WebKit and Chromium, light and dark, at every width')
+} else console.log('\nno template overflows its card, nor does From another project, in WebKit and Chromium, light and dark, at every width')
 stop()
 process.exit(failures.length ? 1 : 0)
