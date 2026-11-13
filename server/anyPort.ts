@@ -9,9 +9,10 @@ import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-modul
  * With the stable addresses on, nothing that reaches a module names its port: frames, agents'
  * doors and session configs all go through this host (`moduleProxy.ts`). So a module no longer
  * needs a port the host knows in advance. Its port is a number that another program can take,
- * which is the whole failure this work removes. This host hands `PORT=0` to a module that
- * understands it, and the module binds what the system gives and writes that port into its
- * registration, where the host (and the proxy) read it.
+ * which is the whole failure this work removes. This host hands a module that understands it a
+ * port nobody names, from the protocol's band (`modulePorts.ts`; not `PORT=0`, which the system
+ * fills from the range it also gives other programs' servers), and the module binds it, or the
+ * next free one, and writes that port into its registration, where the host (and the proxy) read it.
  *
  * Only to a module whose INSTALLED protocol package is 2.65.0 or newer (`takesAnyPort`): a module
  * built before then reads `PORT=0` as no port and takes its preferred port and the drift rules (the
