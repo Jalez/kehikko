@@ -4,13 +4,14 @@ import { hostLog } from './hostLogStart.ts'
 import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_SETUP, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_DELIVERY, AGENT_SETUP, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
 import { projectsMine } from './projectsMine.ts'
+import { deliveryKnocker } from './doorMessages.ts'
 import { providersOf } from './services.ts'
 import { epicPlacesByRef, epicRefs, epicsByRef, Trackers } from './trackers/reading.ts'
 import { spell } from './trackers/edit.ts'
@@ -74,7 +75,7 @@ import { withoutForAgents } from 'kehikot-module-protocol'
 import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
-import { PLACE_PARAM } from './doorPlaces.ts'
+import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
 import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
 import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
@@ -3509,7 +3510,11 @@ const messageRoutes = messageDesk({
     const presence = lastPresences.get(module)
     return presence?.module?.name ?? presence?.name ?? null
   },
-  changed: (project) => wakes.messagesChanged(project),
+  changed: (project) => {
+    wakes.messagesChanged(project)
+    /* The modules that deliver to sessions there are knocked on (protocol 2.95.0, `agent.delivery`). */
+    knocker.knock(project)
+  },
   hasProject: (project) => projectById(db, project) !== null,
   known: (module) => callers.has(module),
   may: (module, capability) => declared(module, capability),
@@ -3517,6 +3522,17 @@ const messageRoutes = messageDesk({
   projectIdAt: (root) => listProjects(db).find((one) => one.path === root)?.id ?? null,
 })
 tellNews = (project, place, body) => void messageRoutes.hostTell(project, place, body)
+
+/* The knock on each delivering module after a message is kept (protocol 2.95.0). `doorMessages.ts`. */
+const knocker = deliveryKnocker({
+  deliverers: () => servicesHere(AGENT_DELIVERY, null, null),
+  issuersIn: (project) => {
+    const uid = projectById(db, project)?.uid
+    return uid ? [...new Set(tokensOf(db, uid).map((one) => one.module))] : []
+  },
+  pathOf: (project) => projectById(db, project)?.path ?? null,
+  originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
+})
 
 /*
  * Who provides a service here (protocol 2.81.0): the modules answering at the
@@ -5795,7 +5811,10 @@ async function answerRequest(request: Request): Promise<Response> {
           db,
           ...(await (async () => {
             /* A tool call from a connection with no place settles it in one, with nobody asked (`settle` in placeRoutes.ts). */
-            const { here, unrecorded, settled } = await placeRoutes.resolve(url.searchParams.get(PLACE_PARAM), session, body.method === 'tools/call')
+            /* The conversation's key: on the URL, or passed once as `placeToken` and bound to this connection (protocol 2.95.0, `doorToken`). */
+            const args = body.method === 'tools/call' ? (body.params as { arguments?: unknown } | undefined)?.arguments : undefined
+            const token = doorToken(db, url.searchParams.get(PLACE_PARAM), session, args)
+            const { here, unrecorded, settled } = await placeRoutes.resolve(token, session, body.method === 'tools/call')
             /* Who is asking, for the record of traffic: a session its place token names is that module's, in that place. */
             const place = here ? placeSaid(here) : null
             if (here?.via === 'token' && here.module) {
@@ -5805,6 +5824,10 @@ async function answerRequest(request: Request): Promise<Response> {
           })()),
           session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
           places: placeRoutes.places,
+          messaging: {
+            serverAnswer: (module, method, params) => messageRoutes.serverAnswer(module, method, params),
+            deliverers: () => servicesHere(AGENT_DELIVERY, null, null),
+          },
           which: () => openness.open(),
           watched: () => openness.every(),
           wake: (kehikko, folded, arranged) =>
