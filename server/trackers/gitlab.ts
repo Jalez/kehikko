@@ -29,6 +29,7 @@ import {
   parsed,
   people,
   row,
+  closerLink,
   spell,
   str,
   trouble,
@@ -440,7 +441,7 @@ function closedByDeclarers(rows: TrackerRow[]): TrackerRow[] {
       ...one,
       links: [
         ...one.links,
-        ...declarers.filter((d) => !known.has(d.ref)).map((d) => ({ ref: d.ref, relation: 'closed-by' as const })),
+        ...declarers.filter((d) => !known.has(d.ref)).map((d) => closerLink(d.ref, d)),
       ].slice(0, LIMITS.TRACKER_LINKS),
       /* True when one merged. Never false from this alone: a merge request
          outside what was read may be the one that closed it. */
