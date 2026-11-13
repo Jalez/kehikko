@@ -93,10 +93,10 @@ export async function postUndo(project: number, key: Key): Promise<Done> {
   return (await post<{ result?: Done }>('/host/inbox/undo', { project, ...key }))?.result ?? { outcome: 'declined', changed: 0, why: NO_ANSWER }
 }
 
-export type TaskStarted = { ok: true; module: string; name: string; session: string } | { ok: false; why: string; noAgent?: true }
+export type TaskStarted = { ok: true; module: string; name: string; session: string; pending: boolean } | { ok: false; why: string; noAgent?: true }
 
 /** How the host says a start went (`TaskState` in `server/adoption.ts`). */
-type TaskState = { state: 'started'; module: string; name: string; session: string } | { state: 'failed'; why: string; noAgent?: true }
+type TaskState = { state: 'started'; module: string; name: string; session: string; pending?: boolean } | { state: 'failed'; why: string; noAgent?: true }
 
 /**
  * Start a new session of `agent` (or, null, the kehikko's own agent) on the item, with the host's
@@ -110,7 +110,7 @@ export async function postTask(project: number, key: Key, kehikko: string | null
   })
   if (!got.ok) return { ok: false, why: got.why }
   const state = got.body.result
-  if (state?.state === 'started') return { ok: true, module: state.module, name: state.name, session: state.session }
+  if (state?.state === 'started') return { ok: true, module: state.module, name: state.name, session: state.session, pending: state.pending === true }
   if (state?.state === 'failed') return { ok: false, why: state.why, ...(state.noAgent ? { noAgent: true as const } : {}) }
   return { ok: false, why: NO_ANSWER }
 }

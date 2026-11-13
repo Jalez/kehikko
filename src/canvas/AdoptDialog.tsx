@@ -86,7 +86,7 @@ export function AdoptDialog({
     void postTask(project, item, kehikko, agent.module).then((one) => {
       if (!live.current) return
       if (one.ok) {
-        const said = handedSaid(one.name)
+        const said = handedSaid(one.name, one.pending)
         onStarted?.(one.module, said)
         onClose(said)
       } else setTask(one)

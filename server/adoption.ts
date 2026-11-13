@@ -16,7 +16,7 @@ import {
   type ServiceProvider,
 } from 'kehikot-module-protocol'
 
-import { callModule, startAgentSession } from './agentSession.ts'
+import { callModule, startAgentSession, type AcceptedTasks } from './agentSession.ts'
 import {
   adoptPrompt,
   adoptedSaid,
@@ -86,6 +86,8 @@ export interface AdoptionDeps {
   providers(service: string, root: string): ServiceProvider[]
   /** A module's registered origin. */
   originOf(module: string): Promise<string | null>
+  /** Accepted tasks, kept until their module reports what became of them (protocol 2.99.0). */
+  accepted?: AcceptedTasks
   /**
    * The agent modules placed on a kehikko of the project, in order, and its chosen primary (Kehikko
    * settings; null when none). Which of them does a task is `taskAgentFor`.
@@ -121,7 +123,7 @@ interface Scan {
 }
 
 /** How starting the agent on an item went: the session it started, or why not in words. */
-export type TaskState = { state: 'started'; module: string; name: string; session: string } | { state: 'failed'; why: string; noAgent?: true }
+export type TaskState = { state: 'started'; module: string; name: string; session: string; pending?: boolean } | { state: 'failed'; why: string; noAgent?: true }
 
 /** One conversation brought along, kept for Undo: who runs it and where it was. */
 interface Brought {
@@ -539,7 +541,7 @@ export class Adoption {
       item: { ref: seen.ref, title: seen.title.slice(0, LIMITS.TITLE), url: seen.link?.url ?? '', repo: seen.link?.repo ?? '', host: seen.link?.host ?? '' },
     })
     const got = await startAgentSession(this.deps, { module: chosen, root, prompt, title: `Place ${seen.ref} in a space` })
-    return got.ok ? { state: 'started', module: got.module, name: got.name, session: got.session } : { state: 'failed', why: got.why, ...(got.noAgent ? { noAgent: true as const } : {}) }
+    return got.ok ? { state: 'started', module: got.module, name: got.name, session: got.session, ...(got.pending ? { pending: true } : {}) } : { state: 'failed', why: got.why, ...(got.noAgent ? { noAgent: true as const } : {}) }
   }
 }
 

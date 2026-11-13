@@ -8,7 +8,10 @@ import {
   serverAskSchema,
   serverPassResult,
   sessionsPlaceOfParams,
+  tasksReportParams,
   type ServerAskRefusal,
+  type TasksReportParams,
+  type TasksReportResult,
   type ServerAskResult,
 } from 'kehikot-module-protocol'
 
@@ -65,6 +68,18 @@ export interface ServerAskDeps {
    * answered with no place.
    */
   placeOf?(root: string, session: string): Promise<{ epic: string | null; parts: string[]; kehikko: string | null } | null>
+  /**
+   * `tasks.report` (protocol 2.99.0): what became of a task this module accepted from this host's
+   * `agent.tasks` start. Absent: answered `unknown`.
+   */
+  tasks?(module: string, report: TasksReportParams): TasksReportResult
+  /**
+   * Read this module's manifest again now, when a question would be refused for a capability the last
+   * sweep's reading does not hold: a module that has just started (or was just updated) asks at once,
+   * before the next sweep has read what it declares. True when the reading changed. At most once every
+   * few seconds per module; absent, the last sweep's reading is the answer.
+   */
+  reread?(module: string): Promise<boolean>
   /** Injected by tests. */
   fetch?: typeof fetch
 }
@@ -144,7 +159,10 @@ export function serverAskDesk(deps: ServerAskDeps) {
     if (!deps.known(module)) return refused('module', SERVER_ASK_SAYS.module, 'unknown-module')
     /* First the pass: nothing about a module's grants or a project is said to a program that is not it. */
     if (!(await (plumbing ? untraced(() => vouched(module, pass)) : vouched(module, pass)))) return refused('pass', SERVER_ASK_SAYS.pass)
-    const held = hold(method, (capability) => deps.may(module, capability))
+    let held = hold(method, (capability) => deps.may(module, capability))
+    /* Judged on a reading the last sweep made: a module that just started may have asked before the
+       host read what it declares (it was told "does not ask for" a capability its manifest names). */
+    if (held.held && deps.reread && (await deps.reread(module).catch(() => false))) held = hold(method, (capability) => deps.may(module, capability))
     if (held.held) return refused('grant', held.why)
     if ('undeclared' in held) deps.undeclared?.(module, method, held.undeclared)
     /* Messages (protocol 2.41.0): the session, and so the project, is the one the token names. A
@@ -174,6 +192,12 @@ export function serverAskDesk(deps: ServerAskDeps) {
       if (!asked.success) return reply({ ok: false, reason: 'failed', error: 'sessions.placeOf takes { session }: the session’s own id.' })
       const place = deps.placeOf ? await deps.placeOf(root, asked.data.session).catch(() => null) : null
       return reply({ ok: true, data: { place } })
+    }
+    /* Protocol 2.99.0: what became of a task this host handed the module. The host knows its project. */
+    if (method === 'tasks.report') {
+      const report = tasksReportParams.safeParse(params)
+      if (!report.success) return reply({ ok: false, reason: 'failed', error: 'tasks.report takes { session, outcome: started | failed, conversation?, why? }.' })
+      return reply({ ok: true, data: deps.tasks?.(module, report.data) ?? { outcome: 'unknown', why: 'This host started no such task with this module.' } })
     }
     /* A question about this computer names no project (protocol 2.20.0); the schema holds the rest to one. */
     /* `services.find` (protocol 2.81.0) names a project only to ask about a kehikko in it. */

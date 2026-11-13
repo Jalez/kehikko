@@ -101,6 +101,10 @@ export const ANSWERED_BY_THE_SERVER = [
      the records the door reads (`placeOfSession` in `server/placeRoutes.ts`).
      A module's SERVER asks it; `answer` declines it from a page. */
   'sessions.placeOf',
+  /* Protocol 2.99.0: what became of a task an agent module accepted, from its
+     SERVER (`/host/server-ask`, `taskReported` in `server/server.ts`); `answer`
+     declines it from a page. */
+  'tasks.report',
 ] as const
 
 /**

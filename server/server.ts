@@ -51,6 +51,7 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
+import { AcceptedTasks, reportSaid } from './agentSession.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
@@ -1556,6 +1557,30 @@ const lastDeclared = new Map<string, readonly string[]>()
 /** Whether this module's manifest asks for the capability: what every method is held to. See `Grants`. */
 const declared = (module: string, capability: string): boolean =>
   lastDeclared.get(module)?.includes(capability) === true
+
+/** When each module's manifest was last read again outside a sweep (`rereadDeclared`). */
+const rereadAt = new Map<string, number>()
+/** At most this often per module: a module asking undeclared in a loop costs one manifest read every few seconds, no more. */
+const REREAD_MS = 5000
+
+/**
+ * Read one module's manifest now, for a question about to be refused on the last sweep's reading of it:
+ * a module that has just (re)started asks at once, before the next sweep has read what it declares,
+ * and was told its manifest "does not ask for" a capability it names. True when what it declares changed.
+ */
+async function rereadDeclared(module: string): Promise<boolean> {
+  const now = Date.now()
+  if (now - (rereadAt.get(module) ?? 0) < REREAD_MS) return false
+  rereadAt.set(module, now)
+  const registration = (await readRegistrations()).registrations.find((r) => r.id === module)
+  if (!registration) return false
+  const presence = await look(registration).catch(() => null)
+  if (!presence?.module || presence.refused) return false
+  const was = lastDeclared.get(module)
+  const uses = presence.module.declares.uses
+  lastDeclared.set(module, uses)
+  return !was || was.length !== uses.length || was.some((one, at) => one !== uses[at])
+}
 
 /** Every answering module's manifest, as the last sweep read it. */
 const lastManifests = () => [...lastPresences.values()].flatMap((presence) => (presence.module ? [presence.module] : []))
@@ -3373,7 +3398,27 @@ const inboxRoutes = inboxDesk({
  * Adopting a tracker item no epic names, and the conversations that worked on it (protocol 2.88.0).
  * The person's acts, from the page only; an agent only proposes (`propose_adoption`). `adoption.ts`.
  */
+/*
+ * Tasks an agent module accepted from `agent.tasks` and is still starting (protocol 2.99.0): what it
+ * reports of one (`tasks.report`) is answered, and a failure goes in the person's Inbox in words.
+ */
+const acceptedTasks = new AcceptedTasks()
+
+/** What became of an accepted task, from its module's server: a failure said in the project's Inbox, by the module's name. */
+function taskReported(module: string, report: import('kehikot-module-protocol').TasksReportParams): import('kehikot-module-protocol').TasksReportResult {
+  const task = acceptedTasks.take(module, report.session)
+  if (!task) return { outcome: 'unknown', why: 'This host started no such task with this module, or no longer waits for it.' }
+  const message = reportSaid(task, report)
+  const project = message ? (listProjects(db).find((one) => one.path === task.root) ?? null) : null
+  if (message && project) {
+    const out = inbox.notice(project.id, module, task.name, { epic: '', message, level: 'attention', refs: [] })
+    wakes.inboxChanged(project.id, out.rev)
+  }
+  return { outcome: 'told', why: '' }
+}
+
 const adoption = new Adoption({
+  accepted: acceptedTasks,
   db,
   notices: trackerNotices,
   pathOf: (project) => projectById(db, project)?.path ?? null,
@@ -3592,6 +3637,10 @@ const serverAsk = serverAskDesk({
   messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
   /* Where a session is filed (protocol 2.85.0): the records the door reads. */
   placeOf: (root, session) => placeRoutes.placeOfSession(root, session),
+  /* What became of a task a module accepted (protocol 2.99.0). */
+  tasks: taskReported,
+  /* A module that asked before this host read what it declares: its manifest, read now. */
+  reread: rereadDeclared,
 })
 
 /*
