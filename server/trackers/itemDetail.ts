@@ -285,6 +285,20 @@ export function gitlabChecks(jobs: unknown): Pick<TrackerDetailFacts, 'checks' |
   return checks.length ? bounded(checks, all.length) : {}
 }
 
+/**
+ * A GitLab merge request's approval rule, from `merge_requests/:iid/approvals`: how many approvals it
+ * asks for and how many it has (protocol 2.101.0). Nothing when it asks for none, or the answer lacks
+ * the numbers: "0 of 0" says nothing a person needs.
+ */
+export function gitlabApprovals(answer: unknown): Pick<TrackerDetailFacts, 'approvals'> | {} {
+  const a = obj(answer)
+  const required = a.approvals_required
+  const left = a.approvals_left
+  if (typeof required !== 'number' || typeof left !== 'number' || !Number.isInteger(required) || !Number.isInteger(left)) return {}
+  if (required < 1 || required > 999) return {}
+  return { approvals: { given: Math.min(999, Math.max(0, required - left)), required } }
+}
+
 /* ------------------------------------------------------------------------ *
  * Freshness
  * ------------------------------------------------------------------------ */

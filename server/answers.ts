@@ -20,7 +20,7 @@ import { hold } from '../src/host/grants.ts'
 import type { Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
-import type { PickedProject, ServiceProvider, TrackerColumns, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
+import type { PickedProject, ServiceProvider, TrackerColumns, TrackerImage, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
 import type { TrafficDoor } from './traffic.ts'
 
 /**
@@ -35,6 +35,8 @@ export interface TrackerDoor {
   live(root: string, epic: string): Record<string, unknown> | null
   /** `tracker.columns`: the boards of the project's sources and their columns. Absent in a test's stand-in. */
   columns?(root: string): TrackerColumns
+  /** `tracker.image`: one picture of an item's text, fetched with the person's sign-in. Absent in a test's stand-in. */
+  image?(root: string, ref: string, url: string): Promise<TrackerImage>
   /** The project's sources as a person is told them. Absent in a test's stand-in. */
   describe?(root: string): Promise<TrackerListing>
   /** One edit of the project's tracker sources; see `Trackers.edit`. */
@@ -805,6 +807,18 @@ export async function answerCall(
   mine: ((module: string) => PickedProject[]) | null = null,
   services: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null = null,
 ): Promise<Answer> {
+  if (method === 'tracker.image' && knownModule(moduleId)) {
+    /* A picture is fetched with the person's sign-in, which only this process holds: answered here,
+       and declined (never an error) in the protocol's own words when it cannot be. */
+    const why = kept(moduleId, method, grants)
+    if (why) return notMineToSay(why)
+    const asked = params.get(method)!.safeParse(rawParams ?? {})
+    if (!asked.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
+    if (!trackers?.image) return notMineToSay('This host was not given a tracker reading to fetch a picture through.')
+    if (!root) return nothingToShow('tracker.image', { outcome: 'declined', why: 'host' })
+    const { ref, url } = asked.data as { ref: string; url: string }
+    return nothingToShow('tracker.image', await trackers.image(root, ref, url))
+  }
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
     return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic, mine, services)
   }
