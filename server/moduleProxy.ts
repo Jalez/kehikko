@@ -67,6 +67,16 @@ import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeO
  * new process takes the next request of a conversation the old one began. A module that does keep
  * sessions answers 404 for one it does not know, which is passed on as it is, and is what an MCP
  * client re-initializes on.
+ *
+ * ## Woken by its door
+ *
+ * The host stops a module nothing has open for its grace period, and an agent conversation that was
+ * using its tools then found the door shut ("failed to reconnect"). So a request at the door that
+ * finds nothing answering and nothing bringing the module up asks the host (`wake`): a module the
+ * host itself stopped for being idle is started — the same start as opening a kehikko it is on — and
+ * the request is held as above, up to `HOLD_MS`, until it answers. A module the person stopped stays
+ * stopped, and the request is refused in words saying so and how to start it. Every request at the
+ * door counts as use (`used`), so a module an agent keeps using is not stopped for being idle.
  */
 
 /** How long what `identify` found is believed. Short: a module restarting changes it. */
@@ -140,6 +150,15 @@ export interface ProxyDeps {
    * never.
    */
   starting?(id: string): boolean
+  /**
+   * A request at the module's MCP door found nothing answering and nothing bringing it up (see
+   * "Woken by its door"): `{ ok: true }` when the host has just started it (the request is then held
+   * like one during a restart), `{ ok: false, why }` to refuse it in those words (the person stopped
+   * it), null when this is not the host's to start (refused as before). Absent: null.
+   */
+  wake?(id: string): { ok: true } | { ok: false; why: string } | null
+  /** Every request at the module's MCP door: an agent is using it (the host's idle stop counts this). */
+  used?(id: string): void
   /** Where the one line per held request goes. */
   log?: (line: string) => void
   /** `HOLD_MS` and `HOLD_POLL_MS`, for a test that cannot wait that long. */
@@ -368,10 +387,18 @@ export class ModuleProxy {
       return refused(403, 'This address is for programs on this computer. A page reaches a module at its own address.', true)
     }
     const door = isMcpDoor(route)
+    /* An agent using a module's tools is using the module: the host's idle stop counts it. */
+    if (door) this.#deps.used?.(route.id)
     /* What was found a moment ago may be the process that is going: while the host brings the
        module up, the door asks afresh, so a request is held rather than sent to the old one. */
     if (door && this.#deps.starting?.(route.id)) this.forget(route.id)
     let reached = await this.#reach(route)
+    if (!reached.ok && door && !this.#deps.starting?.(route.id)) {
+      /* Nothing answers and nothing is bringing it up: one the host stopped is started for this
+         request (and held below until it answers); one the person stopped is refused in words. */
+      const woke = this.#deps.wake?.(route.id) ?? null
+      if (woke && !woke.ok) reached = { ok: false, response: refused(503, woke.why) }
+    }
     if (!reached.ok && door) reached = await this.#ride(request, route, reached.response)
     if (!reached.ok) return machine ? sandbox(door ? await asRpcError(request, reached.response) : reached.response) : reached.response
     const { target, real } = reached

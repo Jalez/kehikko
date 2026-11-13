@@ -13,12 +13,10 @@ export const PICKERS: readonly Picker[] = ['projects', 'epics', 'kehikot']
 export type PickerSorts = Record<Picker, PickerSort>
 
 /**
- * Epics are already listed A to Z by the host, so that stays what a person who
- * never touches the switch sees. Projects and kehikot were listed in the order
- * they were added, which says nothing about which one is wanted now: "Recent"
- * is the better start for them.
+ * Every list starts on "Recent": what was worked in lately is the better start than a name. A person
+ * who picks A to Z keeps it (A to Z is also the tie-break among spaces with equal or no activity).
  */
-export const DEFAULT_SORTS: PickerSorts = { projects: 'recent', epics: 'az', kehikot: 'recent' }
+export const DEFAULT_SORTS: PickerSorts = { projects: 'recent', epics: 'recent', kehikot: 'recent' }
 
 /** What a stored or posted value says, with the default wherever it is not one of the two. */
 export function sortsFrom(value: unknown): PickerSorts {

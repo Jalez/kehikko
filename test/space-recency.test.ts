@@ -159,7 +159,12 @@ describe('the order', () => {
 
 describe('the time headings, in local time', () => {
   test('each bucket, with a fixed clock', () => {
+    /* "Just now" is the last five minutes; "Last hour" is five to sixty. */
+    expect(bucketOf(NOW, NOW)).toBe('now')
+    expect(bucketOf(NOW - 5 * 60_000 + 1, NOW)).toBe('now')
+    expect(bucketOf(NOW - 5 * 60_000, NOW)).toBe('hour')
     expect(bucketOf(NOW - 10 * 60_000, NOW)).toBe('hour')
+    expect(bucketOf(NOW - 60 * 60_000, NOW)).toBe('today')
     expect(bucketOf(at(12, 9), NOW)).toBe('today')
     expect(bucketOf(at(12, 0, 1), NOW)).toBe('today')
     expect(bucketOf(at(11, 23, 59), NOW)).toBe('yesterday')

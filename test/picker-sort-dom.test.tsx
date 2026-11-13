@@ -153,7 +153,7 @@ describe('the sort switch in each dropdown', () => {
     expect(choice('Recent').getAttribute('aria-checked')).toBe('true')
   })
 
-  test('epics: keep today’s A–Z until changed; "All epics" and "no epic" stay in place under either order', async () => {
+  test('epics: start on Recent until changed; "All epics" and "no epic" stay in place under either order', async () => {
     hostSays()
     const held = { holds: true, epics: [epic('c', 'Cherry'), epic('a', 'Apricot'), epic('b', 'Banana')] }
     store.noteVisit({ project: 1, epic: 'c' }, 100)
@@ -162,11 +162,11 @@ describe('the sort switch in each dropdown', () => {
     )
     await openMenu('the epic this project is on')
     expect(rows()[0]).toContain('All spaces')
-    expect(firstWords(rows().slice(1, 4))).toEqual(['Apricot', 'Banana', 'Cherry'])
-    expect(rows().some((text) => text.includes('no epic'))).toBe(true)
-    await press(choice('Recent'))
-    expect(rows()[0]).toContain('All spaces')
     expect(firstWords(rows().slice(1, 4))).toEqual(['Cherry', 'Apricot', 'Banana'])
+    expect(rows().some((text) => text.includes('no epic'))).toBe(true)
+    await press(choice('A–Z'))
+    expect(rows()[0]).toContain('All spaces')
+    expect(firstWords(rows().slice(1, 4))).toEqual(['Apricot', 'Banana', 'Cherry'])
     expect(rows().some((text) => text.includes('no epic'))).toBe(true)
     expect(rows().findIndex((text) => text.includes('no epic'))).toBeGreaterThan(3)
   })

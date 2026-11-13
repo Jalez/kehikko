@@ -3,6 +3,7 @@ import { accessSync, closeSync, constants, openSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import { DEFAULT_FRAME_ORIGINS } from 'kehikot-module-protocol/serve'
 import { START_TOKEN_ENV } from 'kehikot-module-protocol'
+import { HOST_ENV } from 'kehikot-module-protocol/serve'
 
 import type { Registration } from './registrations.ts'
 
@@ -357,6 +358,35 @@ export function setPageOrigins(origins: readonly string[]): void {
   ownPageOrigins = [...origins]
 }
 
+/** The variable a module reads to know which host started it (protocol 2.95.0). */
+export { HOST_ENV }
+
+/**
+ * This host's own origin, `http://127.0.0.1:<port>`, set once by `server.ts`: what every module it
+ * starts is told in `KEHIKOT_HOST` (`hostEnv`).
+ *
+ * ## Why a module is told which host started it
+ *
+ * `KEHIKOT_ORIGINS` is a list of everything that may FRAME a module — this host's page, the
+ * defaults of every host on the machine, and whatever this host itself inherited — so it cannot say
+ * which host a module belongs to. A module that asked each origin in turn for a session's doors
+ * took them from whichever answered first, and a module run by another host (a scratch copy an
+ * agent started, with its own copy of a project) wrote that host's doors into files the person's
+ * sessions read. With `KEHIKOT_HOST`, a module asks this host alone and builds every door on its
+ * stable address (`startingHost`, `doorUrl` in the protocol). It is set last, over anything
+ * inherited or registered, so a module never believes another host started it.
+ */
+let ownHost: string | null = null
+
+export function setHostOrigin(origin: string): void {
+  ownHost = origin
+}
+
+/** `KEHIKOT_HOST` for a module this host starts: this host, or nothing when it is not known yet (and nothing inherited either). */
+export function hostEnv(origin: string | null = ownHost): Record<string, string> {
+  return origin ? { [HOST_ENV]: origin } : {}
+}
+
 /**
  * Who may frame a module this host starts, for the module's `frame-ancestors`.
  *
@@ -402,7 +432,9 @@ export function start(run: Runnable, exited?: (code: number | null) => void): St
         ...originEnv(process.env),
         ...(run.port === null ? {} : { PORT: String(run.port) }),
         ...(run.env ?? {}),
-        /* Last, so nothing inherited or registered can name another process's token. */
+        /* Last, so nothing inherited or registered can name another host or another process's token. */
+        [HOST_ENV]: ownHost ?? '',
+        ...hostEnv(),
         [START_TOKEN_ENV]: token,
       },
       detached: true,

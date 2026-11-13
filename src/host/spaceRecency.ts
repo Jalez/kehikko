@@ -1,5 +1,6 @@
 import { spaceFromEpicParts, worstActivity, type ActivityItem, type ActivityState, type SpaceNode } from 'kehikot-module-protocol'
 
+import { DAY, HOUR, JUST_NOW, MINUTE } from './relativeTime.ts'
 import { spaceVisitedAt, type PickerSort, type Visits } from './pickerOrder.ts'
 import { keyOf } from './spaces.ts'
 
@@ -181,9 +182,10 @@ export function matchedTree(tree: readonly SpaceNode[], filter: string): SpaceNo
 }
 
 /** The time headings "Recent" groups siblings under, in order. `never` is for a space nobody has been to. */
-export const BUCKETS = ['hour', 'today', 'yesterday', 'week', 'lastWeek', 'month', 'older', 'never'] as const
+export const BUCKETS = ['now', 'hour', 'today', 'yesterday', 'week', 'lastWeek', 'month', 'older', 'never'] as const
 export type Bucket = (typeof BUCKETS)[number]
 export const BUCKET_WORDS: Record<Bucket, string> = {
+  now: 'Just now',
   hour: 'Last hour',
   today: 'Today',
   yesterday: 'Yesterday',
@@ -194,8 +196,6 @@ export const BUCKET_WORDS: Record<Bucket, string> = {
   never: 'Not visited yet',
 }
 
-const HOUR = 3_600_000
-const DAY = 24 * HOUR
 
 /** Local midnight of the day `at` falls on. */
 const dayStart = (at: number): number => {
@@ -205,11 +205,12 @@ const dayStart = (at: number): number => {
 }
 
 /**
- * Which heading a time falls under, in the person's local time: within the hour, earlier today,
+ * Which heading a time falls under, in the person's local time: in the last five minutes, within the hour, earlier today,
  * yesterday, earlier this week (weeks start on Monday), last week, earlier this month, older.
  */
 export function bucketOf(at: number | undefined, now: number): Bucket {
   if (at === undefined) return 'never'
+  if (now - at < JUST_NOW) return 'now'
   if (now - at < HOUR) return 'hour'
   const today = dayStart(now)
   if (at >= today) return 'today'
@@ -232,8 +233,8 @@ export function bucketOf(at: number | undefined, now: number): Bucket {
 /** How long ago, in a few characters: "just now", "5 min ago", "3 h ago", "2 d ago", "4 wk ago". */
 export function agoWords(at: number, now: number): string {
   const gone = Math.max(0, now - at)
-  if (gone < 60_000) return 'just now'
-  if (gone < HOUR) return `${Math.floor(gone / 60_000)} min ago`
+  if (gone < MINUTE) return 'just now'
+  if (gone < HOUR) return `${Math.floor(gone / MINUTE)} min ago`
   if (gone < DAY) return `${Math.floor(gone / HOUR)} h ago`
   if (gone < 14 * DAY) return `${Math.floor(gone / DAY)} d ago`
   return `${Math.floor(gone / (7 * DAY))} wk ago`

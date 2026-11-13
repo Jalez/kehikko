@@ -678,7 +678,7 @@ export function silentSaid(
 export function asleepLine(name: string, at: string): string {
   return (
     `${name} is asleep: no open kehikko or project used it for ${Math.round(GRACE_MS / 60_000)} minutes, ` +
-    `so Kehikot stopped it to save memory. Nothing is wrong with it: open a kehikko it is on ` +
+    `so Kehikot stopped it to save memory. Nothing is wrong with it: open a kehikko it is on, or use its tools from an agent, ` +
     `and it starts again at ${at}.`
   )
 }
@@ -773,4 +773,25 @@ export class ExitRestarts {
   forget(id: string): void {
     this.#ends.delete(id)
   }
+}
+
+/**
+ * What a request at a module's MCP door does when nothing answers there and nothing is bringing the
+ * module up (`wake` in `moduleProxy.ts`, "Woken by its door"):
+ *
+ *  - `refuse`: the person stopped it (Stop in the modules menu). It stays stopped; the request is
+ *    told so in words (`personStoppedDoorLine`).
+ *  - `start`: the host stopped it for being idle, and it is registered and startable: started now,
+ *    the same start as opening a kehikko it is on, and the request is held until it answers.
+ *  - `none`: anything else (never started by this host, not startable, failed): refused as before.
+ */
+export function doorWake(facts: { personStopped: boolean; idleStopped: boolean; registered: boolean; startable: boolean }): 'start' | 'refuse' | 'none' {
+  if (facts.personStopped) return 'refuse'
+  if (facts.idleStopped && facts.registered && facts.startable) return 'start'
+  return 'none'
+}
+
+/** Said to an agent at the MCP door of a module the person stopped. */
+export function personStoppedDoorLine(name: string): string {
+  return `${name} was stopped by the person in Kehikot, so its tools are not available and Kehikot did not start it. To use it, the person presses Start on it in the Kehikko modules menu.`
 }

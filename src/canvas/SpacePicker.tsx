@@ -10,12 +10,10 @@ import {
   branchesTo,
   breadcrumb,
   keyOf,
-  readOpenBranches,
   spacesUnder,
   treeKey,
   treeRows,
   typeAhead,
-  writeOpenBranches,
 } from '@/host/spaces.ts'
 import { SORT_WORDS, type PickerSort } from '@/host/pickerOrder.ts'
 import { loadVisits, setSort, usePickerSort, useVisits } from '@/host/pickerStore.ts'
@@ -38,12 +36,15 @@ import { Hint } from './Hint.tsx'
  * The space picker in the bar: one breadcrumb, "Project › Space › Sub-space", in place of the epic and
  * parts pickers it replaced.
  *
- * Its list is a TREE (`role="tree"`): the top-level spaces, each with a chevron, every subtree closed
- * until it is opened — except the branch holding the space the project is on, which is opened so the
- * current space is in view, and marked. What is open is the person's, per project, in this browser
- * (`readOpenBranches`). The keyboard is the tree pattern's (`treeKey`): Up and Down move, Right opens,
- * Left closes, Enter picks; typing a letter jumps to the next row starting with it, and the filter at
- * the top searches every depth and opens the branches above a match.
+ * Its list is a TREE (`role="tree"`): the top-level spaces, each with a chevron, EVERY subtree closed each
+ * time the list opens — the space the project is on and the branches above it included. What is open is
+ * plain state the person alone changes, one chevron at a time (`toggle`); nothing derives it from the
+ * selection. The current space stays findable closed: the bar shows its path, the row is marked, and a
+ * closed branch holding it says so in its name and carries a dot. The keyboard is the tree pattern's
+ * (`treeKey`): Up and Down move, Right opens, Left closes, Enter picks; typing a letter jumps to the
+ * next row starting with it, and the filter at the top searches every depth and reveals the branches
+ * above a match while it is typed (a revealed branch can still be closed); clearing it returns to the
+ * person's own expansion.
  *
  * Each row can add a space under it, be renamed and be removed (armed: the second press, with the
  * server's own sentence of what goes). The children of the space the project is on carry checkboxes:
@@ -81,28 +82,23 @@ export interface SpacePickerProps {
   onPickAll(): void
   /** Null when the spaces cannot be edited here (no project, or one nothing may be written into). */
   onEdit: ((edit: SpaceEditAsked) => Promise<SpaceEditAnswer>) | null
-  /** For tests: where open branches are remembered. Defaults to this browser's storage. */
-  store?: Pick<Storage, 'getItem' | 'setItem'> | null
   /** Whether the list starts open (a test, or a tour step that shows it). */
   defaultOpen?: boolean
   /** The open project's Inbox record, for the dots and for when each space last saw activity. */
   activity?: readonly SpaceActivity[]
   /** For tests: the clock the time headings are read against. */
   clock?: () => number
+  /** For tests: how often the headings are regrouped while the list is open. */
+  regroupEvery?: number
 }
 
 /** The words of the order switch: the space picker says what Recent means here. */
 const ORDER_WORDS: Record<PickerSort, string> = { recent: 'Recent activity', az: 'Alphabetical' }
 const ORDERS: readonly PickerSort[] = ['recent', 'az']
 const NO_ACTIVITY: readonly SpaceActivity[] = []
+const REGROUP_MS = 15_000
+const NONE: ReadonlySet<string> = new Set()
 
-const browserStore = (): Pick<Storage, 'getItem' | 'setItem'> | null => {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 export function SpacePicker({
   tree,
@@ -112,15 +108,17 @@ export function SpacePicker({
   onPick,
   onPickAll,
   onEdit,
-  store,
   defaultOpen = false,
   activity = NO_ACTIVITY,
   clock = Date.now,
+  regroupEvery = REGROUP_MS,
 }: SpacePickerProps) {
-  const storage = store === undefined ? browserStore() : store
   const projectId = project?.id ?? null
   const [isOpen, setOpen] = useState(defaultOpen)
-  const [opened, setOpened] = useState<Set<string>>(() => readOpenBranches(projectId, storage))
+  /* Expansion is plain state, the person's alone: empty each time the list opens, never derived from the
+     space the project is on. `shut` is what they closed among the branches a filter revealed. */
+  const [opened, setOpened] = useState<ReadonlySet<string>>(NONE)
+  const [shut, setShut] = useState<ReadonlySet<string>>(NONE)
   const [filter, setFilter] = useState('')
   const [focus, setFocus] = useState(0)
   /** A name being typed: under which parent (a new space) or for which space (a rename). */
@@ -139,20 +137,22 @@ export function SpacePicker({
     setNow(clock())
     /* What another window visited since is in it. */
     void loadVisits()
+    /* The headings are regrouped while the list stays open: a space active a minute ago becomes "Just now". */
+    const tick = setInterval(() => setNow(clock()), regroupEvery)
+    return () => clearInterval(tick)
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
   const lives = useMemo(() => spaceLives(tree, projectId, visits, activity, now), [tree, projectId, visits, activity, now])
 
-  /* Another project remembers other branches. */
-  useEffect(() => setOpened(readOpenBranches(projectId, storage)), [projectId]) // eslint-disable-line react-hooks/exhaustive-deps
+  /* Another project starts collapsed too. */
+  useEffect(() => setOpened(NONE), [projectId])
 
   const hereIds = useMemo(() => (here ? here.path.map((step) => step.id) : []), [here])
   const hereKey = keyOf(hereIds)
-  /* The current branch is always open while the list is drawn, on top of what the person opened. */
-  /* And the current space itself, so its children — the siblings that can be picked together — are in view. */
-  const shown = useMemo(() => new Set([...opened, ...branchesTo(hereIds), ...(hereIds.length ? [keyOf(hereIds)] : [])]), [opened, hereIds])
+  /* The branches above the current space: when one is closed it says it holds the space. */
+  const holdsHere = useMemo(() => new Set(branchesTo(hereIds)), [hereIds])
   /* Each level's siblings in the chosen order — by match while filtering — and the tree kept. */
   const ordered = useMemo(() => (filter.trim() ? matchedTree(tree, filter) : sortedTree(tree, sort, lives)), [tree, filter, sort, lives])
-  const rows = useMemo(() => treeRows(ordered, shown, filter), [ordered, shown, filter])
+  const rows = useMemo(() => treeRows(ordered, opened, filter, shut), [ordered, opened, filter, shut])
   /* The time headings: under Recent only, and never while filtering. */
   const headed = useMemo(
     () => (sort === 'recent' && !filter.trim() ? headings(rows, (ids) => bucketOf(lives.get(keyOf(ids))?.last, now)) : new Map<number, Bucket>()),
@@ -163,19 +163,22 @@ export function SpacePicker({
   /* Opening the list puts the focus on the current space. */
   useEffect(() => {
     if (!isOpen) return
-    const at = rows.findIndex((row) => keyOf(row.ids) === hereKey)
+    /* The current space, or the closed branch above it that holds it. */
+    let at = -1
+    for (let depth = hereIds.length; depth > 0 && at < 0; depth -= 1) at = rows.findIndex((row) => keyOf(row.ids) === keyOf(hereIds.slice(0, depth)))
     setFocus(at >= 0 ? at : 0)
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const remember = (next: Set<string>) => {
-    setOpened(next)
-    writeOpenBranches(projectId, next, storage)
-  }
+  /* Open or close exactly one branch. While a filter is typed the branches it revealed are closed
+     through `shut`, so clearing the query returns to the person's own `opened`. */
   const toggle = (key: string, open: boolean) => {
-    const next = new Set(opened)
-    if (open) next.add(key)
+    const filtering = filter.trim() !== ''
+    const from = filtering ? shut : opened
+    const next = new Set(from)
+    if (open !== filtering) next.add(key)
     else next.delete(key)
-    remember(next)
+    if (filtering) setShut(next)
+    else setOpened(next)
   }
 
   const pick = (ids: string[], picked?: string[]) => {
@@ -269,6 +272,8 @@ export function SpacePicker({
       open={isOpen}
       onOpenChange={(next) => {
         setOpen(next)
+        setOpened(NONE)
+        setShut(NONE)
         if (!next) {
           setFilter('')
           setNaming(null)
@@ -316,6 +321,7 @@ export function SpacePicker({
           value={filter}
           onChange={(event) => {
             setFilter(event.target.value)
+            setShut(NONE)
             setFocus(0)
           }}
           onKeyDown={(event) => {
@@ -397,6 +403,7 @@ export function SpacePicker({
               const headingId = headingOf(index)
               const life = lives.get(key)
               /* An open branch shows its own; a closed one the worst of its whole subtree. */
+              const holdsCurrent = !row.open && holdsHere.has(key)
               const dot = row.open ? (life?.mark ?? null) : (life?.markBelow ?? null)
               const said = lifeWords(life, now)
               const node = nodeAt(tree, row.ids)
@@ -436,12 +443,13 @@ export function SpacePicker({
                       <button
                         type="button"
                         tabIndex={-1}
-                        aria-label={row.open ? `close ${row.name}` : `open ${row.name}`}
-                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={`${row.open ? 'close' : 'open'} ${row.name}${holdsCurrent ? ' (contains the current space)' : ''}`}
+                        className="text-muted-foreground hover:text-foreground relative"
                         onClick={() => toggle(key, !row.open)}
                         data-space-chevron
                       >
                         {row.open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                        {holdsCurrent ? <span aria-hidden data-space-holds-current className="bg-primary absolute -top-px -right-px size-1.5 rounded-full" /> : null}
                       </button>
                     ) : (
                       <span className="inline-block size-3" />

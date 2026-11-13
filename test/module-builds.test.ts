@@ -589,6 +589,25 @@ describe("the install marker run.sh reads", () => {
     expect(runShWouldInstall(dir)).toBe(false)
   })
 
+  test('is never older than a lockfile written in the same instant, nor than one stamped ahead of the clock', () => {
+    /* The race this guards: a marker stamped with a whole-millisecond Date landed before a lockfile the file system stamped in the same millisecond, so run.sh's -nt called the install stale (Linux keeps nanoseconds). */
+    for (let i = 0; i < 100; i++) {
+      const dir = join(root, `marker${(made += 1)}`)
+      mkdirSync(join(dir, 'node_modules'), { recursive: true })
+      writeFileSync(join(dir, 'package.json'), '{}')
+      writeFileSync(join(dir, 'bun.lock'), '{}')
+      expect(markInstalled(dir)).toBe(true)
+      expect(runShWouldInstall(dir)).toBe(false)
+    }
+    const ahead = join(root, `marker${(made += 1)}`)
+    mkdirSync(join(ahead, 'node_modules'), { recursive: true })
+    writeFileSync(join(ahead, 'bun.lock'), '{}')
+    const future = new Date(Date.now() + 90_000 + 0.5)
+    utimesSync(join(ahead, 'bun.lock'), future, future)
+    expect(markInstalled(ahead)).toBe(true)
+    expect(runShWouldInstall(ahead)).toBe(false)
+  })
+
   test('nothing installed, nothing marked', () => {
     const dir = join(root, `marker${(made += 1)}`)
     mkdirSync(dir, { recursive: true })

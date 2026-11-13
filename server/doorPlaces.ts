@@ -87,6 +87,40 @@ export function ensureDoorPlaces(db: Database): void {
       used        integer not null
     );
   `)
+  /* The token a connection proved it is (a key passed once as `placeToken`): absent from an older file. */
+  const columns = db.query<{ name: string }, []>('pragma table_info(door_sessions)').all()
+  if (!columns.some((one) => one.name === 'token')) db.exec('alter table door_sessions add column token text')
+}
+
+/**
+ * The token a door call speaks for. A conversation proves which one it is with ONE key, the place token
+ * its agent module issued for it, however it started (protocol 2.95.0):
+ *
+ *  - on the door's URL (`?kehikot-place=`): a conversation the module launched. As it came.
+ *  - as the call's `placeToken` argument: a conversation placed afterwards, given its key in words by
+ *    its module. Believed only when it is a token issued here (`door_tokens`); then this MCP session is
+ *    bound to it, so the conversation passes it once per connection.
+ *  - the token this MCP session was bound to earlier, while it is still issued.
+ *
+ * Never a session id, never a guess: what is not an issued token is no identity at all. Revoked as soon
+ * as its module's record no longer places it — `resolveHere` asks the module on every call.
+ */
+export function doorToken(db: Database, urlToken: unknown, session: unknown, args: unknown, now = Date.now()): string | null {
+  if (typeof urlToken === 'string' && urlToken) return urlToken
+  const given = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>).placeToken : undefined
+  const bound = typeof session === 'string' && SESSION_ID.test(session)
+  if (typeof given === 'string' && PLACE_TOKEN.test(given)) {
+    const issued = db.query<{ token: string }, [string]>('select token from door_tokens where token = ?').get(given)
+    if (issued) {
+      if (bound) db.query('update door_sessions set token = ?, used = ? where id = ?').run(given, now, session)
+      return given
+    }
+  }
+  if (!bound) return null
+  const row = db.query<{ token: string | null }, [string]>('select token from door_sessions where id = ?').get(session as string)
+  if (!row?.token) return null
+  const still = db.query<{ token: string }, [string]>('select token from door_tokens where token = ?').get(row.token)
+  return still ? row.token : null
 }
 
 /** A place as a record says it: the project by id, the epic, the parts, the kehikko by key. */

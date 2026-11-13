@@ -1,4 +1,5 @@
 import { connectionsOf, connectionsText, type ConnectionModule } from '../src/host/connections.ts'
+import { answerDoorMessage, doorMessageTools, isDoorMessageTool, type DoorMessageDeps } from './doorMessages.ts'
 import { readLogs, readLogsText } from './readLogs.ts'
 import { coveredForScope, scopeOfContainer, type ContainerScope } from '../src/host/scope.ts'
 import type { ActivityRow } from '../src/host/activity.ts'
@@ -277,6 +278,8 @@ export interface Sighting {
  */
 export interface Door {
   db: Database
+  /** Messages between agent sessions (protocol 2.95.0): the desk and the modules that deliver. `doorMessages.ts`. */
+  messaging?: DoorMessageDeps
   /** Which kehikko a call that named none means. See `open.ts`. */
   which(): WhichKehikko
   /**
@@ -444,6 +447,8 @@ export const TOOL_NAMES = [
   'module_settings',
   'kehikko_skills',
   'create_kehikko',
+  'send_message',
+  'read_messages',
 ] as const
 export type ToolName = (typeof TOOL_NAMES)[number]
 
@@ -1752,18 +1757,18 @@ function tools() {
       name: 'propose_adoption',
       description:
         'Propose which space a tracker item no space names belongs to (by its top-level space, and optionally its '
-        + 'direct sub-spaces — epic and parts are the older names these arguments keep), and which of the '
-        + 'conversations Kehikot found worked on it — when Kehikot started you to place one, with the item, the '
-        + 'spaces and the candidates in your brief. It ONLY proposes: the person sees it in Kehikot and confirms '
+        + 'direct sub-spaces — epic and parts are the older names these arguments keep), and which earlier '
+        + 'conversations worked on it — when Kehikot started you to adopt one: find the spaces with read_canvas, the '
+        + 'item with read_inbox or read_tracker, and the conversations in your own session history. It ONLY proposes: the person sees it in Kehikot and confirms '
         + 'with one press, or changes it. Nothing is written until they do, and this tool never adopts.',
       inputSchema: {
         type: 'object',
         properties: {
           ...KEHIKKO_PROPERTY,
-          ref: { type: 'string', description: 'The item\'s ref, exactly as your brief spells it.' },
-          epic: { type: 'string', description: 'The top-level space’s id (older name: the epic’s slug), from the brief.' },
-          parts: { type: 'array', items: { type: 'string' }, description: 'Ids of its direct sub-spaces (older name: parts), from the brief. Optional.' },
-          conversations: { type: 'array', items: { type: 'string' }, description: 'Session ids of the candidate conversations that worked on it. Optional.' },
+          ref: { type: 'string', description: 'The item\'s ref, exactly as your prompt spells it.' },
+          epic: { type: 'string', description: 'The top-level space’s id (older name: the epic’s slug), as read_canvas prints it.' },
+          parts: { type: 'array', items: { type: 'string' }, description: 'Ids of its direct sub-spaces (older name: parts), as read_canvas prints them. Optional.' },
+          conversations: { type: 'array', items: { type: 'string' }, description: 'Session ids of the earlier conversations that worked on it. Optional.' },
           why: { type: 'string', description: `One or two sentences the person reads, at most ${LIMITS.REASON} characters.` },
         },
         required: ['ref', 'epic', 'why'],
@@ -2008,6 +2013,8 @@ function tools() {
         required: [],
       },
     },
+    /* Messages between agent sessions (protocol 2.95.0): here, for every conversation. `doorMessages.ts`. */
+    ...doorMessageTools(),
   ]
 }
 
@@ -2096,6 +2103,11 @@ export async function call(
 ): Promise<{ text: string; failed: boolean }> {
   if (name === 'my_place') return myPlace(door)
   if (name === 'set_my_place') return setMyPlace(args, door)
+  /* The conversation is its token's, however it started; with none, the answer says why and what to do. */
+  if (isDoorMessageTool(name)) {
+    if (!door.messaging) return { text: 'Messages are not kept by this host just now. Nothing was sent or read.', failed: true }
+    return answerDoorMessage(name, args, door.here, door.messaging)
+  }
   /* About the machine and every project, so it names no kehikko. */
   if (name === 'storage') {
     if (!door.storage) return { text: 'This host does not measure storage.', failed: true }
@@ -3533,7 +3545,7 @@ function proposeAt(canvas: Canvas, args: Record<string, unknown>, door: Door): {
   const parts = list(args.parts, (one) => slug.test(one))
   const conversations = list(args.conversations, (one) => one.length > 0 && one.length <= 128)
   if (!ref || !epic || !why || parts === null || conversations === null) {
-    return { text: 'propose_adoption needs ref, epic (the top-level space’s id) and why (and optionally parts — its direct sub-spaces — and conversations), as your brief spells them.', failed: true }
+    return { text: 'propose_adoption needs ref, epic (the top-level space’s id) and why (and optionally parts — its direct sub-spaces — and conversations), as your prompt spells them.', failed: true }
   }
   const out = door.adoption.propose(canvas.project, ref, { epic, parts, conversations, why })
   return out.ok ? { text: out.said, failed: false } : { text: out.why, failed: true }
@@ -4006,7 +4018,9 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
         + 'column, row, width and height and its header items and which of them an agent may press; where an item names a tool, the module’s own MCP door '
         + 'is the way to do that. A conversation belongs to a place — a project, a space and a kehikko — '
         + 'which can differ from what the person is looking at: my_place says which, and every tool here answers about '
-        + 'that place by default. Every tool can act on any project the host knows, whichever one is on screen and with no '
+        + 'that place by default. send_message and read_messages are how agent sessions in a project message each other, for every '
+        + 'conversation whatever program it runs in; one placed after it started passes the key Kehikot gave it in words once, as placeToken. '
+        + 'Every tool can act on any project the host knows, whichever one is on screen and with no '
         + 'page open: pass project (its folder, name or id). That is how spaces are made and edited in another project. '
         + 'Never write a project’s .kehikot/host/ files by hand (spaces.json, epics/*.json, trackers.json): these tools '
         + 'are their one writer, and a hand-written file can break the tree every module reads. A message under the marker ⟦Trackers · report #N⟧ is Kehikot’s own tracker news: '
@@ -4033,7 +4047,7 @@ export async function mcp(rpc: Rpc, door: Door, about: { name: string; version: 
       const done = await call(name as ToolName, args, door)
       /* Said every time a tool fell back to the person's view for want of a record — never silently. */
       const fellBack =
-        door.here === null && args.kehikko === undefined && args.project === undefined && !done.failed && !['my_place', 'set_my_place', 'read_canvas'].includes(name)
+        door.here === null && args.kehikko === undefined && args.project === undefined && !done.failed && !['my_place', 'set_my_place', 'read_canvas', 'send_message', 'read_messages'].includes(name)
       const note = fellBack ? `\n\n${door.unrecorded ? unreadLine(door.unrecorded) : UNPLACED_LINE}` : ''
       /* Said once, on the call that settled the connection: where it was put, and how to change that. */
       const settled = door.settled && door.here && name !== 'my_place' && name !== 'set_my_place' ? `\n\n${settledWords(door.here)}` : ''

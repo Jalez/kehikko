@@ -88,12 +88,12 @@ describe('what is a visit: the place the page shows, however it was reached', ()
 })
 
 describe('the choices', () => {
-  test('epics keep today’s A–Z, and projects and kehikot — listed in the order made — start on Recent', () => {
-    expect(DEFAULT_SORTS).toEqual({ projects: 'recent', epics: 'az', kehikot: 'recent' })
+  test('every picker, the space list included, starts on Recent', () => {
+    expect(DEFAULT_SORTS).toEqual({ projects: 'recent', epics: 'recent', kehikot: 'recent' })
   })
 
   test('a stored value that is not one of the two is the default, one picker at a time', () => {
-    expect(sortsFrom({ projects: 'az', epics: 'sideways' })).toEqual({ projects: 'az', epics: 'az', kehikot: 'recent' })
+    expect(sortsFrom({ projects: 'az', epics: 'sideways' })).toEqual({ projects: 'az', epics: 'recent', kehikot: 'recent' })
     expect(sortsFrom('nonsense')).toEqual(DEFAULT_SORTS)
   })
 

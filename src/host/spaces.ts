@@ -66,7 +66,7 @@ export interface TreeRow {
   match: boolean
 }
 
-/** The keys of every branch on the way to a space: what is opened so the current space is in view. */
+/** The keys of every branch on the way to a space: the ones that get the "contains the current space" mark when closed. */
 export function branchesTo(ids: readonly string[]): string[] {
   const out: string[] = []
   for (let at = 1; at < ids.length; at += 1) out.push(keyOf(ids.slice(0, at)))
@@ -79,12 +79,15 @@ function matches(node: SpaceNode, words: readonly string[]): boolean {
   return words.every((word) => said.includes(word))
 }
 
+const NONE: ReadonlySet<string> = new Set()
+
 /**
- * The rows the picker draws. With no filter: top-level spaces, and the children of every open branch
- * (`open`, keys of paths). With a filter: every space at any depth that matches, with the branches
- * above it opened so it shows, and nothing else.
+ * The rows the picker draws. Expansion is only what the person did: with no filter, the top-level
+ * spaces and the children of every branch in `open` (keys of paths), whatever space the project is on.
+ * With a filter: every space at any depth that matches, with the branches above it revealed so it shows,
+ * and nothing else; a revealed branch the person closed meanwhile is in `shut` and stays closed.
  */
-export function treeRows(tree: readonly SpaceNode[], open: ReadonlySet<string>, filter = ''): TreeRow[] {
+export function treeRows(tree: readonly SpaceNode[], open: ReadonlySet<string>, filter = '', shut: ReadonlySet<string> = NONE): TreeRow[] {
   const words = filter.toLocaleLowerCase().split(/\s+/).filter(Boolean)
   const rows: TreeRow[] = []
   if (!words.length) {
@@ -105,9 +108,10 @@ export function treeRows(tree: readonly SpaceNode[], open: ReadonlySet<string>, 
     for (const node of nodes) {
       if (!holds(node)) continue
       const ids = [...above, node.id]
-      const below = node.children.some(holds)
-      rows.push({ ids, name: node.name, depth, children: node.children.length, open: below, match: matches(node, words) })
-      if (below) walk(node.children, ids, depth + 1)
+      const holding = node.children.filter(holds).length
+      const isOpen = holding > 0 && !shut.has(keyOf(ids))
+      rows.push({ ids, name: node.name, depth, children: holding, open: isOpen, match: matches(node, words) })
+      if (isOpen) walk(node.children, ids, depth + 1)
     }
   }
   walk(tree, [], 0)
@@ -180,28 +184,4 @@ export function breadcrumb(project: string | null, space: Space | null, all = fa
   if (!space) return out
   const names = space.path.map((step) => step.name || step.id)
   return [...out, ...names]
-}
-
-/** The key the picker's open branches are remembered under, per project, in this browser. */
-export const OPEN_BRANCHES_KEY = (project: number): string => `kehikot.spaces.open.${project}`
-
-/** The open branches remembered for a project, or none. Never throws: storage may be blocked. */
-export function readOpenBranches(project: number | null, store: Pick<Storage, 'getItem'> | null): Set<string> {
-  if (project === null || !store) return new Set()
-  try {
-    const raw = JSON.parse(store.getItem(OPEN_BRANCHES_KEY(project)) ?? '[]') as unknown
-    return new Set(Array.isArray(raw) ? raw.filter((one): one is string => typeof one === 'string').slice(0, 500) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-/** Remember a project's open branches. Never throws. */
-export function writeOpenBranches(project: number | null, open: ReadonlySet<string>, store: Pick<Storage, 'setItem'> | null): void {
-  if (project === null || !store) return
-  try {
-    store.setItem(OPEN_BRANCHES_KEY(project), JSON.stringify([...open].slice(0, 500)))
-  } catch {
-    /* A private window, or storage turned off: the tree simply opens as it does the first time. */
-  }
 }
