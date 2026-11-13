@@ -53,10 +53,6 @@ const ALLOWED: readonly { file: RegExp; word: string; why: string }[] = [
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'OpenAI', why: 'the title of a trademark icon a module names as its own (`brand:openai`)' },
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'OpenCode', why: 'the title of a trademark icon a module names as its own (`brand:opencode`)' },
   { file: /^src\/canvas\/brandMarks\.ts$/, word: 'Mistral', why: 'the title of a trademark icon a module names as its own (`brand:mistralai`)' },
-  /* A module's name that is also an ordinary English word, used as one in the host's own sentence. */
-  { file: /^server\/kehikot\.ts$/, word: 'Changes', why: 'the verb: an instruction line that begins "Changes to …"' },
-  { file: /^server\/mcp\.ts$/, word: 'Changes', why: 'the verb: "Changes no data and no arrangement." in a tool description' },
-  { file: /^src\/host\/trackerNotices\.ts$/, word: 'Changes', why: 'the noun: "Changes are requested" says a reviewer asked for changes' },
   /* The built-in layouts (data in modules.json) are named for ways of working; two share a word with a module. */
   { file: /^src\/host\/tour\.ts$/, word: 'Review', why: 'names the Review and Learning layouts' },
   { file: /^src\/host\/tour\.ts$/, word: 'Learning', why: 'names the Review and Learning layouts' },
