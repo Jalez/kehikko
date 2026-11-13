@@ -88,12 +88,15 @@ export interface SpacePickerProps {
   activity?: readonly SpaceActivity[]
   /** For tests: the clock the time headings are read against. */
   clock?: () => number
+  /** For tests: how often the headings are regrouped while the list is open. */
+  regroupEvery?: number
 }
 
 /** The words of the order switch: the space picker says what Recent means here. */
 const ORDER_WORDS: Record<PickerSort, string> = { recent: 'Recent activity', az: 'Alphabetical' }
 const ORDERS: readonly PickerSort[] = ['recent', 'az']
 const NO_ACTIVITY: readonly SpaceActivity[] = []
+const REGROUP_MS = 15_000
 const NONE: ReadonlySet<string> = new Set()
 
 
@@ -108,6 +111,7 @@ export function SpacePicker({
   defaultOpen = false,
   activity = NO_ACTIVITY,
   clock = Date.now,
+  regroupEvery = REGROUP_MS,
 }: SpacePickerProps) {
   const projectId = project?.id ?? null
   const [isOpen, setOpen] = useState(defaultOpen)
@@ -133,6 +137,9 @@ export function SpacePicker({
     setNow(clock())
     /* What another window visited since is in it. */
     void loadVisits()
+    /* The headings are regrouped while the list stays open: a space active a minute ago becomes "Just now". */
+    const tick = setInterval(() => setNow(clock()), regroupEvery)
+    return () => clearInterval(tick)
   }, [isOpen]) // eslint-disable-line react-hooks/exhaustive-deps
   const lives = useMemo(() => spaceLives(tree, projectId, visits, activity, now), [tree, projectId, visits, activity, now])
 

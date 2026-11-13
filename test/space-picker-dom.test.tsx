@@ -18,7 +18,7 @@ const TREE: SpaceNode[] = [
  * The list itself, opened, in a DOM of its own process (the pattern of `onboarding-dom.test.tsx`).
  */
 const inChild = process.env.SPACE_PICKER_DOM === '1'
-const DOM_TESTS = 12
+const DOM_TESTS = 13
 
 if (!inChild) {
   test('the picker’s list, rendered in a process of its own', () => {
@@ -49,14 +49,14 @@ if (!inChild) {
     globalThis.fetch = (async (url: string, init?: { body?: string }) => {
       const body = init?.body ? JSON.parse(init.body) : undefined
       sent.push({ url, body })
-      if (url === '/host/settings') return Response.json({ ok: true, picker: { projects: 'recent', epics: 'az', kehikot: 'recent', ...body?.picker } })
+      if (url === '/host/settings') return Response.json({ ok: true, picker: { projects: 'recent', epics: 'recent', kehikot: 'recent', ...body?.picker } })
       return Response.json({ ok: false })
     }) as never
     /* Thursday 12 November 2026, 15:00 local. */
     const NOW = new Date(2026, 10, 12, 15, 0).getTime()
     const HOUR = 3_600_000
 
-    function draw(here = spaceHere(TREE, { epic: 'auth', parts: ['login'] }), activity: Activity[] = []) {
+    function draw(here = spaceHere(TREE, { epic: 'auth', parts: ['login'] }), activity: Activity[] = [], opts: { clock?: () => number; regroupEvery?: number } = {}) {
       const picks: Array<[string[], string[] | undefined]> = []
       const host = document.createElement('div')
       document.body.appendChild(host)
@@ -64,7 +64,7 @@ if (!inChild) {
       act(() =>
         root.render(
           <TooltipProvider>
-            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} defaultOpen activity={activity} clock={() => NOW} />
+            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} defaultOpen activity={activity} clock={opts.clock ?? (() => NOW)} regroupEvery={opts.regroupEvery} />
           </TooltipProvider>,
         ),
       )
@@ -221,7 +221,7 @@ if (!inChild) {
       view.done()
     })
 
-    test('the order switch: Alphabetical, then Recent activity with time headings, remembered and sent', async () => {
+    test('the order switch: Recent activity by default with time headings, Alphabetical on request, remembered and sent', async () => {
       store.resetPickerStore()
       store.adoptVisits({ projects: {}, epics: { '1/search': NOW - 10 * 60_000 }, kehikot: {}, spaces: {} })
       const activity: Activity[] = [{ state: 'done', place: { epic: 'billing' }, entered: NOW - 26 * HOUR, live: false }]
@@ -229,29 +229,45 @@ if (!inChild) {
       const group = document.querySelector('[role="radiogroup"]')!
       expect(group.getAttribute('aria-label')).toBe('order of spaces')
       const radio = (word: string) => [...group.querySelectorAll<HTMLElement>('[role="radio"]')].find((one) => one.textContent === word)!
-      expect(radio('Alphabetical').getAttribute('aria-checked')).toBe('true')
-      expect(radio('Recent activity').getAttribute('aria-checked')).toBe('false')
-      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
-      expect(headingsNow()).toEqual([])
-
-      act(() => radio('Recent activity').click())
-      await flush()
-      expect(sent.some((one) => one.url === '/host/settings' && JSON.stringify(one.body) === JSON.stringify({ picker: { epics: 'recent' } }))).toBe(true)
+      /* Activity order is the default, never alphabetical: Search visited ten minutes ago; Billing had activity yesterday; Auth never. */
       expect(radio('Recent activity').getAttribute('aria-checked')).toBe('true')
-      /* Search visited ten minutes ago; Billing had activity yesterday; Auth never. */
       expect(rowKeys()).toEqual(['search', 'billing', 'auth'])
       expect(headingsNow()).toEqual(['Last hour', 'Yesterday', 'Not visited yet'])
-      /* Each row is described by the heading it sits under; the heading itself is not a tree item. */
       const billing = document.querySelector('[data-space-row="billing"]')!
       expect(document.getElementById(billing.getAttribute('aria-describedby')!)!.textContent).toBe('Yesterday')
       expect(document.querySelector('[data-space-heading]')!.getAttribute('aria-hidden')).toBe('true')
       expect(billing.querySelector('button[title]')!.getAttribute('title')).toBe('Activity 1 d ago')
+
+      /* An explicit name sort is respected. */
+      act(() => radio('Alphabetical').click())
+      await flush()
+      expect(sent.some((one) => one.url === '/host/settings' && JSON.stringify(one.body) === JSON.stringify({ picker: { epics: 'az' } }))).toBe(true)
+      expect(radio('Alphabetical').getAttribute('aria-checked')).toBe('true')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
+      expect(headingsNow()).toEqual([])
       view.done()
 
-      /* Remembered: drawn again, it is still Recent. */
+      /* Remembered: drawn again, it is still Alphabetical. */
       view = draw(spaceHere(TREE, { epic: 'search', parts: [] }), activity)
-      expect(document.querySelector('[data-order="recent"]')!.getAttribute('aria-checked')).toBe('true')
+      expect(document.querySelector('[data-order="az"]')!.getAttribute('aria-checked')).toBe('true')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
+      view.done()
+      store.resetPickerStore()
+    })
+
+    test('"Just now" heads the list, and a space regroups into it while the list stays open', async () => {
+      store.resetPickerStore()
+      let clockNow = NOW
+      store.adoptVisits({ projects: {}, epics: { '1/search': NOW - 4 * 60_000, '1/billing': NOW - 30 * 60_000 }, kehikot: {}, spaces: {} })
+      const view = draw(spaceHere(TREE, { epic: 'auth', parts: [] }), [], { clock: () => clockNow, regroupEvery: 10 })
       expect(rowKeys()).toEqual(['search', 'billing', 'auth'])
+      expect(headingsNow()).toEqual(['Just now', 'Last hour', 'Not visited yet'])
+      /* Two minutes pass with the list open: Search is now six minutes old, so it leaves "Just now". */
+      clockNow = NOW + 2 * 60_000
+      await act(async () => {
+        await new Promise((done) => setTimeout(done, 40))
+      })
+      expect(headingsNow()).toEqual(['Last hour', 'Not visited yet'])
       view.done()
     })
 
