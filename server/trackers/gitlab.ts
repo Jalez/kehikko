@@ -44,6 +44,7 @@ import {
 } from './common.ts'
 import { closedSince, kindOf, type Reads } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
+import { gitlabChecks, gitlabComments, gitlabNotesPath, milestoneOf } from './itemDetail.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -933,7 +934,46 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
           })
         }
       }
+      /* What a person reads the item for (protocol 2.98.0), a few REST calls per ref. One that
+         fails leaves its fields absent and keeps the rest of the detail. */
+      for (const one of rows) {
+        const facts = out.get(one.ref)
+        if (facts) out.set(one.ref, { ...facts, ...(await itemExtras(source, one)) })
+      }
       return out
     },
+  }
+
+  /** The milestone, the people's notes and their count, a merge request's head pipeline jobs and its fork. */
+  async function itemExtras(source: Source, one: TrackerRow): Promise<Partial<TrackerDetailFacts>> {
+    const out: Partial<TrackerDetailFacts> = {}
+    const what = one.kind === 'change' ? 'merge_requests' : 'issues'
+    const [item, notes] = await Promise.all([
+      glab([`${project(source)}/${what}/${one.number}`], source),
+      glab([gitlabNotesPath(project(source), one.kind, one.number)], source),
+    ])
+    if (notes.code === 0) out.comments = gitlabComments(parsed(notes), one.url)
+    if (item.code !== 0) return out
+    const r = obj(parsed(item))
+    if (typeof r.user_notes_count === 'number') out.commentCount = r.user_notes_count
+    const milestone = milestoneOf({ title: obj(r.milestone).title, webUrl: obj(r.milestone).web_url, dueDate: obj(r.milestone).due_date }, source.host)
+    if (milestone) out.milestone = milestone
+    if (one.kind !== 'change') return out
+    const pipeline = obj(r.head_pipeline)
+    const pipelineId = typeof pipeline.id === 'number' ? pipeline.id : null
+    const pipelineProject = typeof pipeline.project_id === 'number' ? pipeline.project_id : null
+    if (pipelineId !== null) {
+      const where = pipelineProject !== null ? `projects/${pipelineProject}` : project(source)
+      const jobs = await glab([`${where}/pipelines/${pipelineId}/jobs?per_page=100`], source)
+      if (jobs.code === 0) Object.assign(out, gitlabChecks(parsed(jobs)))
+    }
+    const from = r.source_project_id
+    const branch = str(r.source_branch)
+    if (typeof from === 'number' && typeof r.target_project_id === 'number' && from !== r.target_project_id && branch && branch.length <= LIMITS.BRANCH) {
+      const fork = await glab([`projects/${from}`], source)
+      const repo = fork.code === 0 ? str(obj(parsed(fork)).path_with_namespace) : ''
+      if (repo && repo.length <= LIMITS.TRACKER_REPO) out.fork = { repo, branch }
+    }
+    return out
   }
 }

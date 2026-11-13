@@ -27,6 +27,7 @@ import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { withRoles } from './roles.ts'
 import { withStacks } from './stacks.ts'
+import { detailCurrent, detailVersion } from './itemDetail.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import type { TrackerListing } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
@@ -673,11 +674,11 @@ export class Trackers {
         if (found) {
           const asked = { ...found, ref }
           if (detail === 'summary') delete asked.detail
-          else if (!found.detail || (found.updatedAt && found.detail.readAt < found.updatedAt)) {
+          else if (!detailCurrent(found)) {
             /* Asked once per version of the ref: a detail that could not be
                read is not asked again on every question, which would be a
                module and this host re-asking each other forever. */
-            const tried = `${rowIdentity(found)}@${found.updatedAt ?? ''}`
+            const tried = `${rowIdentity(found)}@${detailVersion(found)}`
             if (!held.detailTried.has(tried)) {
               held.detailTried.add(tried)
               held.queuedDetail.add(ref)
@@ -1074,8 +1075,8 @@ export class Trackers {
       const was = byId.get(rowIdentity(fromRead))
       /* Read, but not everything of it (a deeper query timed out): what it says wins, what it did not say stays. */
       const row = was && thin.has(rowIdentity(fromRead)) ? { ...was, ...fromRead } : fromRead
-      /* A detail read earlier survives a summary read, unless the ref moved since. */
-      const detail = was?.detail && (!row.updatedAt || was.detail.readAt >= row.updatedAt) ? was.detail : undefined
+      /* A detail read earlier survives a summary read, unless the ref moved since (`detailCurrent`). */
+      const detail = was?.detail && detailCurrent(row, was.detail) ? was.detail : undefined
       byId.set(rowIdentity(row), detail ? { ...row, detail } : row)
     }
 
@@ -1117,7 +1118,7 @@ export class Trackers {
       const name = readTrackerRef(ref)
       if (!source || !name || errors.get(sourceKey(source))) continue
       const row = byId.get(identity(source, name.kind, name.number))
-      if (!row || (row.detail && (!row.updatedAt || row.detail.readAt >= row.updatedAt))) continue
+      if (!row || detailCurrent(row)) continue
       const entry = needDetail.get(sourceKey(source)) ?? { source, rows: [] }
       entry.rows.push(row)
       needDetail.set(sourceKey(source), entry)
