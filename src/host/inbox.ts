@@ -8,6 +8,7 @@ import {
   type InboxEvent,
 } from 'kehikot-module-protocol'
 
+import { DAY, HOUR, MINUTE } from './relativeTime.ts'
 import { placeOpened, placeSplit, type Namer, type Where } from './activity.ts'
 import { TRACKER_NOTICES_BY, TRACKER_NOTICES_MODULE } from './trackerNotices.ts'
 
@@ -725,9 +726,6 @@ export const STATE_WORDS: Record<ActivityState, string> = {
   done: 'finished',
 }
 
-const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
 
 /** "just now", "3 min ago", "2 h ago", "yesterday", "5 d ago". */
 export function ageWords(now: number, at: number): string {
