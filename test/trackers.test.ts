@@ -604,7 +604,7 @@ describe('an issue carries every held change that declares it', () => {
     expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
     /* And a second host process reads it back linked. */
     const again = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => []) }, now: () => NOW })
-    expect(rowOf(again, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by' }])
+    expect(rowOf(again, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by', state: 'merged' }])
   })
 
   test('a change that merged after the issue was listed says merged on the issue\'s link', async () => {
@@ -629,7 +629,7 @@ describe('an issue carries every held change that declares it', () => {
     await trackers.refresh(folder, { refs: ['#12'] })
     await trackers.refresh(folder, { refs: ['!7'] })
     await trackers.refresh(folder, { refs: ['!8'] })
-    expect(rowOf(trackers, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by' }, { ref: '!8', relation: 'closed-by' }])
+    expect(rowOf(trackers, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by', state: 'open' }, { ref: '!8', relation: 'closed-by', state: 'open' }])
     /* Open declarers say nothing about how it closed. */
     expect('closedByMerge' in rowOf(trackers, '#12')).toBe(false)
   })
