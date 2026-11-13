@@ -3,6 +3,7 @@ import { accessSync, closeSync, constants, openSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import { DEFAULT_FRAME_ORIGINS } from 'kehikot-module-protocol/serve'
 import { START_TOKEN_ENV } from 'kehikot-module-protocol'
+import { HOST_ENV } from 'kehikot-module-protocol/serve'
 
 import type { Registration } from './registrations.ts'
 
@@ -357,8 +358,8 @@ export function setPageOrigins(origins: readonly string[]): void {
   ownPageOrigins = [...origins]
 }
 
-/** The variable a module reads to know which host started it (protocol 2.95.0, `HOST_ENV`). */
-export const HOST_ENV = 'KEHIKOT_HOST'
+/** The variable a module reads to know which host started it (protocol 2.95.0). */
+export { HOST_ENV }
 
 /**
  * This host's own origin, `http://127.0.0.1:<port>`, set once by `server.ts`: what every module it
