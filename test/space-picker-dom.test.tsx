@@ -18,7 +18,7 @@ const TREE: SpaceNode[] = [
  * The list itself, opened, in a DOM of its own process (the pattern of `onboarding-dom.test.tsx`).
  */
 const inChild = process.env.SPACE_PICKER_DOM === '1'
-const DOM_TESTS = 7
+const DOM_TESTS = 12
 
 if (!inChild) {
   test('the picker’s list, rendered in a process of its own', () => {
@@ -64,7 +64,7 @@ if (!inChild) {
       act(() =>
         root.render(
           <TooltipProvider>
-            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} store={null} defaultOpen activity={activity} clock={() => NOW} />
+            <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={(ids, picked) => picks.push([ids, picked])} onPickAll={() => {}} onEdit={null} defaultOpen activity={activity} clock={() => NOW} />
           </TooltipProvider>,
         ),
       )
@@ -82,21 +82,89 @@ if (!inChild) {
         document.querySelector('[role="tree"]')!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
       })
 
-    test('a tree, the current branch open and marked, the others closed', () => {
+    const row = (key: string) => document.querySelector(`[data-space-row="${key}"]`)!
+    const chevron = (key: string) => row(key).querySelector<HTMLElement>('[data-space-chevron]')!
+    const click = (el: Element) => act(() => void el.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    const typeIn = (text: string) =>
+      act(() => {
+        const input = document.querySelector('[data-space-filter]') as HTMLInputElement
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+
+    test('collapsed by default, with the selection inside', () => {
       const view = draw()
       expect(document.querySelector('[role="tree"]')).not.toBeNull()
-      /* The current space is open too, so the spaces in it are in view. */
-      expect(rowKeys()).toEqual(['auth', 'auth/login', 'auth/login/errors', 'auth/signup', 'billing', 'search'])
-      expect(document.querySelector('[data-space-row="auth"]')!.getAttribute('aria-expanded')).toBe('true')
-      expect(document.querySelector('[data-space-row="billing"]')!.getAttribute('aria-expanded')).toBe('false')
-      expect(document.querySelector('[data-space-row="auth/login"]')!.getAttribute('aria-current')).toBe('location')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
+      expect(row('auth').getAttribute('aria-expanded')).toBe('false')
+      expect(row('billing').getAttribute('aria-expanded')).toBe('false')
+      /* The selection is still said: in the bar, and on the closed branch above it. */
+      expect(document.querySelector('nav[aria-label="space"]')!.textContent).toContain('Login')
+      view.done()
+    })
+
+    test('the chevron toggles the branch holding the selection, always', () => {
+      const view = draw()
+      click(chevron('auth'))
+      expect(row('auth').getAttribute('aria-expanded')).toBe('true')
+      expect(rowKeys()).toEqual(['auth', 'auth/login', 'auth/signup', 'billing', 'search'])
+      expect(row('auth/login').getAttribute('aria-current')).toBe('location')
+      click(chevron('auth'))
+      expect(row('auth').getAttribute('aria-expanded')).toBe('false')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
+      click(chevron('auth'))
+      click(chevron('auth/login'))
+      click(chevron('auth/login'))
+      expect(row('auth/login').getAttribute('aria-expanded')).toBe('false')
+      view.done()
+    })
+
+    test('a closed branch holding the current space says so, an open one does not', () => {
+      const view = draw()
+      expect(chevron('auth').getAttribute('aria-label')).toBe('open Auth (contains the current space)')
+      expect(row('auth').querySelector('[data-space-holds-current]')).not.toBeNull()
+      expect(chevron('billing').getAttribute('aria-label')).toBe('open Billing')
+      expect(row('billing').querySelector('[data-space-holds-current]')).toBeNull()
+      click(chevron('auth'))
+      expect(chevron('auth').getAttribute('aria-label')).toBe('close Auth')
+      expect(row('auth').querySelector('[data-space-holds-current]')).toBeNull()
+      view.done()
+    })
+
+    test('a search reveals matches, can be closed, and clearing it restores the person’s own expansion', () => {
+      const view = draw()
+      click(chevron('billing'))
+      typeIn('copy')
+      expect(rowKeys()).toEqual(['auth', 'auth/login', 'auth/login/errors', 'auth/login/errors/copy'])
+      click(chevron('auth/login'))
+      expect(rowKeys()).toEqual(['auth', 'auth/login'])
+      typeIn('')
+      expect(rowKeys()).toEqual(['auth', 'billing', 'billing/invoices', 'search'])
+      expect(row('auth').getAttribute('aria-expanded')).toBe('false')
+      view.done()
+    })
+
+    test('the keyboard: Right expands, Left collapses, aria-expanded follows', () => {
+      const view = draw()
+      press('ArrowRight')
+      expect(row('auth').getAttribute('aria-expanded')).toBe('true')
+      press('ArrowLeft')
+      expect(row('auth').getAttribute('aria-expanded')).toBe('false')
+      view.done()
+    })
+
+    test('the list starts collapsed again each time it opens', () => {
+      const view = draw()
+      click(chevron('auth'))
+      expect(rowKeys()).toContain('auth/login')
+      act(() => void document.querySelector('[data-space-picker]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+      act(() => void (document.querySelector('[data-tour="space"]') as HTMLElement).click())
+      expect(rowKeys()).toEqual(['auth', 'billing', 'search'])
       view.done()
     })
 
     test('the keyboard opens a branch and picks in it', () => {
       const view = draw()
-      press('ArrowDown')
-      press('ArrowDown')
       press('ArrowDown')
       press('ArrowRight')
       expect(rowKeys()).toContain('billing/invoices')
@@ -208,6 +276,9 @@ if (!inChild) {
 
     test('siblings under the current space carry checkboxes, for picking several', () => {
       const view = draw(spaceHere(TREE, { epic: 'auth', parts: [] }))
+      /* Collapsed, they are not drawn; the person opens the space. */
+      expect(document.querySelectorAll('[data-space-check]').length).toBe(0)
+      click(chevron('auth'))
       expect(document.querySelectorAll('[data-space-check]').length).toBe(2)
       act(() => (document.querySelector('[data-space-row="auth/signup"] [data-space-check]') as HTMLElement).click())
       expect(view.picks).toEqual([[['auth'], ['signup']]])

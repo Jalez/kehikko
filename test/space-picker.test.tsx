@@ -4,7 +4,7 @@ import type { SpaceNode } from 'kehikot-module-protocol'
 
 import { SpacePicker } from '../src/canvas/SpacePicker.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { branchesTo, breadcrumb, keyOf, readOpenBranches, spaceHere, treeKey, treeRows, typeAhead, writeOpenBranches } from '../src/host/spaces.ts'
+import { branchesTo, breadcrumb, keyOf, spaceHere, treeKey, treeRows, typeAhead } from '../src/host/spaces.ts'
 
 /**
  * The space picker: a breadcrumb in the bar, a tree in its list. Every subtree closed until opened,
@@ -34,7 +34,8 @@ describe('the tree', () => {
     expect(rows.map((row) => [row.children, row.open])).toEqual([[2, false], [1, false], [0, false]])
   })
 
-  test('the branch holding the current space is open, so it is in view', () => {
+  test('nothing opens because a space is current: only what was opened', () => {
+    expect(shown(treeRows(TREE, new Set()))).toEqual(['auth', 'billing', 'search'])
     const open = new Set(branchesTo(['auth', 'login', 'errors']))
     expect(shown(treeRows(TREE, open))).toEqual(['auth', 'auth/login', 'auth/login/errors', 'auth/signup', 'billing', 'search'])
   })
@@ -75,22 +76,12 @@ describe('the tree', () => {
     expect(treeKey(rows, 3, 'Enter')).toEqual({ pick: ['auth', 'login', 'errors', 'copy'] })
   })
 
-  test('what is open is remembered per project, and storage that throws costs nothing', () => {
-    const kept = new Map<string, string>()
-    const store = { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => void kept.set(key, value) }
-    writeOpenBranches(7, new Set(['auth', 'billing']), store)
-    expect([...readOpenBranches(7, store)]).toEqual(['auth', 'billing'])
-    expect([...readOpenBranches(8, store)]).toEqual([])
-    const broken = {
-      getItem: () => {
-        throw new Error('blocked')
-      },
-      setItem: () => {
-        throw new Error('blocked')
-      },
-    }
-    expect([...readOpenBranches(7, broken)]).toEqual([])
-    expect(() => writeOpenBranches(7, new Set(['auth']), broken)).not.toThrow()
+  test('a revealed branch the person closed stays closed, and nothing else changes', () => {
+    const rows = treeRows(TREE, new Set(), 'cop', new Set(['auth/login']))
+    expect(shown(rows)).toEqual(['auth', 'auth/login'])
+    expect(rows.map((row) => row.open)).toEqual([true, false])
+    /* A branch with nothing matching under it has nothing to open. */
+    expect(treeRows(TREE, new Set(), 'billing').map((row) => row.children)).toEqual([0])
   })
 })
 
@@ -105,7 +96,7 @@ describe('the breadcrumb', () => {
     const here = spaceHere(TREE, { epic: 'auth', parts: ['login'], space: { ids: ['auth', 'login', 'errors'], picked: [] } })
     const html = renderToStaticMarkup(
       <TooltipProvider>
-        <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={() => {}} onPickAll={() => {}} onEdit={null} store={null} />
+        <SpacePicker tree={TREE} here={here} all={false} project={{ id: 1, name: 'Thesis' }} onPick={() => {}} onPickAll={() => {}} onEdit={null} />
       </TooltipProvider>,
     )
     expect(html).toContain('data-tour="space"')
