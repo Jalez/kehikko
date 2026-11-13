@@ -132,50 +132,31 @@ export function placeSaid(place: ConversationPlace | null, epicTitle: (slug: str
   return place.parts.length ? `${epic} › ${place.parts.join(', ')}` : epic
 }
 
-/** The instruction an agent for Kehikot's own tasks is given with an item (`agent.tasks`). */
-export const ADOPT_INSTRUCTION =
-  'Find which epic and part this belongs to, and which of the candidate conversations worked on it. Then call propose_adoption.'
-
-/** What the agent is told about the item, the epics and the candidates: the launch brief. */
-export function adoptionBrief(input: {
-  project: string
-  item: { ref: string; title: string; url: string; author?: string; branch?: string; repo: string; host: string }
-  epics: readonly { epic: string; title: string; parts: readonly { id: string; name: string }[]; refs: readonly string[] }[]
-  candidates: readonly { program: string; session: string; title: string; reason: string; match: string; placed: string | null }[]
-  suggested: Suggestion | null
-}): string {
-  const lines: string[] = []
-  lines.push(`Kehikot asks you to place a tracker item that no epic of the project ${input.project} names yet.`)
-  lines.push('')
-  lines.push('The item:')
-  lines.push(`- ref: ${input.item.ref}`)
-  lines.push(`- title: ${input.item.title}`)
-  lines.push(`- url: ${input.item.url}`)
-  lines.push(`- repository: ${input.item.host}/${input.item.repo}`)
-  if (input.item.branch) lines.push(`- branch: ${input.item.branch}`)
-  if (input.item.author) lines.push(`- author: ${input.item.author}`)
-  lines.push('')
-  lines.push(input.epics.length ? 'The project\'s epics (slug — title; parts; refs):' : 'The project has no epics yet.')
-  for (const epic of input.epics) {
-    lines.push(`- ${epic.epic} — ${epic.title}`)
-    if (epic.parts.length) lines.push(`  parts: ${epic.parts.map((part) => `${part.id} (${part.name})`).join(', ')}`)
-    if (epic.refs.length) lines.push(`  refs: ${epic.refs.slice(0, 40).join(', ')}${epic.refs.length > 40 ? ', …' : ''}`)
-  }
-  lines.push('')
-  lines.push(input.candidates.length ? 'Conversations that may have worked on it (session — title — why):' : 'No conversation was found that worked on it.')
-  for (const one of input.candidates) {
-    lines.push(`- ${one.session} (${one.program}) — ${one.title || 'untitled'} — ${one.reason}${one.placed ? ` — filed under ${one.placed}` : ''}`)
-  }
-  if (input.suggested) {
-    lines.push('')
-    lines.push(`Kehikot's own guess: ${input.suggested.epic}, because ${input.suggested.why}.`)
-  }
-  lines.push('')
-  lines.push(ADOPT_INSTRUCTION)
-  lines.push(
-    `propose_adoption takes { ref: "${input.item.ref}", epic, parts?, conversations?: [session ids], why }. It only proposes: the person confirms in Kehikot with one press. Never write epics or files yourself.`,
-  )
-  return lines.join('\n')
+/**
+ * The prompt an agent is started with to place a tracker item (`startAgentSession` in
+ * `server/agentSession.ts`): what the person would type in a new session. Short on purpose — the
+ * item, what adopting means, and the Kehikot tools the agent finds the rest with: the spaces
+ * (`my_place`, `read_canvas`), the item (`read_inbox`, `read_tracker`), the conversations that worked
+ * on it (its own session history), and the one tool that proposes (`propose_adoption`). Every tool
+ * takes `project`, so the agent can act on this project from any conversation.
+ */
+export function adoptPrompt(input: { project: string; kehikko: string | null; item: { ref: string; title: string; url: string; repo: string; host: string } }): string {
+  const item = input.item
+  const where = item.host && item.repo ? ` in ${item.host}/${item.repo}` : ''
+  return [
+    `Please adopt ${item.ref}${where} into a space of the Kehikot project at ${input.project}.`,
+    `It is “${item.title}”${item.url ? `: ${item.url}` : ''}.`,
+    '',
+    'Adopting means choosing the space (at any depth) this item belongs to, and the earlier conversations that worked on it, so they are filed together. No space names it yet.',
+    '',
+    `Use Kehikot’s tools, passing project: "${input.project}"${input.kehikko ? ` (this kehikko is "${input.kehikko}")` : ''}:`,
+    '- my_place and read_canvas for the project’s spaces;',
+    `- read_inbox and read_tracker (refs: ["${item.ref}"]) for the item and its activity;`,
+    '- your own session history for conversations that worked on it (its ref, URL or branch);',
+    `- then propose_adoption with ref "${item.ref}", the space (epic and parts), the conversations’ session ids and a one-sentence why.`,
+    '',
+    'propose_adoption only proposes: the person confirms in Kehikot with one press. Do not edit Kehikot’s files yourself.',
+  ].join('\n')
 }
 
 /** What the adoption dialog offers, from what the host read and whether an agent is working on it. */

@@ -136,6 +136,9 @@ function narrowingIn(scope: unknown, epic: unknown, kehikko: unknown): Narrowing
   return { scope: 'here' as Scope, at: { epic: text(epic), kehikko: text(kehikko) } }
 }
 
+/** The POSTs this desk answers. Every other `/host/inbox/…` POST is another desk's, and its body is left unread. */
+export const INBOX_POSTS = ['/host/inbox/use', '/host/inbox/report', '/host/inbox/notice', '/host/inbox/act', '/host/inbox/answer', '/host/inbox/migrate'] as const
+
 export function inboxDesk(deps: InboxDeps) {
   const { inbox } = deps
 
@@ -178,6 +181,9 @@ export function inboxDesk(deps: InboxDeps) {
       return null
     }
     if (request.method !== 'POST') return null
+    /* Only its own: a body read here is gone for the route that owns the path (the adopt routes,
+       `adoptRoutes.ts`, share the prefix), which then threw "Body already used" — a silent 500. */
+    if (!(INBOX_POSTS as readonly string[]).includes(url.pathname)) return null
 
     const text = await request.text().catch(() => '')
     if (text.length > BODY_MAX) return reply({ ok: false, why: 'That is more than an inbox takes at once.' }, 413)

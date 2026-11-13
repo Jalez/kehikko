@@ -3,13 +3,15 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 
 /*
  * The adoption dialog with the kehikko's agent (protocol 2.91.0), rendered: its primary (or only)
- * agent is started at once; with several and none primary the cubes come first, say that the one
- * chosen becomes the kehikko's primary agent, make it so, then start it; with none, the picker. In a
- * process of its own for the reason `header-menus.test.tsx` gives.
+ * agent's container is put on the kehikko and opened, a new session is started there in one call, and
+ * the dialog closes saying the agent is on it; with several and none primary the cubes come first, say
+ * that the one chosen becomes the kehikko's primary agent, make it so, then start it; with none, the
+ * picker; an agent's proposal waits for the person's one press. In a process of its own for the
+ * reason `header-menus.test.tsx` gives.
  */
 
 const inChild = process.env.ADOPT_DIALOG_DOM === '1'
-const TESTS = 6
+const TESTS = 8
 
 if (!inChild) {
   test('the adoption dialog, rendered in a process of its own', () => {
@@ -57,9 +59,9 @@ function adoption(over: Record<string, unknown>) {
 }
 
 /** The host's routes, faked: what `/host/inbox/adoption` answers next, and every request seen. */
-const STARTED = { state: 'started', module: 'kehikot.b', name: 'B', session: 't1', view: 'about:blank' }
+const STARTED = { state: 'started', module: 'kehikot.b', name: 'B', session: 't1' }
 
-function host(answers: () => Record<string, unknown>, task: { begin?: unknown; then?: unknown; fail?: boolean } = {}) {
+function host(answers: () => Record<string, unknown>, task: { result?: unknown; fail?: boolean; status?: number; body?: unknown } = {}) {
   const seen: { path: string; query: string; body: unknown }[] = []
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const at = new URL(url, 'http://127.0.0.1')
@@ -67,8 +69,9 @@ function host(answers: () => Record<string, unknown>, task: { begin?: unknown; t
     if (at.pathname === '/host/inbox/adoption') return Response.json({ ok: true, adoption: answers() })
     if (at.pathname === '/host/inbox/task') {
       if (task.fail) throw new TypeError('Load failed')
-      /* Answered at once with "starting"; the page reads how it went. */
-      return Response.json({ ok: true, result: init?.method === 'POST' ? (task.begin ?? { state: 'starting', module: 'kehikot.b', name: 'B' }) : (task.then ?? STARTED) })
+      if (task.status) return Response.json(task.body ?? null, { status: task.status })
+      /* One call: the session, or why not. */
+      return Response.json({ ok: true, result: task.result ?? STARTED })
     }
     return Response.json({ ok: false }, { status: 404 })
   }) as unknown as typeof fetch
@@ -86,22 +89,40 @@ async function render(node: React.ReactNode) {
 
 const button = (text: string) => [...document.querySelectorAll('button')].find((one) => one.textContent?.trim() === text) as HTMLButtonElement | undefined
 
-test('the kehikko’s primary agent is started at once, on that kehikko, with no question', async () => {
+test('the kehikko’s primary agent: its container shown, a new session started in one call, and the dialog closes saying so', async () => {
   if (!inChild) return
-  let reads = 0
-  const seen = host(() =>
-    adoption({ agent: { module: 'kehikot.b', name: 'B' }, ...(++reads > 1 ? { proposal: { epic: 'auth', parts: [], conversations: [], why: 'Same repository.' } } : {}) }),
+  const seen = host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }))
+  const order: string[] = []
+  const closed: (string | null)[] = []
+  const started: [string, string][] = []
+  await render(
+    <Adopt.AdoptDialog
+      project={1}
+      item={{ module: 'kehikko.tracker', id: 'x' }}
+      kehikko="k1"
+      kehikkoId={3}
+      showAgent={(module) => order.push(`show ${module}`)}
+      onStarted={(module, said) => started.push([module, said])}
+      onClose={(said) => closed.push(said)}
+    />,
   )
-  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" kehikkoId={3} onClose={() => {}} pollMs={20} taskPollMs={5} />)
   await act(async () => new Promise((done) => setTimeout(done, 30)))
   expect(seen[0]!.query).toContain('kehikko=k1')
-  const task = seen.find((one) => one.path === '/host/inbox/task')!
-  expect(task.body).toMatchObject({ project: 1, module: 'kehikko.tracker', id: 'x', kehikko: 'k1' })
-  expect(document.querySelector('[data-adopt-choose]')).toBeNull()
-  /* The agent's conversation is on show while it works. */
-  expect(document.querySelector('[data-adopt-agent="kehikot.b"] [data-adopt-view]')).not.toBeNull()
-  /* It proposes; the person confirms with one press. */
-  await act(async () => new Promise((done) => setTimeout(done, 80)))
+  const tasks = seen.filter((one) => one.path === '/host/inbox/task')
+  expect(tasks).toHaveLength(1)
+  expect(tasks[0]!.body).toMatchObject({ project: 1, module: 'kehikko.tracker', id: 'x', kehikko: 'k1', agent: 'kehikot.b' })
+  /* Its container first, then the session; no finder route, no polling. */
+  expect(order).toEqual(['show kehikot.b'])
+  expect(seen.map((one) => one.path)).toEqual(['/host/inbox/adoption', '/host/inbox/task'])
+  expect(started).toEqual([['kehikot.b', 'B is on it in its container.']])
+  expect(closed).toEqual(['B is on it in its container.'])
+})
+
+test('opened again with the agent’s proposal: nothing is started, the person confirms with one press', async () => {
+  if (!inChild) return
+  const seen = host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' }, proposal: { epic: 'auth', parts: [], conversations: [], why: 'Same repository.' } }))
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" kehikkoId={3} onClose={() => {}} />)
+  expect(seen.some((one) => one.path === '/host/inbox/task')).toBe(false)
   expect(document.querySelector('[data-adopt-proposal="auth"]')).not.toBeNull()
   expect(document.querySelector('[data-adopt-confirm="proposal"]')!.textContent).toBe('Adopt into Auth')
 })
@@ -126,7 +147,6 @@ test('several agents and none primary: the cubes, what choosing means, then it b
         primary = module
       }}
       onClose={() => {}}
-      pollMs={60_000}
     />,
   )
   const ask = document.querySelector('[data-adopt-choose]')!
@@ -140,7 +160,9 @@ test('several agents and none primary: the cubes, what choosing means, then it b
   for (let i = 0; i < 4; i++) await act(async () => {})
   expect(made).toEqual([[3, 'kehikot.b']])
   expect(document.querySelector('[data-adopt-choose]')).toBeNull()
-  expect(seen.filter((one) => one.path === '/host/inbox/task')).toHaveLength(1)
+  const tasks = seen.filter((one) => one.path === '/host/inbox/task')
+  expect(tasks).toHaveLength(1)
+  expect(tasks[0]!.body).toMatchObject({ agent: 'kehikot.b' })
 })
 
 test('no agent module that can: the picker alone; and “choose myself” from the cubes is the picker too', async () => {
@@ -161,17 +183,32 @@ test('no agent module that can: the picker alone; and “choose myself” from t
 
 test('the agent did not start: why, in its words, and the picker; never “did not answer”', async () => {
   if (!inChild) return
-  host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), { then: { state: 'failed', why: 'B didn’t start the task: its program is not signed in.' } })
-  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} pollMs={60_000} taskPollMs={5} />)
+  const closed: (string | null)[] = []
+  host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), { result: { state: 'failed', why: 'B didn’t start a session: its program is not signed in.' } })
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={(said) => closed.push(said)} />)
   await act(async () => new Promise((done) => setTimeout(done, 40)))
-  expect(document.querySelector('[data-adopt-task="failed"]')!.textContent).toBe('B didn’t start the task: its program is not signed in. Choose the space yourself.')
+  expect(document.querySelector('[data-adopt-task="failed"]')!.textContent).toBe('B didn’t start a session: its program is not signed in. Choose the space yourself.')
   expect(document.querySelector('[data-adopt-picker]')).not.toBeNull()
+  expect(closed).toEqual([])
+})
+
+test('the host failed: its reason, not “HTTP 500”', async () => {
+  if (!inChild) return
+  host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), {
+    status: 500,
+    body: { ok: false, error: 'Kehikot failed while answering POST /host/inbox/task: Body already used', why: 'Kehikot failed while answering POST /host/inbox/task: Body already used' },
+  })
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} />)
+  await act(async () => new Promise((done) => setTimeout(done, 40)))
+  const said = document.querySelector('[data-adopt-task="failed"]')!.textContent!
+  expect(said).toBe('Kehikot failed while answering POST /host/inbox/task: Body already used. Nothing was changed. Choose the space yourself.')
+  expect(said).not.toContain('HTTP 500')
 })
 
 test('the host’s server could not be reached: said as that, with its reason', async () => {
   if (!inChild) return
   host(() => adoption({ agent: { module: 'kehikot.b', name: 'B' } }), { fail: true })
-  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} pollMs={60_000} taskPollMs={5} />)
+  await render(<Adopt.AdoptDialog project={1} item={{ module: 'kehikko.tracker', id: 'x' }} kehikko="k1" onClose={() => {}} />)
   const said = document.querySelector('[data-adopt-task="failed"]')!.textContent!
   expect(said).toContain('could not be reached (Load failed)')
   expect(said).not.toContain('did not answer.')

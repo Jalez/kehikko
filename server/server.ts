@@ -53,7 +53,7 @@ import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, leaving, Nursery, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
@@ -67,6 +67,7 @@ import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
 import { Adoption } from './adoption.ts'
 import { adoptRoutes } from './adoptRoutes.ts'
+import { answerLogged, failedAnswer } from './routeFailure.ts'
 import { carriedValues, holderOf, isSetupKey, refreshChoice, type SetupDeps } from './agentSetup.ts'
 import { BY as HOST_BY, isOwnCheckout, noteOf, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
@@ -83,7 +84,9 @@ import {
   endedTooOftenLine,
   EXIT_RESTARTS_WINDOW_MS,
   ExitRestarts,
+  doorWake,
   exitedLine,
+  personStoppedDoorLine,
   Idleness,
   inFlight,
   INSTALLING_FOR_MS,
@@ -264,6 +267,8 @@ const PORT = Number(process.env.PORT ?? (BUNDLED ? 4170 : 4180))
    page in its `frame-ancestors` as well as the defaults — see `originEnv`. */
 const PAGE_ORIGINS = [`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localhost:${BUNDLED ? PORT : PORT + 1}`]
 setPageOrigins(PAGE_ORIGINS)
+/* This host itself, where its doors and every module's stable address are: told to each module it starts (`KEHIKOT_HOST`), so it asks this host alone. */
+setHostOrigin(`http://127.0.0.1:${PORT}`)
 /* What a request must say about where it came from before any route below is
    chosen: the page's own origins and this host's own addresses. See `guard.ts`. */
 const OWN = ownAddress(process.env, PORT, PAGE_ORIGINS)
@@ -1820,7 +1825,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
  * is no prediction beyond that and no retry loop: a start that does not take is
  * a container that says so, with the button on it, which is where this began.
  */
-function begin(id: string): void {
+function begin(id: string, why = 'an open kehikko or project has it'): void {
   /* A host on its way out starts nothing: see `leave` below. */
   if (going) return
   /* Somebody else was running it and it has only just gone: theirs to bring
@@ -1848,7 +1853,7 @@ function begin(id: string): void {
   if (!can.ok) return
   const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
-  console.log(`kehikko: started ${id} at ${can.run.url} — an open kehikko or project has it (pid ${ran.child.pid})`)
+  console.log(`kehikko: started ${id} at ${can.run.url} — ${why} (pid ${ran.child.pid})`)
   /* The copy as it is starts now; whether a newer release is out is asked
      beside it, never before it. See `releaseWait.ts`. */
   const place = installedPlace(id)
@@ -3900,6 +3905,17 @@ const moduleProxy = new ModuleProxy({
   /* An agent's request at a module's MCP door is held while this host brings the module up: a
      start, a restart or an update it is running, or somebody else's restart it gives time to. */
   starting: (id) => isStarting(id, Date.now()) || theirs.has(id),
+  /* Nothing answers at the door and nothing is bringing it up: one this host stopped for being idle
+     is started for the request (held until it answers); one the person stopped is refused in words. */
+  wake: (id) => {
+    const rule = doorWake({ personStopped: stoppedByPerson.has(id), idleStopped: sleeping.has(id), registered: registered.has(id), startable: startable(registered.get(id) ?? null).ok })
+    if (rule === 'refuse') return { ok: false, why: personStoppedDoorLine(lastPresences.get(id)?.module?.name ?? lastPresences.get(id)?.name ?? knownName(id) ?? nameFromId(id)) }
+    if (rule !== 'start') return null
+    begin(id, 'an agent used its tools')
+    return isStarting(id, Date.now()) ? { ok: true } : null
+  },
+  /* An agent using a module's tools keeps it from the idle stop, as an open kehikko does. */
+  used: (id) => idleness.noted([id]),
 })
 
 /**
@@ -3998,10 +4014,11 @@ const serving = {
       /* A person's press may spend past Kehikot's share of their GitHub limit (never past its floor). */
       const answer = () => answerRequest(request)
       const work = pressedRequest(request.method, asked) ? () => pressed(answer) : answer
-      return heard(await because(routeReason(path) ?? `answering ${path}`, work))
+      /* A route that threw or answered 5xx: one ERROR line, and a reason the page shows (`routeFailure.ts`). */
+      return heard(await answerLogged(request.method, path, () => because(routeReason(path) ?? `answering ${path}`, work), hostLog))
     } catch (error) {
-      void heard(new Response(null, { status: 500 }))
-      throw error
+      /* What threw before a route was chosen (the module proxy): said the same way. */
+      return heard(failedAnswer(error, request.method, new URL(request.url).pathname, hostLog))
     }
   },
 }
