@@ -11,6 +11,8 @@ import {
   moduleMessageSchema,
   PROTOCOL,
   type Build,
+  type FileDrag,
+  type PagePoint,
   type FilterGroup,
   type FooterItem,
   type HeaderItem,
@@ -223,6 +225,11 @@ export interface ConversationWatcher {
    * (`kehikot.find.open`, protocol 2.69.0): open the find bar for its container.
    */
   findOpen?(open: { query?: string; step?: 'next' | 'prev' }): void
+  /**
+   * The page is dragging a file of the project, or let go of it (`kehikot.drag`, protocol 2.94.0):
+   * where, in its own coordinates, and whether anything took it. See `host/drops.ts`.
+   */
+  drag?(drag: { phase: 'start' | 'end'; file: FileDrag; at?: PagePoint; dropped: boolean }): void
 }
 
 /**
@@ -708,6 +715,17 @@ export class Conversation {
    * that is within `OPENED_HOLD_MS`; only the latest item is held. A module
    * before 2.35.0 drops the message unread.
    */
+  /**
+   * Hand this module a file another module's page was dragging and let go over this frame
+   * (`kehikot.drop`, protocol 2.94.0), with where in this page. Only to a page that answered its
+   * greeting; the caller sends it only to a module that opens files. A drop is a moment: nothing is
+   * held for a page that is not there yet.
+   */
+  sendDrop(file: FileDrag, at: PagePoint): void {
+    if (this.closed || !this.greeted || !this.answered) return
+    this.post({ type: MESSAGE.DROP, protocol: PROTOCOL, file, at })
+  }
+
   sendOpened(item: string): void {
     if (this.closed) return
     if (!this.greeted || !this.answered) {
@@ -1117,6 +1135,13 @@ export class Conversation {
       /* Handed on as parsed: the schema has held `current` inside `total`. Which search it answers is
          the bar's to judge, by the id (`host/find.ts`). */
       this.watcher.findResult?.({ id: message.id, total: message.total, current: message.current, unsupported: message.unsupported })
+      return true
+    }
+
+    case MESSAGE.DRAG: {
+      /* Handed on as parsed: the schema has kept the path inside the project and the point bounded.
+         Where it lands is `host/drops.ts`'s to judge, from where the frames are. */
+      this.watcher.drag?.({ phase: message.phase, file: message.file, ...(message.at ? { at: message.at } : {}), dropped: message.dropped })
       return true
     }
 

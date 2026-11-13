@@ -51,6 +51,7 @@ import { WentTo } from './canvas/WentTo.tsx'
 import type { CanvasControls, Folded, GotoAnswer, GotoCall } from './host/ask.ts'
 import { EventBus } from './host/events.ts'
 import { Presses } from './host/presses.ts'
+import { handOnDrop } from './host/drops.ts'
 import {
   chooseOpen,
   COLUMNS,
@@ -4966,8 +4967,10 @@ export function App() {
       /* Find (protocol 2.69.0): what a search came to, and ⌘F pressed inside the page. */
       findResult: (result) => findsRef.current.result(id, result),
       findOpen: (asked) => findsRef.current.open(id, asked),
+      /* A file dragged out of this page and let go over another frame that opens files (protocol 2.94.0). */
+      drag: (drag) => void handOnDrop(id, drag, presses.dropFrames(), (x, y) => document.elementFromPoint(x, y)),
     }),
-    [covers, setDrawingOf, setLoadingOf, onHeight, onOffer, onClearable, onRefreshable, onClickMove],
+    [covers, setDrawingOf, setLoadingOf, onHeight, onOffer, onClearable, onRefreshable, onClickMove, presses],
   )
 
   return (
