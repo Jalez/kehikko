@@ -52,7 +52,7 @@ import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, leaving, Nursery, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
@@ -263,6 +263,8 @@ const PORT = Number(process.env.PORT ?? (BUNDLED ? 4170 : 4180))
    page in its `frame-ancestors` as well as the defaults — see `originEnv`. */
 const PAGE_ORIGINS = [`http://127.0.0.1:${BUNDLED ? PORT : PORT + 1}`, `http://localhost:${BUNDLED ? PORT : PORT + 1}`]
 setPageOrigins(PAGE_ORIGINS)
+/* This host itself, where its doors and every module's stable address are: told to each module it starts (`KEHIKOT_HOST`), so it asks this host alone. */
+setHostOrigin(`http://127.0.0.1:${PORT}`)
 /* What a request must say about where it came from before any route below is
    chosen: the page's own origins and this host's own addresses. See `guard.ts`. */
 const OWN = ownAddress(process.env, PORT, PAGE_ORIGINS)

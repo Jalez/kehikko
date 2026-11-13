@@ -246,3 +246,31 @@ describe('waiting for a module to answer', () => {
     }
   }, 15_000)
 })
+
+describe('a module is told which host started it (KEHIKOT_HOST, protocol 2.95.0)', () => {
+  test('this host, over anything inherited or registered', async () => {
+    const { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const { setHostOrigin, start, HOST_ENV, hostEnv } = await import('../server/launch.ts')
+    const dir = mkdtempSync(join(tmpdir(), 'host-env-'))
+    const out = join(dir, 'said')
+    const script = join(dir, 'run.sh')
+    writeFileSync(script, `#!/bin/sh\nprintf '%s' "$KEHIKOT_HOST" > "${out}"\n`)
+    chmodSync(script, 0o755)
+    const before = process.env[HOST_ENV]
+    process.env[HOST_ENV] = 'http://127.0.0.1:47700'
+    try {
+      setHostOrigin('http://127.0.0.1:4170')
+      const started = start({ dir, script, port: null, url: 'http://127.0.0.1:1', command: 'run.sh', env: { [HOST_ENV]: 'http://127.0.0.1:47701' } })
+      expect(started.ok).toBe(true)
+      const until = Date.now() + 5000
+      while (!existsSync(out) && Date.now() < until) await new Promise((wake) => setTimeout(wake, 20))
+      expect(readFileSync(out, 'utf8')).toBe('http://127.0.0.1:4170')
+      expect(hostEnv(null)).toEqual({})
+    } finally {
+      if (before === undefined) process.env[HOST_ENV] = ''
+      else process.env[HOST_ENV] = before
+    }
+  })
+})

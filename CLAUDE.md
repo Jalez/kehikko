@@ -99,6 +99,8 @@
   `KEHIKOT_INSTALLS_DIR`, `KEHIKOT_OFFICIAL_CACHE`, `KEHIKOT_APP_PROTOCOLS_CACHE`,
   `KEHIKOT_APP_PROTOCOLS` (`off` reads no app tags; the suite sets it), `KEHIKOT_MY_MODULES`, `KEHIKOT_LAYOUTS_DIR`, `KEHIKOT_SOUNDS_DIR`, `KEHIKOT_ONBOARDING` (`off`: the introduction counts as seen), `KEHIKOT_LOGS_DIR`, `KEHIKOT_BROWSER_PROFILE`, `KEHIKOT_KEYS_DIR`, `KEHIKOT_FACTORY_DIR`, `KEHIKOT_ORIGIN`,
   `KEHIKOT_ORIGINS` (the list passed to modules the host starts),
+  `KEHIKOT_HOST` (this host's own origin, set last on every module it starts: the one host a
+  module asks and builds its agents' doors on — `server/launch.ts`),
   `KEHIKOT_HOST_PATH` (the folders the host put first on an installed module's
   `PATH`, its own `bun`; a module takes them off with the protocol's `personEnv`
   for what it starts on the person's behalf),
