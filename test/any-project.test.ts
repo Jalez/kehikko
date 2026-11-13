@@ -243,7 +243,8 @@ describe('what agents read at the door', () => {
     expect(edit.description).toContain('never write .kehikot/host/spaces.json')
     for (const tool of tools) {
       /* About this machine, not a project: the storage overview and Kehikot's own logs. */
-      if (['my_place', 'storage', 'read_logs'].includes(tool.name)) continue
+      /* Messages are the conversation's own project's: its key says which (protocol 2.95.0). */
+      if (['my_place', 'storage', 'read_logs', 'send_message', 'read_messages'].includes(tool.name)) continue
       expect(Object.keys(tool.inputSchema.properties ?? {}), tool.name).toContain('project')
     }
   })
