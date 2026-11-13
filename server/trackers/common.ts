@@ -247,6 +247,24 @@ export function spell(source: Source, kind: 'issue' | 'change', number: number):
 }
 
 /**
+ * A `closed-by` link from an issue to a change, with where that change stands (protocol 2.100.0):
+ * what an issue's "closing in !56" rests on. `draft` only while the change is open.
+ */
+export function closerLink(
+  ref: string,
+  change: { state?: unknown; draft?: unknown; merged?: unknown },
+): { ref: string; relation: 'closed-by'; state?: 'open' | 'merged' | 'closed'; draft?: boolean } {
+  const word = typeof change.state === 'string' ? change.state.toLowerCase() : ''
+  const state = change.merged === true || word === 'merged' ? 'merged' : word === 'open' ? 'open' : word === 'closed' ? 'closed' : undefined
+  return {
+    ref,
+    relation: 'closed-by',
+    ...(state ? { state } : {}),
+    ...(state === 'open' && typeof change.draft === 'boolean' ? { draft: change.draft } : {}),
+  }
+}
+
+/**
  * A row, checked against the protocol before it is kept.
  *
  * The adapters build rows out of a CLI's JSON, which is somebody's program's

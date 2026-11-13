@@ -90,7 +90,7 @@ describe('GitLab', () => {
     expect(partly.closedByMerge).toBeUndefined()
     expect(dispositionOf('#3912', partly, []).value).toBeNull()
     const done = rows.get('#2638')!
-    expect(done.links).toEqual([{ ref: '!3251', relation: 'closed-by' }])
+    expect(done.links).toEqual([{ ref: '!3251', relation: 'closed-by', state: 'merged' }])
     expect(done.contributedBy).toBeUndefined()
     expect(done.closedByMerge).toBe(true)
     expect(dispositionOf('#2638', done, []).value).toBe('done')
@@ -163,7 +163,7 @@ describe('GitHub', () => {
     expect(partly.links).toEqual([])
     expect(partly.closedByMerge).toBeUndefined()
     const done = rows.get('gh#2638')!
-    expect(done.links).toEqual([{ ref: 'gh#3251', relation: 'closed-by' }])
+    expect(done.links).toEqual([{ ref: 'gh#3251', relation: 'closed-by', state: 'merged' }])
     expect(done.closedByMerge).toBe(true)
     expect(done.contributedBy).toBeUndefined()
   })

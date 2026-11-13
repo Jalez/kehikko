@@ -28,6 +28,7 @@ import {
   parsed,
   people,
   row,
+  closerLink,
   spell,
   str,
   trouble,
@@ -385,10 +386,11 @@ export function issueRow(source: Source, raw: unknown, now: string): TrackerRow 
   if (!state) return null
   const closers = nodes(r.closedByPullRequestsReferences).map(obj)
   const links = closers
-    .map((pr) => (typeof pr.number === 'number' ? spell(source, 'change', pr.number) : null))
-    .filter((one): one is string => one !== null)
+    .flatMap((pr) => {
+      const one = typeof pr.number === 'number' ? spell(source, 'change', pr.number) : null
+      return one ? [closerLink(one, { state: pr.state, merged: pr.merged, draft: pr.isDraft })] : []
+    })
     .slice(0, LIMITS.TRACKER_LINKS)
-    .map((one) => ({ ref: one, relation: 'closed-by' as const }))
   return row(withPeople({
     ref,
     tracker: 'github',
@@ -506,9 +508,14 @@ function closedByClosers(rows: TrackerRow[]): TrackerRow[] {
     const by = one.kind === 'issue' ? closers.get(one.ref) : undefined
     if (!by?.length) return one
     const known = new Set(one.links.map((l) => l.ref))
+    /* The change's own row is the freshest word on where it stands. */
+    const standing = new Map(by.map((c) => [c.ref, c]))
     const links = [
-      ...one.links,
-      ...by.filter((c) => !known.has(c.ref)).map((c) => ({ ref: c.ref, relation: 'closed-by' as const })),
+      ...one.links.map((l) => {
+        const c = l.relation === 'closed-by' ? standing.get(l.ref) : undefined
+        return c ? closerLink(l.ref, c) : l
+      }),
+      ...by.filter((c) => !known.has(c.ref)).map((c) => closerLink(c.ref, c)),
     ].slice(0, LIMITS.TRACKER_LINKS)
     return { ...one, links, closedByMerge: one.closedByMerge || by.some((c) => c.state === 'merged') }
   })
@@ -615,7 +622,7 @@ const PULL_ACTIVITY = `timelineItems(last: ${TIMELINE}, itemTypes: [ISSUE_COMMEN
 
 const ISSUE_GRAPH = (boards: boolean, branches = true) => `number state stateReason title url createdAt updatedAt closedAt
     author ${AUTHOR} labels(first: 32) { nodes { name } } assignees(first: 16) { nodes { login name ${AVATAR} } }
-    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged } }
+    closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged state isDraft } }
     ${ISSUE_ACTIVITY}${branches ? `\n    ${LINKED_BRANCHES}` : ''}${boards ? `\n    ${PROJECT_ITEMS}` : ''}`
 /** A pull request's people: see "People" above. Users, bots and mannequins; never a team (`read:org`). */
 const PEOPLE = `reviewRequests(first: 32) { nodes { requestedReviewer { ... on User { login name ${AVATAR} } ... on Bot { login ${AVATAR} } ... on Mannequin { login ${AVATAR} } } } }

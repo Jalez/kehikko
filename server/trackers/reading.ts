@@ -21,7 +21,7 @@ import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic, readParts } from '../holdings.ts'
 import type { EpicPlace } from '../../src/host/trackerNews.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import { withContributors, type Adapter, type BoardsRead, type HeldBoard, type ListHow, type Me, type Read, type Wanted } from './common.ts'
+import { closerLink, withContributors, type Adapter, type BoardsRead, type HeldBoard, type ListHow, type Me, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -266,7 +266,17 @@ function closedByDeclarers(rows: TrackerRow[], within: (row: TrackerRow, ref: st
     const known = new Set(one.links.map((l) => l.ref))
     const added = by.filter((d) => !known.has(d.ref))
     const merged = by.some((d) => d.state === 'merged')
-    if (!withdrawn.length && !added.length && (!merged || one.closedByMerge === true)) return one
+    /* Where a declaring change stands now, over what the link was read with: a change that was open
+       when the issue was read and has merged since says merged on the link too (protocol 2.100.0). */
+    const standing = new Map(by.map((d) => [d.ref, d]))
+    const stale = (l: TrackerRow['links'][number]) => {
+      const d = l.relation === 'closed-by' ? standing.get(l.ref) : undefined
+      if (!d) return false
+      const now = closerLink(l.ref, d)
+      return now.state !== l.state || now.draft !== l.draft
+    }
+    const restated = one.links.some(stale)
+    if (!withdrawn.length && !added.length && !restated && (!merged || one.closedByMerge === true)) return one
     const gone = new Set(withdrawn.map((c) => c.ref))
     const { closedByMerge: was, ...rest } = one
     /* True when a declarer merged. Never false from this alone: a change
@@ -276,8 +286,8 @@ function closedByDeclarers(rows: TrackerRow[], within: (row: TrackerRow, ref: st
     return {
       ...rest,
       links: [
-        ...one.links.filter((l) => !gone.has(l.ref)),
-        ...added.map((d) => ({ ref: d.ref, relation: 'closed-by' as const })),
+        ...one.links.filter((l) => !gone.has(l.ref)).map((l) => (stale(l) ? closerLink(l.ref, standing.get(l.ref)!) : l)),
+        ...added.map((d) => closerLink(d.ref, d)),
       ].slice(0, LIMITS.TRACKER_LINKS),
       ...(closedByMerge !== undefined ? { closedByMerge } : {}),
     }
