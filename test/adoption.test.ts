@@ -3,10 +3,11 @@ import type { Database } from 'bun:sqlite'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AGENT_TASK_BRIEF_MAX, HOST_CALLER, SERVICE_CALLER_HEADER, SERVICE_PASS_HEADER, type ServiceProvider, type TrackerRow } from 'kehikot-module-protocol'
+import { HOST_CALLER, SERVICE_CALLER_HEADER, SERVICE_PASS_HEADER, type ServiceProvider, type TrackerRow } from 'kehikot-module-protocol'
 import { mintServerPass } from 'kehikot-module-protocol/serve'
 
-import { Adoption, clipBrief, type AdoptionDeps } from '../server/adoption.ts'
+import { Adoption, type AdoptionDeps } from '../server/adoption.ts'
+import { AGENT_PROMPT_MOST } from '../server/agentSession.ts'
 import { adoptRoutes, ADOPT_ROUTES } from '../server/adoptRoutes.ts'
 import { open } from '../server/canvases.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
@@ -16,7 +17,7 @@ import { TOOL_NAMES } from '../server/mcp.ts'
 import { addProject } from '../server/projects.ts'
 import { TrackerNotices, writeNotices } from '../server/trackerNotices.ts'
 import { epicsByRef } from '../server/trackers/reading.ts'
-import { ADOPT_INSTRUCTION, adoptedSaid, conversationRows, dialogPlan, suggestEpic, taskAgentFor, toBring } from '../src/host/adoption.ts'
+import { adoptPrompt, adoptedSaid, conversationRows, dialogPlan, suggestEpic, taskAgentFor, toBring } from '../src/host/adoption.ts'
 import type { Entry } from '../src/host/inbox.ts'
 import { answerInbox, readOf, type InboxDoor } from '../src/host/inboxDoor.ts'
 import { DEFAULT_NOTICES, TRACKER_NOTICES_MODULE, noticeItem, type Seen } from '../src/host/trackerNotices.ts'
@@ -284,19 +285,33 @@ describe('adopting, bringing along, Undo and untrack', () => {
     writeNotices(db, { ...DEFAULT_NOTICES, outside: false })
   })
 
-  test('the dialog starts a new conversation with the brief, through the person\'s agent', async () => {
+  test('the agent is started in one call: a new session with a short prompt naming the item and the tools, no finder asked', async () => {
     const f = fakes([{ session: 's1', title: 'Fix login', match: 'created', reason: 'created !4721', lastActive: 5 }], { agent: true })
     const got = await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')
-    expect(got).toEqual({ ok: true, module: 'kehikot.agent', name: 'Agent', session: 'task-1', view: 'http://127.0.0.1:9999/app?session=task-1' })
-    const start = f.calls.find((one) => one.path === '/api/tasks')!
+    expect(got).toEqual({ state: 'started', module: 'kehikot.agent', name: 'Agent', session: 'task-1' })
+    expect(f.calls.map((one) => one.path)).toEqual(['/api/tasks'])
+    const start = f.calls[0]!
     expect(start.headers[SERVICE_CALLER_HEADER]).toBe(HOST_CALLER)
-    expect(start.body.place).toBeNull()
-    for (const line of ['!4721', 'Fix login', 'https://gitlab.example.org/group/app/-/merge_requests/4721', 'feat/login', 'auth — Auth', 'login (Login)', 's1 (Agent CLI)', ADOPT_INSTRUCTION]) {
-      expect(start.body.brief).toContain(line)
+    expect(start.headers[SERVICE_PASS_HEADER]).toMatch(/^[A-Za-z0-9_-]{32,64}$/)
+    expect(start.body).toMatchObject({ project: root, place: null, title: 'Place !4721 in a space' })
+    const prompt: string = start.body.brief
+    for (const line of ['!4721', 'Fix login', 'https://gitlab.example.org/group/app/-/merge_requests/4721', 'gitlab.example.org/group/app', 'propose_adoption', 'read_inbox', 'read_tracker', 'my_place', `project: "${root}"`]) {
+      expect(prompt).toContain(line)
     }
-    /* No agent module on the kehikko, or no kehikko at all: no task. */
-    expect((await make(f, { agentsOn: () => ({ agents: [], primary: null }) }).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')).ok).toBe(false)
-    expect((await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, null)).ok).toBe(false)
+    expect(prompt.length).toBeLessThan(2000)
+    expect(prompt.length).toBeLessThanOrEqual(AGENT_PROMPT_MOST)
+    /* The agent the person chose, by its module. */
+    expect((await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1', 'kehikot.agent')).state).toBe('started')
+    /* No agent module on the kehikko, or no kehikko at all, and none chosen: said, with nothing called. */
+    expect(await make(f, { agentsOn: () => ({ agents: [], primary: null }) }).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')).toMatchObject({ state: 'failed', noAgent: true })
+    expect((await make(f).startTask(project, TRACKER_NOTICES_MODULE, id, null)).state).toBe('failed')
+    /* One chosen that cannot take a session: said, naming it. */
+    expect(await make(fakes([], { agent: false })).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1', 'kehikot.agent')).toMatchObject({ state: 'failed', noAgent: true })
+  })
+
+  test('the prompt stays short for a long title and path', () => {
+    const prompt = adoptPrompt({ project: `/x/${'p'.repeat(200)}`, kehikko: 'k1', item: { ref: '!1', title: 't'.repeat(200), url: `https://e.org/${'u'.repeat(300)}`, repo: 'g/a', host: 'e.org' } })
+    expect(prompt.length).toBeLessThan(2000)
   })
 
   test('propose fills the dialog and adopts nothing; the task\'s conversation is filed with the adoption', async () => {
@@ -307,7 +322,9 @@ describe('adopting, bringing along, Undo and untrack', () => {
     const read = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
     expect(read.proposal).toEqual({ epic: 'auth', parts: [], conversations: ['s1'], why: 'Same repository.' })
     expect(read.agent).toEqual({ module: 'kehikot.agent', name: 'Agent' })
-    expect(read.conversations[0]).toMatchObject({ session: 's1', comes: false, program: 'Agent CLI' })
+    /* Opening the dialog asks no finder: the agent found the conversations itself. */
+    expect(read.conversations).toEqual([])
+    expect(f.calls.filter((one) => one.path === '/api/find')).toEqual([])
     /* The person's one press: the proposal's conversation, confirmed, comes along though weak, and so does the task's. */
     const got = await adoption.adopt(project, TRACKER_NOTICES_MODULE, id, 'auth', [], null, { module: 'kehikot.agent', session: 'task-1' }, ['s1'])
     expect(got.brought.map((one) => one.session)).toEqual(['s1'])
@@ -316,86 +333,45 @@ describe('adopting, bringing along, Undo and untrack', () => {
   })
 
   /*
-   * The failure a person met: "Adopt with <agent>…" showed "Kehikot did not answer. Nothing was
-   * changed." and no conversation started. `/host/inbox/task` awaited the whole finder scan — every
-   * agent module asked one after another, each allowed 8 s — before it even asked the agent to start,
-   * and the page's own reads waited on the same scan, so a page's call outlived what the page (12 s)
-   * and the host's server (30 s for a GET) would wait, and the page said only that nothing answered.
+   * The failures a person met, one after another: the dialog waited on a finder scan across every
+   * agent module, then on a background start it polled, and then every POST under /host/inbox
+   * answered a bare 500 ("Body already used", `inbox-shared-prefix.test.ts`). The adopt path now asks
+   * no finder and makes one call to the agent, answered in words.
    */
-  describe('a slow finder never keeps the page waiting (the adopt-with failure)', () => {
-    const LIMITS_FAST = { findMs: 150, waitMs: 40, freshMs: 60_000, startMs: 200 }
-    const candidate = { session: 's1', title: 'Fix login', match: 'created', reason: 'created !4721', lastActive: 5 }
-
-    test('POST /host/inbox/task answers at once though five finders hang; the start follows in the background', async () => {
-      const f = fakes([candidate], { agent: true, finders: 5, findMs: Infinity })
-      const adoption = make(f, { limits: LIMITS_FAST })
+  describe('the adopt path: one call to the agent, no finder, every failure in words', () => {
+    test('POST /host/inbox/task starts the agent and answers with its session; no finder is asked though five hang', async () => {
+      const f = fakes([{ session: 's1', title: 'x', match: 'created', reason: 'r', lastActive: 1 }], { agent: true, finders: 5, findMs: Infinity })
+      const adoption = make(f)
       const handle = adoptRoutes({ adoption, untracked: () => [], hasProject: () => true })
+      const read = await handle(
+        new Request(`http://127.0.0.1/host/inbox/adoption?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}&kehikko=k1`),
+        new URL(`http://127.0.0.1/host/inbox/adoption?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}&kehikko=k1`),
+      )
+      expect(((await read!.json()) as { adoption: { agent: unknown } }).adoption.agent).toEqual({ module: 'kehikot.agent', name: 'Agent' })
       const t0 = performance.now()
       const answer = await handle(
-        new Request('http://127.0.0.1/host/inbox/task', { method: 'POST', body: JSON.stringify({ project, module: TRACKER_NOTICES_MODULE, id, kehikko: 'k1' }) }),
+        new Request('http://127.0.0.1/host/inbox/task', { method: 'POST', body: JSON.stringify({ project, module: TRACKER_NOTICES_MODULE, id, kehikko: 'k1', agent: 'kehikot.agent' }) }),
         new URL('http://127.0.0.1/host/inbox/task'),
       )
-      expect(performance.now() - t0).toBeLessThan(100)
-      expect(await answer!.json()).toEqual({ ok: true, result: { state: 'starting', module: 'kehikot.agent', name: 'Agent' } })
-      /* A second press while it starts joins it, never starts a second one. */
-      expect(adoption.beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1').state).toBe('starting')
-      await Bun.sleep(400)
-      const read = await handle(
-        new Request(`http://127.0.0.1/host/inbox/task?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}`),
-        new URL(`http://127.0.0.1/host/inbox/task?project=${project}&module=${TRACKER_NOTICES_MODULE}&id=${encodeURIComponent(id)}`),
-      )
-      expect(await read!.json()).toEqual({ ok: true, result: { state: 'started', module: 'kehikot.agent', name: 'Agent', session: 'task-1', view: 'http://127.0.0.1:9999/app?session=task-1' } })
-      expect(f.calls.filter((one) => one.path === '/api/tasks')).toHaveLength(1)
+      expect(performance.now() - t0).toBeLessThan(500)
+      expect(await answer!.json()).toEqual({ ok: true, result: { state: 'started', module: 'kehikot.agent', name: 'Agent', session: 'task-1' } })
+      expect(f.calls.map((one) => one.path)).toEqual(['/api/tasks'])
     }, 3000)
-
-    test('the finders are asked in parallel, each held to its time limit', async () => {
-      const f = fakes([candidate], { finders: 5, findMs: Infinity })
-      const t0 = performance.now()
-      const got = await make(f, { limits: LIMITS_FAST }).adoption(project, TRACKER_NOTICES_MODULE, id, 'k1', 10_000)
-      /* Five finders that never answer cost one time limit, not five. */
-      expect(performance.now() - t0).toBeLessThan(400)
-      expect(f.calls.filter((one) => one.path === '/api/find')).toHaveLength(5)
-      expect(got).toMatchObject({ outcome: 'ok', conversations: [] })
-      expect(got.finding).toBeUndefined()
-    })
-
-    test('a read answers within its wait with what came in so far, and the next read has the rest without asking again', async () => {
-      const f = fakes([candidate], { findMs: 100 })
-      const adoption = make(f, { limits: LIMITS_FAST })
-      const t0 = performance.now()
-      const first = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
-      expect(performance.now() - t0).toBeLessThan(90)
-      expect(first.finding).toBe(true)
-      expect(first.conversations).toEqual([])
-      await Bun.sleep(150)
-      const second = await adoption.adoption(project, TRACKER_NOTICES_MODULE, id, 'k1')
-      expect(second.finding).toBeUndefined()
-      expect(second.conversations.map((one) => one.session)).toEqual(['s1'])
-      expect(f.calls.filter((one) => one.path === '/api/find')).toHaveLength(1)
-    })
 
     test('an agent that refuses, answers wrongly or does not answer is said in words, naming it', async () => {
       const said = async (start: 'hang' | { status: number; body: unknown }) =>
-        (await make(fakes([candidate], { agent: true, start }), { limits: LIMITS_FAST }).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')) as { ok: false; why: string }
-      expect((await said({ status: 200, body: { outcome: 'declined', session: null, why: 'its program is not signed in.' } })).why).toBe('Agent didn’t start the task: its program is not signed in.')
-      expect((await said({ status: 403, body: { ok: false, error: 'the host did not vouch for that call' } })).why).toBe('Agent didn’t start the task: the host did not vouch for that call.')
-      expect((await said({ status: 500, body: 'oops' })).why).toBe('Agent didn’t start the task: it answered HTTP 500.')
-      expect((await said('hang')).why).toBe('Agent didn’t start the task: it did not answer within 0 s.')
-      /* And through the background start: the page reads the same words. */
-      const adoption = make(fakes([candidate], { agent: true, start: { status: 200, body: { outcome: 'declined', why: 'No CLI.' } } }), { limits: LIMITS_FAST })
-      adoption.beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1')
-      await Bun.sleep(50)
-      expect(adoption.taskState(project, TRACKER_NOTICES_MODULE, id)).toEqual({ state: 'failed', why: 'Agent didn’t start the task: No CLI.' })
-      /* No agent there: said at once. */
-      expect(make(fakes([]), { agentsOn: () => ({ agents: [], primary: null }) }).beginTask(project, TRACKER_NOTICES_MODULE, id, 'k1')).toMatchObject({ state: 'failed', noAgent: true })
+        (await make(fakes([], { agent: true, start })).startTask(project, TRACKER_NOTICES_MODULE, id, 'k1')) as { state: 'failed'; why: string }
+      expect((await said({ status: 200, body: { outcome: 'declined', session: null, why: 'its program is not signed in.' } })).why).toBe('Agent didn’t start a session: its program is not signed in.')
+      expect((await said({ status: 403, body: { ok: false, error: 'the host did not vouch for that call' } })).why).toBe('Agent didn’t start a session: the host did not vouch for that call.')
+      expect((await said({ status: 500, body: 'oops' })).why).toBe('Agent didn’t start a session: it answered HTTP 500.')
+      expect((await said({ status: 200, body: { nonsense: true } })).why).toBe('Agent didn’t start a session: it answered in a shape Kehikot does not read.')
     })
 
-    test('a brief too long for an agent module is cut, its instruction kept', () => {
-      const long = `start\n${'- x\n'.repeat(20_000)}\n${ADOPT_INSTRUCTION}\npropose_adoption takes …`
-      const cut = clipBrief(long)
-      expect(cut.length).toBeLessThanOrEqual(AGENT_TASK_BRIEF_MAX)
-      expect(cut.endsWith(`${ADOPT_INSTRUCTION}\npropose_adoption takes …`)).toBe(true)
-      expect(clipBrief('short')).toBe('short')
+    test('an agent that does not answer is given up on within the start limit, in words', async () => {
+      const { startAgentSession } = await import('../server/agentSession.ts')
+      const f = fakes([], { agent: true, start: 'hang' })
+      const got = await startAgentSession({ providers: f.providers, originOf: async () => 'http://127.0.0.1:9999', fetch: f.fetch }, { module: 'kehikot.agent', root, prompt: 'p', title: 't', ms: 100 })
+      expect(got).toEqual({ ok: false, why: 'Agent didn’t start a session: it did not answer within 0 s.' })
     })
   })
 })
@@ -632,7 +608,7 @@ describe('“Adopt with…” is never a dead end (2.91.0)', () => {
       expect(got.taskAgents).toEqual([])
       expect(got.agentsToUpdate).toEqual([{ module: 'kehikot.old', name: 'Old agent' }])
       const task = await adoption.startTask(1, TRACKER_NOTICES_MODULE, 'x', 'k1')
-      expect(task.ok).toBe(false)
+      expect(task.state).toBe('failed')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

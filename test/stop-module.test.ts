@@ -167,7 +167,7 @@ describe('what a person stopped stays stopped', () => {
   test('the host wires it: its own start refuses a stopped module, and a press on Start or Restart clears it', () => {
     const source = readFileSync(join(import.meta.dir, '../server/server.ts'), 'utf8')
     expect(source).toContain('failed: failures.has(presence.id) || stoppedByPerson.has(presence.id)')
-    expect(source).toMatch(/function begin\(id: string\): void \{[\s\S]*?if \(stoppedByPerson\.has\(id\)\) return/)
+    expect(source).toMatch(/function begin\(id: string(?:, why = [^)]*)?\): void \{[\s\S]*?if \(stoppedByPerson\.has\(id\)\) return/)
     expect(source).toContain('stoppedByPerson.pressed(named)')
     expect(source).toContain('stoppedByPerson.pressed(id)')
   })

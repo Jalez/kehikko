@@ -1752,18 +1752,18 @@ function tools() {
       name: 'propose_adoption',
       description:
         'Propose which space a tracker item no space names belongs to (by its top-level space, and optionally its '
-        + 'direct sub-spaces — epic and parts are the older names these arguments keep), and which of the '
-        + 'conversations Kehikot found worked on it — when Kehikot started you to place one, with the item, the '
-        + 'spaces and the candidates in your brief. It ONLY proposes: the person sees it in Kehikot and confirms '
+        + 'direct sub-spaces — epic and parts are the older names these arguments keep), and which earlier '
+        + 'conversations worked on it — when Kehikot started you to adopt one: find the spaces with read_canvas, the '
+        + 'item with read_inbox or read_tracker, and the conversations in your own session history. It ONLY proposes: the person sees it in Kehikot and confirms '
         + 'with one press, or changes it. Nothing is written until they do, and this tool never adopts.',
       inputSchema: {
         type: 'object',
         properties: {
           ...KEHIKKO_PROPERTY,
-          ref: { type: 'string', description: 'The item\'s ref, exactly as your brief spells it.' },
-          epic: { type: 'string', description: 'The top-level space’s id (older name: the epic’s slug), from the brief.' },
-          parts: { type: 'array', items: { type: 'string' }, description: 'Ids of its direct sub-spaces (older name: parts), from the brief. Optional.' },
-          conversations: { type: 'array', items: { type: 'string' }, description: 'Session ids of the candidate conversations that worked on it. Optional.' },
+          ref: { type: 'string', description: 'The item\'s ref, exactly as your prompt spells it.' },
+          epic: { type: 'string', description: 'The top-level space’s id (older name: the epic’s slug), as read_canvas prints it.' },
+          parts: { type: 'array', items: { type: 'string' }, description: 'Ids of its direct sub-spaces (older name: parts), as read_canvas prints them. Optional.' },
+          conversations: { type: 'array', items: { type: 'string' }, description: 'Session ids of the earlier conversations that worked on it. Optional.' },
           why: { type: 'string', description: `One or two sentences the person reads, at most ${LIMITS.REASON} characters.` },
         },
         required: ['ref', 'epic', 'why'],
@@ -3533,7 +3533,7 @@ function proposeAt(canvas: Canvas, args: Record<string, unknown>, door: Door): {
   const parts = list(args.parts, (one) => slug.test(one))
   const conversations = list(args.conversations, (one) => one.length > 0 && one.length <= 128)
   if (!ref || !epic || !why || parts === null || conversations === null) {
-    return { text: 'propose_adoption needs ref, epic (the top-level space’s id) and why (and optionally parts — its direct sub-spaces — and conversations), as your brief spells them.', failed: true }
+    return { text: 'propose_adoption needs ref, epic (the top-level space’s id) and why (and optionally parts — its direct sub-spaces — and conversations), as your prompt spells them.', failed: true }
   }
   const out = door.adoption.propose(canvas.project, ref, { epic, parts, conversations, why })
   return out.ok ? { text: out.said, failed: false } : { text: out.why, failed: true }
