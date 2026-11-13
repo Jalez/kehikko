@@ -18,5 +18,9 @@ export function shownFor(placements: readonly Placement[], module: string): Plac
   return null
 }
 
-/** What the person is told when the agent has the item: the dialog closes on it. */
-export const handedSaid = (name: string): string => `${name} is on it in its container.`
+/**
+ * What the person is told when the agent has the item: the dialog closes on it. `pending` (protocol
+ * 2.99.0): the agent accepted and its program is still starting — the container shows it arrive, and a
+ * start that fails is said in the Inbox.
+ */
+export const handedSaid = (name: string, pending = false): string => (pending ? `${name} is starting it in its container.` : `${name} is on it in its container.`)

@@ -112,6 +112,7 @@ const TELL_FROM_A_PAGE = 'News to the sessions at a place goes from a module’s
 const NO_MESSAGES = 'This host was not given a record of messages to answer from.'
 const OBSERVED_FROM_A_PAGE = 'A notice to a session found by its id goes from a module’s server (askHost, messages.notifySession). A page has no server to send from.'
 const PLACE_FROM_A_PAGE = 'Where a session is filed is asked by a module’s server (askHost, sessions.placeOf). A page is told its own place in the context.'
+const TASKS_FROM_A_PAGE = 'What became of a task is reported by the agent module’s server (askHost, tasks.report), which started it.'
 const MESSAGES_FROM_A_PAGE = 'Messages are an agent session’s, sent and read by the module that runs it through its server (askHost). A page has no session.'
 
 /* Which half answers what, and the check that nothing falls between them, live
@@ -702,6 +703,9 @@ export function answer(
   /* Protocol 2.85.0: answered by `/host/server-ask` (`serverAsk.ts`), which can wait on a module. */
   case 'sessions.placeOf':
     return notMineToSay(PLACE_FROM_A_PAGE)
+  /* Protocol 2.99.0: answered by `/host/server-ask` (`serverAsk.ts`), for a task this host handed the module. */
+  case 'tasks.report':
+    return notMineToSay(TASKS_FROM_A_PAGE)
   /* Protocol 2.81.0: who provides a service here, with each descriptor. */
   case 'services.find': {
     const { service, kehikko } = parsed.data as { service: string; kehikko?: string }
