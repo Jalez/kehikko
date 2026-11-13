@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, statSync, symlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join } from 'node:path'
 
@@ -378,15 +378,38 @@ export const INSTALLED_MARKER = join('node_modules', '.kehikot-installed')
  * module's first start does not install again. Nothing when there is no
  * `node_modules` (nothing was installed); never a reason anything failed.
  */
-export function markInstalled(dir: string, now: Date = new Date()): boolean {
+export function markInstalled(dir: string, now?: Date): boolean {
   if (!existsSync(join(dir, 'node_modules'))) return false
   const file = join(dir, INSTALLED_MARKER)
   try {
-    if (!existsSync(file)) writeFileSync(file, '')
-    utimesSync(file, now, now)
+    /* Written by the file system's own clock, which stamps the lockfile and
+       package.json too: a JavaScript Date is whole milliseconds, so a marker
+       stamped with `new Date()` can land BEFORE a lockfile written in the same
+       millisecond (a Linux file system keeps nanoseconds) and `-nt` would then
+       call the install stale. A given `now` is used as given. */
+    rmSync(file, { force: true })
+    writeFileSync(file, '')
+    if (now) utimesSync(file, now, now)
+    else {
+      /* An input stamped later than this clock (a copied checkout, a skewed clock): the marker goes just past it. */
+      const latest = Math.max(...INSTALL_INPUTS.map((name) => newest(join(dir, name))))
+      if (statSync(file).mtimeMs <= latest) utimesSync(file, (latest + 1) / 1000, (latest + 1) / 1000)
+    }
     return true
   } catch {
     return false
+  }
+}
+
+/** What run.sh compares the marker against. */
+const INSTALL_INPUTS = ['bun.lock', 'package.json']
+
+/** A file's modification time in ms, 0 when it is not there. */
+function newest(path: string): number {
+  try {
+    return statSync(path).mtimeMs
+  } catch {
+    return 0
   }
 }
 
