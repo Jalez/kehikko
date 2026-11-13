@@ -36,6 +36,7 @@
  * two effects.
  */
 
+import type { DropFrame } from './drops.ts'
 import type { Pressed, Pressing } from './header.ts'
 
 /** What one framed module offers the host to press. */
@@ -116,6 +117,11 @@ export interface Pressable {
    * `null` when its page cannot be asked. See `Conversation.sendFind`.
    */
   find?(ask: FindAsk): string | null
+  /**
+   * Where this frame is and how to hand it a dropped file (protocol 2.94.0, `host/drops.ts`). The
+   * frame element, its box now, whether its module opens files, and the call that posts the drop.
+   */
+  dropFrame?: Omit<DropFrame, 'id'>
 }
 
 /** What the find bar asks a page for: see `host/find.ts`. */
@@ -263,6 +269,13 @@ export class Presses {
   /** Ask one module to search, if its frame is there: the id the answer will carry, or `null`. */
   find(id: string, ask: FindAsk): string | null {
     return this.frames.get(id)?.find?.(ask) ?? null
+  }
+
+  /** Every frame a dropped file may be handed to, as they stand now (`host/drops.ts`). */
+  dropFrames(): DropFrame[] {
+    const out: DropFrame[] = []
+    for (const [id, frame] of this.frames) if (frame.dropFrame) out.push({ id, ...frame.dropFrame })
+    return out
   }
 
   leaveFullscreen(id: string): void {

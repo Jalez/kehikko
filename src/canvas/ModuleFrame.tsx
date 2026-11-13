@@ -220,6 +220,8 @@ export function ModuleFrame({
      must not tear down the conversation and reload the page. The bus reads it
      on every emit rather than holding a copy, so a module whose manifest
      changed under a running frame is heard about the moment the sweep lands. */
+  const opensRef = useRef<readonly string[]>(framed.opens ?? [])
+  opensRef.current = framed.opens ?? []
   const consumesRef = useRef(framed.extensions.consumes)
   consumesRef.current = framed.extensions.consumes
 
@@ -390,6 +392,18 @@ export function ModuleFrame({
       inbox: (signal) => conversation.sendInbox(signal),
       /* And a search for the find bar over its container (protocol 2.69.0, `host/find.ts`). */
       find: (ask) => conversation.sendFind(ask),
+      /* And a file another module's page let go over this frame (protocol 2.94.0, `host/drops.ts`). */
+      dropFrame: {
+        element: frame,
+        box: () => {
+          const rect = frame.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0 ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null
+        },
+        get opensFiles() {
+          return opensRef.current.includes('file')
+        },
+        drop: (file, at) => conversation.sendDrop(file, at),
+      },
       /* And the keyboard, after a press that closed its menu. The frame's
          window, which a parent may focus whatever origin is in it; the
          element is the fallback for a frame whose window is not there yet. */
