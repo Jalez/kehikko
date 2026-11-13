@@ -45,7 +45,7 @@ import {
 } from './common.ts'
 import { closedSince, kindOf, type Reads } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
-import { gitlabChecks, gitlabComments, gitlabNotesPath, milestoneOf } from './itemDetail.ts'
+import { gitlabApprovals, gitlabChecks, gitlabComments, gitlabNotesPath, milestoneOf } from './itemDetail.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -960,6 +960,8 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
     const milestone = milestoneOf({ title: obj(r.milestone).title, webUrl: obj(r.milestone).web_url, dueDate: obj(r.milestone).due_date }, source.host)
     if (milestone) out.milestone = milestone
     if (one.kind !== 'change') return out
+    const rule = await glab([`${project(source)}/merge_requests/${one.number}/approvals`], source)
+    if (rule.code === 0) Object.assign(out, gitlabApprovals(parsed(rule)))
     const pipeline = obj(r.head_pipeline)
     const pipelineId = typeof pipeline.id === 'number' ? pipeline.id : null
     const pipelineProject = typeof pipeline.project_id === 'number' ? pipeline.project_id : null

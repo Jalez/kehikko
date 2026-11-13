@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fetchTrackerImage, type ImageFetch } from './images.ts'
 import {
   LIMITS,
   readTrackerRef,
@@ -7,6 +8,7 @@ import {
   trackerRowSchema,
   trackerSourceSchema,
   type TrackerColumns,
+  type TrackerImage,
   type TrackerDetailFacts,
   type TrackerMissing,
   type TrackerReading,
@@ -460,6 +462,8 @@ export interface TrackersOptions {
   adapters?: Partial<Record<Source['tracker'], Adapter>>
   now?: () => Date
   listLimit?: number
+  /** How a picture is fetched and whose token signs it; real `fetch` and the person's CLIs unless a test says. */
+  images?: Partial<ImageFetch>
 }
 
 export class Trackers {
@@ -470,6 +474,9 @@ export class Trackers {
   #adapters: Record<Source['tracker'], Adapter>
   #now: () => Date
   #listLimit: number
+  #images: ImageFetch
+  /** Pictures already fetched, by tracker host and address, newest last; bounded by count and bytes. */
+  #pictures = new Map<string, { image: TrackerImage; at: number }>()
   /** Who the person is per tracker host (`tracker|host`), and until when that is believed. */
   #me = new Map<string, { me: Me; until: number }>()
 
@@ -483,6 +490,45 @@ export class Trackers {
     }
     this.#now = options.now ?? (() => new Date())
     this.#listLimit = options.listLimit ?? LIST_LIMIT
+    this.#images = {
+      token: options.images?.token ?? ((tracker, host) => this.#token(tracker, host)),
+      fetch: options.images?.fetch ?? ((url, init) => fetch(url, init)),
+    }
+  }
+
+  /** The person's own token for a host, from their CLI, for one request. Never stored, never sent to a page. */
+  async #token(tracker: Source['tracker'], host: string): Promise<string | null> {
+    const argv = tracker === 'github' ? ['gh', 'auth', 'token', '--hostname', host] : ['glab', 'config', 'get', 'token', '--host', host]
+    const ran = await this.#run(argv)
+    const token = ran.code === 0 ? ran.out.trim() : ''
+    return token || null
+  }
+
+  /**
+   * `tracker.image`: one picture from the text of a ref this project's reading holds. A ref the
+   * reading does not hold is declined as `host`: it names no tracker to fetch from. Answers for ten
+   * minutes from a bounded cache; only an image is cached, so a failure is tried again.
+   */
+  async image(root: string, ref: string, address: string): Promise<TrackerImage> {
+    const row = this.rowsHeld(root).find((r) => r.ref === ref)
+    if (!row) return { outcome: 'declined', why: 'host' }
+    const key = `${row.tracker}|${row.host}|${address}`
+    const hit = this.#pictures.get(key)
+    if (hit && this.#now().getTime() - hit.at < 10 * 60_000) return hit.image
+    const image = await fetchTrackerImage(row, address, this.#images)
+    if (image.outcome === 'image') {
+      this.#pictures.delete(key)
+      this.#pictures.set(key, { image, at: this.#now().getTime() })
+      let bytes = 0
+      for (const one of this.#pictures.values()) bytes += one.image.outcome === 'image' ? one.image.base64.length : 0
+      for (const k of [...this.#pictures.keys()]) {
+        if (this.#pictures.size <= 64 && bytes <= 48 * 1024 * 1024) break
+        const old = this.#pictures.get(k)!
+        bytes -= old.image.outcome === 'image' ? old.image.base64.length : 0
+        this.#pictures.delete(k)
+      }
+    }
+    return image
   }
 
   #of(root: string): Held {
