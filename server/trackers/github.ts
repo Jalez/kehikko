@@ -42,6 +42,7 @@ import {
 } from './common.ts'
 import { closedSince } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
+import { githubItemFacts, githubItemQuery } from './itemDetail.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -917,6 +918,16 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now, pace:
             : {}),
           readAt: now,
         })
+        /* What a person reads the item for (protocol 2.98.0), one GraphQL query. One that fails
+           leaves those fields absent and keeps the rest of the detail. */
+        if (source.repo.split('/').length === 2) {
+          const args = ['api', 'graphql', '-f', `query=${githubItemQuery(source, one.number)}`]
+          if (source.host !== 'github.com') args.push('--hostname', source.host)
+          const item = await gh(args, source)
+          const node = obj(obj(obj(parsed(item.ran)).data).repository).issueOrPullRequest
+          const facts = out.get(one.ref)
+          if (facts && node) out.set(one.ref, { ...facts, ...githubItemFacts(node, source.host) })
+        }
       }
       return out
     },

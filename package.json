@@ -30,7 +30,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "driver.js": "1.9.0",
-    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.95.0",
+    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#38ae10ed8941b4a0e1191ccc27a4cd4d5a76088b",
     "lucide-react": "^0.544.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
