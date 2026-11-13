@@ -55,6 +55,7 @@ import { ManifestCache, probe } from './manifests.ts'
 import { answered, gone, leaving, Nursery, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
+import { portToHand } from './modulePorts.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
 import { frameOriginFor, idOfHost, routeOf, sameVersion, stableDoorUrl, type ModuleRoute } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
@@ -71,6 +72,7 @@ import { BY as HOST_BY, isOwnCheckout, noteOf, retireDesk } from './retired.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { changesOfCopy, hostChanges } from './agentChanges.ts'
 import { withoutForAgents } from 'kehikot-module-protocol'
+import { free, modulePort } from 'kehikot-module-protocol/serve'
 import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
@@ -173,7 +175,6 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
-import { createServer } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
@@ -1314,13 +1315,14 @@ function portFile(id: string, tag: string): string {
   return join(VERSIONS, id, `${tag}.port`)
 }
 
-/** Whether nothing holds a port on loopback, by trying to hold it for a moment. */
-function bindable(port: number): Promise<boolean> {
-  return new Promise((done) => {
-    const probe = createServer()
-    probe.once('error', () => done(false))
-    probe.listen(port, '127.0.0.1', () => probe.close(() => done(true)))
-  })
+/** The ports the registrations name: not handed to a module started on any port. */
+function namedPorts(): Set<number> {
+  const ports = new Set<number>()
+  for (const registration of registered.values()) {
+    const port = portOfUrl(registration.url)
+    if (port !== null) ports.add(port)
+  }
+  return ports
 }
 
 function portOfUrl(url: string): number | null {
@@ -1368,23 +1370,18 @@ const versionRuns = new VersionRuns({
     }
   },
   /* Beside the module's own port: modules on this machine sit ten apart, so
-     the five above a module's port are its own to use. Then anything free. */
+     the five above a module's port are its own to use. Then any free port of the band. */
   async port(id, taken) {
     const registration = await registrationOf(id)
     const base = registration ? portOfUrl(registration.url) : null
     const candidates = base === null ? [] : [5, 6, 7, 8, 9].map((n) => base + n)
+    /* `free` asks every address a port can be held on, not `127.0.0.1` alone; and the fallback is
+       the protocol's band, never port 0 (`modulePorts.ts` says why). */
     for (const port of candidates) {
-      if (!taken.has(port) && (await bindable(port))) return port
+      if (!taken.has(port) && (await free(port))) return port
     }
-    return new Promise((done) => {
-      const probe = createServer()
-      probe.once('error', () => done(null))
-      probe.listen(0, '127.0.0.1', () => {
-        const address = probe.address()
-        const port = typeof address === 'object' && address ? address.port : null
-        probe.close(() => done(port))
-      })
-    })
+    const named = namedPorts()
+    return modulePort({ taken: (port) => taken.has(port) || named.has(port) })
   },
   spawn(key, tree, port, log) {
     const at = key.lastIndexOf('@')
@@ -2341,9 +2338,14 @@ function run(id: string, runnable: Runnable): Started {
   /* Run now — by a press, an update, or the ordinary rule — so no longer waited for. */
   theirs.delete(id)
   /* Any free port (protocol 2.65.0) for a module that reads `PORT=0` so, while nothing names its
-     port: it registers where it went (`anyPort.ts`). Any other keeps its port and the drift rules. */
+     port: it registers where it went (`anyPort.ts`). Any other keeps its port and the drift rules.
+     The port handed is one of the protocol's band, never 0, which the system fills from the range
+     other programs' servers are given theirs from (`modulePorts.ts`). */
   const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
-  if (anyPort) runnable = { ...runnable, port: 0, command: `PORT=0 ${runnable.script}` }
+  if (anyPort) {
+    const port = portToHand(namedPorts()) ?? 0
+    runnable = { ...runnable, port, command: `PORT=${port} ${runnable.script}` }
+  }
   const ran = start(logged ? { ...runnable, log } : runnable, (code) => {
     exits.set(id, code)
     void ended(id, at, code)
