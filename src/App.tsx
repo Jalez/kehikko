@@ -162,6 +162,7 @@ import { fetchRegistry, newerReading, type Presence, type RegistryView } from '.
 import { setRegisteredIcons } from './canvas/ModuleIcon.tsx'
 import { pinnedPresence, type PinView } from './host/versions.ts'
 import { isNotAnswering, notAnswering } from './host/reachable.ts'
+import { shownFor } from './host/agentHandoff.ts'
 import { arranged as settledOn, dragged, drawnWidth, granted, mostFor, mostUp, pressed, redrawn, tiledTo, topEdge, wishing } from './host/columns.ts'
 import { drawsOwnTile, tileHidesPage } from './host/tile.ts'
 import { cornerOf } from './host/corners.ts'
@@ -393,6 +394,22 @@ const HOST_POINTS = 'kehikko'
  * `index.css`); where motion is asked to be less it is a static outline that
  * clears on the next press or key, not on a timer.
  */
+/** Move focus into a module's container (its frame, else the container), once it is drawn. */
+function focusContainer(module: string): void {
+  let tries = 0
+  const find = () => {
+    const box = [...document.querySelectorAll<HTMLElement>('[data-module]')].find((one) => one.dataset.module === module)
+    if (!box && tries < 60) {
+      tries += 1
+      window.requestAnimationFrame(find)
+      return
+    }
+    const target = box?.querySelector<HTMLElement>('iframe') ?? box
+    target?.focus({ preventScroll: true })
+  }
+  find()
+}
+
 function showLanded(modules: readonly string[]): void {
   let tries = 0
   const find = () => {
@@ -4451,6 +4468,13 @@ export function App() {
   }, [projectId, inbox.rev])
   /* The adoption dialog with the person's agent for Kehikot's own tasks, when one is open. */
   const [adopting, setAdopting] = useState<{ project: number; item: { module: string; id: string } } | null>(null)
+  /** What the adopt dialog closed on when an agent took the item: said for a few seconds. */
+  const [handedOff, setHandedOff] = useState<string | null>(null)
+  useEffect(() => {
+    if (handedOff === null) return
+    const timer = window.setTimeout(() => setHandedOff(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [handedOff])
   inboxDoorRef.current = {
     entries: () => inbox.open,
     elsewhere: () => inbox.others,
@@ -5539,8 +5563,24 @@ export function App() {
           item={adopting.item}
           kehikko={adopting.project === projectId ? (open?.key ?? null) : null}
           kehikkoId={adopting.project === projectId ? openId : null}
+          /* Hand it to the agent (`agentHandoff.ts`): its container on this kehikko and open, then in view and focused. */
+          showAgent={(module) => {
+            if (adopting.project !== projectId) return
+            const placements = shownFor(open?.placements ?? [], module)
+            if (placements) change({ placements })
+          }}
+          onStarted={(module, said) => {
+            setHandedOff(said)
+            showLanded([module])
+            focusContainer(module)
+          }}
           onClose={() => setAdopting(null)}
         />
+      ) : null}
+      {handedOff ? (
+        <div role="status" className="text-muted-foreground pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center text-xs" data-adopt-handed="">
+          <span className="bg-background/90 rounded-full border px-2 py-0.5">{handedOff}</span>
+        </div>
       ) : null}
       <AddressOffer
         offer={offer !== null && offer.kehikko === openId ? offer : null}
