@@ -96,7 +96,7 @@ export function AdoptDialog({
   /* Read what to offer; with an agent, start it once; with a choice to make, ask it first. */
   useEffect(() => {
     let live = true
-    void fetchAdoption(project, item, kehikko).then((got) => {
+    void fetchAdoption(project, item, kehikko, { fresh: true }).then((got) => {
       if (!live) return
       setRead(got)
       if (got.suggested) {

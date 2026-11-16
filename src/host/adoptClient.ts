@@ -58,14 +58,45 @@ export async function fetchAfters(project: number): Promise<Map<string, { said: 
   return new Map((got?.afters ?? []).map((one) => [`${one.module}\u0000${one.id}`, { said: one.said, undo: one.undo }]))
 }
 
-/** What to offer for one item; `kehikko` (its key) is the one the person is on, whose agent would do the task. */
-export async function fetchAdoption(project: number, key: Key, kehikko: string | null = null): Promise<InboxAdoptionResult> {
+/**
+ * Each item's offer as last answered, or the ask that is out for it, by project, item and kehikko.
+ * An Inbox page asks again on every change of its record and every tick; the answer only changes
+ * when something the page hears changes it (`forgetAdoptions`), so the rest are answered from here
+ * (Jalez/kehikko#384). A failed ask is not kept.
+ */
+const adoptions = new Map<string, Promise<InboxAdoptionResult>>()
+
+/** News that may change what an item offers: the record, the modules, an adoption or an untrack. */
+export function forgetAdoptions(): void {
+  adoptions.clear()
+}
+
+/**
+ * What to offer for one item; `kehikko` (its key) is the one the person is on, whose agent would do
+ * the task. Kept until `forgetAdoptions`; `fresh` asks again, for a person's press.
+ */
+export function fetchAdoption(project: number, key: Key, kehikko: string | null = null, { fresh = false }: { fresh?: boolean } = {}): Promise<InboxAdoptionResult> {
+  const id = `${project}\u0000${key.module}\u0000${key.id}\u0000${kehikko ?? ''}`
+  const kept = fresh ? undefined : adoptions.get(id)
+  if (kept) return kept
+  const asking: Promise<InboxAdoptionResult> = askAdoption(project, key, kehikko).then((got) => {
+    if (!got.ok && adoptions.get(id) === asking) adoptions.delete(id)
+    return got.adoption
+  })
+  adoptions.set(id, asking)
+  return asking
+}
+
+async function askAdoption(project: number, key: Key, kehikko: string | null): Promise<{ ok: boolean; adoption: InboxAdoptionResult }> {
   const at = kehikko ? `&kehikko=${encodeURIComponent(kehikko)}` : ''
   const got = await asked<{ adoption?: InboxAdoptionResult }>(
     `/host/inbox/adoption?project=${project}&module=${encodeURIComponent(key.module)}&id=${encodeURIComponent(key.id)}${at}`,
   )
-  if (got.ok && got.body.adoption) return got.body.adoption
-  return { outcome: 'declined', why: got.ok ? NO_ANSWER : got.why, item: null, epics: [], suggested: null, conversations: [], agent: null, proposal: null }
+  if (got.ok && got.body.adoption) return { ok: true, adoption: got.body.adoption }
+  return {
+    ok: false,
+    adoption: { outcome: 'declined', why: got.ok ? NO_ANSWER : got.why, item: null, epics: [], suggested: null, conversations: [], agent: null, proposal: null },
+  }
 }
 
 export async function postAdopt(
@@ -80,17 +111,22 @@ export async function postAdopt(
   space: readonly string[] | null = null,
 ): Promise<InboxAdoptResult> {
   const got = await post<{ result?: InboxAdoptResult }>('/host/inbox/adopt', { project, ...key, epic, parts, kehikko, task, also, ...(space ? { space } : {}) })
+  forgetAdoptions()
   return got?.result ?? { outcome: 'declined', said: '', brought: [], why: NO_ANSWER }
 }
 
 type Done = { outcome: 'done' | 'declined'; changed: number; why: string }
 
 export async function postUntrack(project: number, key: Key): Promise<Done> {
-  return (await post<{ result?: Done }>('/host/inbox/untrack', { project, ...key }))?.result ?? { outcome: 'declined', changed: 0, why: NO_ANSWER }
+  const got = await post<{ result?: Done }>('/host/inbox/untrack', { project, ...key })
+  forgetAdoptions()
+  return got?.result ?? { outcome: 'declined', changed: 0, why: NO_ANSWER }
 }
 
 export async function postUndo(project: number, key: Key): Promise<Done> {
-  return (await post<{ result?: Done }>('/host/inbox/undo', { project, ...key }))?.result ?? { outcome: 'declined', changed: 0, why: NO_ANSWER }
+  const got = await post<{ result?: Done }>('/host/inbox/undo', { project, ...key })
+  forgetAdoptions()
+  return got?.result ?? { outcome: 'declined', changed: 0, why: NO_ANSWER }
 }
 
 export type TaskStarted = { ok: true; module: string; name: string; session: string; pending: boolean } | { ok: false; why: string; noAgent?: true }
@@ -108,6 +144,7 @@ export async function postTask(project: number, key: Key, kehikko: string | null
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ project, ...key, kehikko, ...(agent ? { agent } : {}) }),
   })
+  forgetAdoptions()
   if (!got.ok) return { ok: false, why: got.why }
   const state = got.body.result
   if (state?.state === 'started') return { ok: true, module: state.module, name: state.name, session: state.session, pending: state.pending === true }
@@ -120,6 +157,8 @@ export async function fetchUntracked(project: number): Promise<{ id: string; ref
 }
 
 export async function postRetrack(project: number, id: string): Promise<boolean> {
-  return (await post<{ ok?: boolean }>('/host/inbox/retrack', { project, id }))?.ok === true
+  const got = await post<{ ok?: boolean }>('/host/inbox/retrack', { project, id })
+  forgetAdoptions()
+  return got?.ok === true
 }
 
