@@ -32,12 +32,42 @@ export const listedSourceSchema = z.object({
 })
 export type ListedSource = z.infer<typeof listedSourceSchema>
 
+/**
+ * When the host reads a project's trackers: on its schedule (`every` minutes while somebody is
+ * looking, and on the person's Refresh all), only when the person presses Refresh all, or never.
+ * Whatever the mode, a module is answered from what was last read, and nothing it asks starts a read.
+ */
+export const TRACKER_MODES = ['schedule', 'manual', 'off'] as const
+export type TrackerMode = (typeof TRACKER_MODES)[number]
+
+/** The mode a project's file says: its `reading`, else the schedule, which `every: 0` turns into reading only on a press. */
+export function trackerModeOf(config: { reading?: TrackerMode | undefined; every: number }): TrackerMode {
+  const mode = config.reading ?? 'schedule'
+  return mode === 'schedule' && config.every <= 0 ? 'manual' : mode
+}
+
+/** The mode in words, after "The host …", for Settings and an agent. */
+export function trackerModeSaid(mode: TrackerMode, every: number): string {
+  if (mode === 'off') return 'does not read the trackers at all; modules are shown what it last read'
+  if (mode === 'manual') return 'reads only when you press Refresh all'
+  return `reads every ${every} minutes while somebody is looking, and when you press Refresh all; nothing reads in between`
+}
+
+/** Why a read was not made, in the sentence a module, an agent or the person is told. */
+export const MODE_REFUSED: Readonly<Record<TrackerMode, string>> = {
+  schedule: 'Tracker reading is on a schedule for this project: only its next scheduled read or a press of Refresh all reads it. What was last read is shown.',
+  manual: 'Tracker reading is set to manual for this project: only a press of Refresh all reads it. What was last read is shown.',
+  off: 'Tracker reading is off for this project, so nothing is read. What was last read is shown. Turn it on in Settings › Trackers.',
+}
+
 export const trackerListingSchema = z.object({
   sources: z.array(listedSourceSchema),
   /** Whether the project's git remotes are read at all. */
   remotes: z.boolean(),
   /** Minutes between scheduled reads; 0 is off. */
   every: z.number(),
+  /** When the host reads (`TRACKER_MODES`). Absent from an older host: worked out from `every`. */
+  mode: z.enum(TRACKER_MODES).optional(),
   /** The file would not read: where, and why. Nothing else in the listing is then the file's. */
   broken: z.object({ file: z.string(), why: z.string() }).nullable(),
   /**
@@ -143,7 +173,7 @@ export function listingText(listing: TrackerListing, now: number): string {
       + (!s.off && s.listed ? ` Its listing reads ${readsSaid(readsOf(s.reads ?? {}), s.tracker)}.` : '')
       + (!s.off && s.boards?.length ? ` Boards — ${s.boards.map(boardSaid).join('; ')}.` : ''),
   )
-  const schedule = listing.every > 0 ? `reads again every ${listing.every} minutes while somebody is looking` : 'does not read on a schedule'
+  const schedule = trackerModeSaid(listing.mode ?? trackerModeOf({ every: listing.every }), listing.every)
   return [
     TRACKERS_ARE_FOR,
     listing.sources.length ? lines.join('\n') : 'No sources: this project has no GitHub or GitLab remote and nobody has added one.',
@@ -177,6 +207,7 @@ export const trackerEditSchema = z.discriminatedUnion('kind', [
     reads: readsSchema.nullable().optional(),
   }),
   z.object({ kind: z.literal('schedule'), every: z.number().int().min(0).max(1440) }),
+  z.object({ kind: z.literal('mode'), mode: z.enum(TRACKER_MODES) }),
   z.object({ kind: z.literal('remotes'), on: z.boolean() }),
   /** The file will not read: set it aside as `.broken` and start fresh. */
   z.object({ kind: z.literal('fresh') }),

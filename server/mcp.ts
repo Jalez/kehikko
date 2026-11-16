@@ -3504,7 +3504,7 @@ async function readTrackerAt(
       : { project: true as const }
   let refreshed = ''
   if (args.refresh === true) {
-    const result = await door.trackers.refresh(project.path, scope)
+    const result = await door.trackers.refresh(project.path, scope, 'asked')
     /* Forgotten while it was read: asking the reading now would hold the project, and write there, again. */
     if (!projectById(door.db, project.id)) {
       return { text: `${project.name} is no longer on the project list, so there is no tracker reading for it.`, failed: true }

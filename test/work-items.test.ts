@@ -188,7 +188,7 @@ describe('the shared reading', () => {
       return ok({ data: { project: { issues: { nodes: [graphIssue(12, { type: 'TASK' })] } } } })
     })
     const trackers = new Trackers({ run, now: () => new Date(NOW) })
-    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
     const got = trackers.get(folder, { refs: ['#12'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(trackerReadingResult.safeParse(got).success).toBe(true)

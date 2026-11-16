@@ -29,8 +29,10 @@ import {
   readSaid,
   rolesOf,
   sourceName,
+  trackerModeOf,
   type ListedSource,
   type TrackerEdit,
+  type TrackerMode,
   type TrackerEdited,
   type TrackerListing,
 } from '@/host/trackerSources.ts'
@@ -164,7 +166,10 @@ export function TrackerSourcesSettings({ door }: { door: TrackersDoor }) {
         <section className="min-w-0 space-y-2">
           <h4 className="text-sm font-medium">How they are read</h4>
           <div className="divide-y rounded-lg border px-4">
-            <Schedule every={listing.every} busy={busy} onChange={(every) => void send({ kind: 'schedule', every })} />
+            <ModeRow mode={listing.mode ?? trackerModeOf({ every: listing.every })} busy={busy} onChange={(mode) => void send({ kind: 'mode', mode })} />
+            {(listing.mode ?? trackerModeOf({ every: listing.every })) === 'schedule' ? (
+              <Schedule every={listing.every} busy={busy} onChange={(every) => void send({ kind: 'schedule', every })} />
+            ) : null}
             <RemotesRow on={listing.remotes} busy={busy} onChange={(on) => void send({ kind: 'remotes', on })} />
           </div>
           <p className="text-muted-foreground text-xs leading-relaxed">
@@ -174,6 +179,56 @@ export function TrackerSourcesSettings({ door }: { door: TrackersDoor }) {
         </section>
       )}
     </>
+  )
+}
+
+/** The words of each mode in its picker. */
+const MODE_CHOICES: ReadonlyArray<{ mode: TrackerMode; said: string }> = [
+  { mode: 'schedule', said: 'On a schedule' },
+  { mode: 'manual', said: 'Only on Refresh all' },
+  { mode: 'off', said: 'Off' },
+]
+
+/** What each mode means, under the picker. */
+const MODE_ABOUT: Readonly<Record<TrackerMode, string>> = {
+  schedule: 'At the interval below while somebody is looking, and when you press Refresh all. Nothing reads in between.',
+  manual: 'Only when you press Refresh all. Modules are shown what was last read.',
+  off: 'Never, not even on Refresh all. Modules are shown what was last read.',
+}
+
+/** "Read the trackers": on a schedule, only on a press, or not at all. */
+function ModeRow({ mode, busy, onChange }: { mode: TrackerMode; busy: boolean; onChange(mode: TrackerMode): void }) {
+  const id = useId()
+  return (
+    <div {...target(SETTINGS_TARGETS.trackerMode.target)} className={cn('flex min-w-0 items-start justify-between gap-4 py-3.5', LIT_ROW)}>
+      <div className="min-w-0 space-y-1">
+        <Label htmlFor={id} className="text-sm leading-snug">
+          Read the trackers
+        </Label>
+        <p id={`${id}-about`} className="text-muted-foreground text-xs leading-relaxed">
+          {MODE_ABOUT[mode]}
+        </p>
+      </div>
+      <div className="w-44 shrink-0">
+        <NativeSelect
+          id={id}
+          aria-label="When the host reads the trackers"
+          aria-describedby={`${id}-about`}
+          disabled={busy}
+          value={mode}
+          onChange={(e) => {
+            const picked = MODE_CHOICES.find((one) => one.mode === e.target.value)
+            if (picked) onChange(picked.mode)
+          }}
+        >
+          {MODE_CHOICES.map((one) => (
+            <NativeSelectOption key={one.mode} value={one.mode}>
+              {one.said}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      </div>
+    </div>
   )
 }
 
@@ -187,7 +242,7 @@ function Schedule({ every, busy, onChange }: { every: number; busy: boolean; onC
           Read again every
         </Label>
         <p id={`${id}-about`} className="text-muted-foreground text-xs leading-relaxed">
-          While somebody is looking at this project. Never: only when somebody presses Refresh all, or a module asks.
+          While somebody is looking at this project. A reference nobody has read yet is read by the next one.
         </p>
       </div>
       <div className="w-36 shrink-0">
@@ -200,6 +255,7 @@ function Schedule({ every, busy, onChange }: { every: number; busy: boolean; onC
           onChange={(e) => onChange(Number(e.target.value))}
         >
           {[...new Set([...EVERY_CHOICES, every])]
+            .filter((n) => n > 0)
             .sort((a, b) => a - b)
             .map((n) => (
               <NativeSelectOption key={n} value={n}>

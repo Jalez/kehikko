@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { methodResults, trackerReadingResult, type TrackerRow, type TrackerSignal } from 'kehikot-module-protocol'
+import { LIMITS, methodResults, trackerReadingResult, type TrackerRow, type TrackerSignal } from 'kehikot-module-protocol'
 import { dispositionOf, facetsOf } from 'kehikot-module-protocol/facets'
 
 import { answer, answerCall } from '../server/answers.ts'
@@ -288,7 +288,7 @@ const remotes = runner([['git -C', ok('origin\thttps://github.com/Jalez/kehikko.
 const settle = () => new Promise((r) => setTimeout(r, 60))
 
 describe('one reading per project', () => {
-  test('a ref nobody has read is pending, a read starts, and the module is told when it lands', async () => {
+  test('a ref nobody has read is pending and starts no read; the next read reads it, and the module is told when it lands', async () => {
     const told: TrackerSignal[] = []
     const adapter = fake(() => [ghRow(41, { state: 'closed', stateReason: 'COMPLETED' })])
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, told: (_root, signal) => told.push(signal), now: () => NOW })
@@ -296,6 +296,8 @@ describe('one reading per project', () => {
     if ('refused' in first) throw new Error(first.refused)
     expect(first.missing).toEqual([{ ref: 'gh#41', reason: 'pending' }])
     await settle()
+    expect(told).toEqual([])
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(told.at(-1)).toEqual({ at: NOW.toISOString(), refreshing: false })
     const second = trackers.get(folder, { refs: ['gh#41'] })
     if ('refused' in second) throw new Error(second.refused)
@@ -306,7 +308,7 @@ describe('one reading per project', () => {
 
   test('a row answers to the spelling it was asked by', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(41)]) }, now: () => NOW })
-    await trackers.refresh(folder, { refs: ['gh:Jalez/kehikko#41'] })
+    await trackers.refresh(folder, { refs: ['gh:Jalez/kehikko#41'] }, 'press')
     const got = trackers.get(folder, { refs: ['gh#41', 'gh:Jalez/kehikko#41'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows.map((r) => r.ref)).toEqual(['gh#41', 'gh:Jalez/kehikko#41'])
@@ -314,7 +316,7 @@ describe('one reading per project', () => {
 
   test('it is kept under .kehikot/host/, with an ignore line beside it', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(1)]) }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(readingFile(folder)).toBe(join(folder, '.kehikot', 'host', 'tracker-reading.json'))
     expect(existsSync(readingFile(folder)!)).toBe(true)
     expect(readFileSync(join(folder, '.kehikot', 'host', '.gitignore'), 'utf8')).toContain('tracker-reading.json')
@@ -332,9 +334,9 @@ describe('one reading per project', () => {
       adapters: { github: fake(() => [ghRow(1)], () => (down ? 'github.com could not be reached.' : null)) },
       now: () => NOW,
     })
-    expect((await trackers.refresh(folder, { project: true })).outcome).toBe('read')
+    expect((await trackers.refresh(folder, { project: true }, 'press')).outcome).toBe('read')
     down = true
-    const failed = await trackers.refresh(folder, { project: true })
+    const failed = await trackers.refresh(folder, { project: true }, 'press')
     expect(failed.outcome).toBe('failed')
     expect(failed.why).toContain('could not be reached')
     const got = trackers.get(folder, { project: true })
@@ -347,7 +349,7 @@ describe('one reading per project', () => {
   test('two presses are one read', async () => {
     const adapter = fake(() => [ghRow(1)])
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
-    const [a, b] = await Promise.all([trackers.refresh(folder, { project: true }), trackers.refresh(folder, { project: true })])
+    const [a, b] = await Promise.all([trackers.refresh(folder, { project: true }, 'press'), trackers.refresh(folder, { project: true }, 'press')])
     expect(a).toEqual(b)
     expect(adapter.reads).toBe(1)
   })
@@ -356,7 +358,7 @@ describe('one reading per project', () => {
     const adapter = fake(() => [])
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
     trackers.get(folder, { refs: ['gh#404'] })
-    await settle()
+    await trackers.refresh(folder, { project: true }, 'press')
     const reads = adapter.reads
     const got = trackers.get(folder, { refs: ['gh#404'] })
     if ('refused' in got) throw new Error(got.refused)
@@ -365,21 +367,88 @@ describe('one reading per project', () => {
     expect(adapter.reads).toBe(reads)
   })
 
+  /** A reading already full from its listing, and a tracker that answers any ref asked by name: counts the reads by name. */
+  const fullReading = () => {
+    const listed = Array.from({ length: LIMITS.TRACKER_ROWS }, (_, i) => ghRow(i + 1, { updatedAt: '2026-10-01T00:00:00.000Z' }))
+    const adapter = {
+      byName: 0,
+      async list() {
+        return { ok: true as const, rows: listed, notFound: [] }
+      },
+      async refs(_source: Source, wanted: readonly Wanted[]) {
+        adapter.byName += 1
+        return { ok: true as const, rows: wanted.map((w) => ghRow(w.number, { kind: 'change', state: 'merged', updatedAt: '2026-09-01T00:00:00.000Z' })), notFound: [] }
+      },
+      async detail() {
+        return new Map()
+      },
+    }
+    return adapter
+  }
+
+  test('a merged change read by name into a full reading is kept, and a module asking on every landing reads nothing (Jalez/kehikko#384)', async () => {
+    const adapter = fullReading()
+    const asking = (root: string, signal: TrackerSignal) => {
+      if (!signal.refreshing) trackers.get(root, { refs: ['gh#5000'] })
+    }
+    const trackers: Trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW, told: (root, signal) => asking(root, signal) })
+    await trackers.refresh(folder, { project: true }, 'press')
+    trackers.get(folder, { refs: ['gh#5000'] })
+    await new Promise((r) => setTimeout(r, 300))
+    expect(adapter.byName).toBe(0)
+    await trackers.refresh(folder, { project: true }, 'press')
+    await new Promise((r) => setTimeout(r, 300))
+    const got = trackers.get(folder, { refs: ['gh#5000'] })
+    trackers.forget(folder)
+    expect(adapter.byName).toBe(1)
+    if ('refused' in got) throw new Error(got.refused)
+    expect(got.rows.map((r) => [r.ref, r.state])).toEqual([['gh#5000', 'merged']])
+  })
+
+  test('on a schedule, a ref nobody has read, asked again and again, reads nothing until the tick or a press (Jalez/kehikko#384)', async () => {
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'trackers.json'), JSON.stringify({ version: 1, sources: [], remotes: true, every: 60 }))
+    const adapter = fullReading()
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
+    await trackers.refresh(folder, { project: true }, 'schedule')
+    for (let i = 0; i < 6; i++) {
+      const asked = trackers.get(folder, { refs: ['gh#5000'] }, 'detail')
+      if ('refused' in asked) throw new Error(asked.refused)
+      expect(asked.missing).toEqual([{ ref: 'gh#5000', reason: 'pending' }])
+      await settle()
+    }
+    expect(adapter.byName).toBe(0)
+    trackers.tick(NOW.getTime() + 59 * 60_000)
+    await settle()
+    expect(adapter.byName).toBe(0)
+    trackers.tick(NOW.getTime() + 61 * 60_000)
+    await settle()
+    const got = trackers.get(folder, { refs: ['gh#5000'] })
+    trackers.forget(folder)
+    if ('refused' in got) throw new Error(got.refused)
+    expect(adapter.byName).toBe(1)
+    expect(got.rows.map((r) => [r.ref, r.state])).toEqual([['gh#5000', 'merged']])
+  })
+
   test('a spelling for a tracker the project does not read is no-tracker', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { refs: ['#12', 'nonsense'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.missing).toEqual([{ ref: '#12', reason: 'no-tracker' }, { ref: 'nonsense', reason: 'no-tracker' }])
   })
 
-  test('detail is read when asked for by refs, and kept', async () => {
+  test('a detail asked for by refs is read by the next read, and kept', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(5)]) }, now: () => NOW })
-    await trackers.refresh(folder, { refs: ['gh#5'] })
+    await trackers.refresh(folder, { refs: ['gh#5'] }, 'press')
     const first = trackers.get(folder, { refs: ['gh#5'] }, 'detail')
     if ('refused' in first) throw new Error(first.refused)
     expect(first.rows[0]!.detail).toBeUndefined()
     await settle()
+    const unread = trackers.get(folder, { refs: ['gh#5'] }, 'detail')
+    if ('refused' in unread) throw new Error(unread.refused)
+    expect(unread.rows[0]!.detail).toBeUndefined()
+    await trackers.refresh(folder, { project: true }, 'press')
     const second = trackers.get(folder, { refs: ['gh#5'] }, 'detail')
     if ('refused' in second) throw new Error(second.refused)
     expect(second.rows[0]!.detail?.body).toBe('body of gh#5')
@@ -398,7 +467,7 @@ describe('one reading per project', () => {
       adapters: { github: fake(() => [ghRow(1), ghRow(3, { kind: 'change', state: 'merged' }), ghRow(9)]) },
       now: () => NOW,
     })
-    await trackers.refresh(folder, { epic: 'one' })
+    await trackers.refresh(folder, { epic: 'one' }, 'press')
     const got = trackers.get(folder, { epic: 'one' })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows.map((r) => r.ref).sort()).toEqual(['gh#1', 'gh#3', 'gh#9'])
@@ -411,11 +480,171 @@ describe('one reading per project', () => {
   })
 })
 
+describe('the person decides when the trackers are read (Jalez/kehikko#384)', () => {
+  const setMode = (file: Record<string, unknown>) => {
+    mkdirSync(join(folder, '.kehikot', 'host'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'trackers.json'), JSON.stringify({ version: 1, sources: [], remotes: true, ...file }))
+  }
+  /** Every read that started, as the containers are told of it. */
+  const counted = () => {
+    const started: number[] = []
+    return { started, told: (_root: string, signal: TrackerSignal) => void (signal.refreshing && started.push(1)) }
+  }
+
+  test('manual: a module asking for a known and an unknown ref, again and again, starts no read; the person’s press starts exactly one', async () => {
+    const reads = counted()
+    const adapter = fake(() => [ghRow(1), ghRow(2)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW, told: reads.told })
+    await trackers.refresh(folder, { refs: ['gh#1'] }, 'press')
+    setMode({ reading: 'manual' })
+    reads.started.length = 0
+    const before = adapter.reads
+    for (let i = 0; i < 5; i++) {
+      const got = trackers.get(folder, { refs: ['gh#1', 'gh#2'] }, 'detail')
+      if ('refused' in got) throw new Error(got.refused)
+      expect(got.rows.map((r) => r.ref)).toEqual(['gh#1'])
+      expect(got.missing).toEqual([{ ref: 'gh#2', reason: 'pending' }])
+      trackers.signal(folder)
+      trackers.columns(folder)
+      await settle()
+    }
+    expect((await trackers.refresh(folder, { refs: ['gh#2'] }, 'asked')).outcome).toBe('declined')
+    trackers.tick(NOW.getTime() + 24 * 60 * 60_000)
+    await settle()
+    expect(reads.started).toEqual([])
+    expect(adapter.reads).toBe(before)
+
+    expect((await trackers.refresh(folder, { project: true }, 'press')).outcome).toBe('read')
+    await settle()
+    expect(reads.started).toHaveLength(1)
+    const after = trackers.get(folder, { refs: ['gh#2'] })
+    if ('refused' in after) throw new Error(after.refused)
+    expect(after.rows.map((r) => r.ref)).toEqual(['gh#2'])
+  })
+
+  test('off: nothing reads, the person’s press included; what was read is still answered', async () => {
+    const reads = counted()
+    const adapter = fake(() => [ghRow(1)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW, told: reads.told })
+    await trackers.refresh(folder, { refs: ['gh#1'] }, 'press')
+    setMode({ reading: 'off' })
+    reads.started.length = 0
+    const before = adapter.reads
+    const pressed = await trackers.refresh(folder, { project: true }, 'press')
+    expect(pressed.outcome).toBe('declined')
+    expect(pressed.why).toContain('off')
+    const checked = await trackers.check(folder, gh)
+    expect(checked.ok).toBe(false)
+    const got = trackers.get(folder, { refs: ['gh#1', 'gh#9'] })
+    if ('refused' in got) throw new Error(got.refused)
+    expect(got.rows.map((r) => r.ref)).toEqual(['gh#1'])
+    expect(got.missing).toEqual([{ ref: 'gh#9', reason: 'pending' }])
+    await settle()
+    expect(reads.started).toEqual([])
+    expect(adapter.reads).toBe(before)
+  })
+
+  test('on a schedule: nothing is read before the interval is up, and the tick reads once it is', async () => {
+    setMode({ every: 60 })
+    const reads = counted()
+    const adapter = fake(() => [ghRow(1)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW, told: reads.told })
+    await trackers.refresh(folder, { project: true }, 'press')
+    reads.started.length = 0
+    for (let i = 0; i < 3; i++) {
+      trackers.get(folder, { refs: ['gh#1', 'gh#2'] }, 'detail')
+      trackers.get(folder, { project: true })
+      trackers.signal(folder)
+      trackers.columns(folder)
+      await settle()
+    }
+    const moduleAsked = await trackers.refresh(folder, { refs: ['gh#2'] }, 'asked')
+    expect(moduleAsked.outcome).toBe('declined')
+    expect(moduleAsked.why).toContain('on a schedule')
+    trackers.sourcesChanged(folder, ['https://github.com/Jalez/kehikko.git'])
+    await settle()
+    expect(reads.started).toEqual([])
+    trackers.tick(NOW.getTime() + 59 * 60_000)
+    await settle()
+    expect(reads.started).toEqual([])
+    trackers.tick(NOW.getTime() + 61 * 60_000)
+    await settle()
+    expect(reads.started).toHaveLength(1)
+    trackers.forget(folder)
+  })
+
+  test('on a schedule, the first look at a project nobody has read is read by the tick a moment later, not by the look', async () => {
+    const reads = counted()
+    const adapter = fake(() => [ghRow(1)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW, told: reads.told })
+    trackers.signal(folder)
+    trackers.get(folder, { project: true })
+    trackers.columns(folder)
+    await settle()
+    expect(reads.started).toEqual([])
+    await new Promise((r) => setTimeout(r, 1300))
+    expect(reads.started).toHaveLength(1)
+    trackers.forget(folder)
+  })
+
+  test('no way past the gate: with reading off, every entry into the reading runs no gh, no glab and no adapter', async () => {
+    mkdirSync(join(folder, '.kehikot', 'host', 'epics'), { recursive: true })
+    writeFileSync(join(folder, '.kehikot', 'host', 'epics', 'one.json'), JSON.stringify({ slug: 'one', title: 'One', steps: [{ title: 's', refs: ['gh#1'] }] }))
+    const called: string[] = []
+    const spy: Adapter = {
+      list: async () => (called.push('list'), { ok: true as const, rows: [], notFound: [] }),
+      refs: async (_source, wanted) => (called.push('refs'), { ok: true as const, rows: wanted.map((w) => ghRow(w.number)), notFound: [] }),
+      detail: async () => (called.push('detail'), new Map()),
+      boards: async () => (called.push('boards'), null),
+      branches: async () => (called.push('branches'), null),
+      me: async () => (called.push('me'), { login: 'me' }),
+    }
+    const run = runner([['git -C', ok('origin\thttps://github.com/Jalez/kehikko.git (fetch)')]])
+    const fetched: string[] = []
+    const trackers = new Trackers({
+      run,
+      adapters: { github: spy, gitlab: spy },
+      now: () => NOW,
+      images: { token: async () => 'token', fetch: async (url) => (fetched.push(String(url)), new Response('')) },
+    })
+    await trackers.refresh(folder, { refs: ['gh#1'] }, 'press')
+    setMode({ reading: 'off' })
+    called.length = 0
+    run.asked.length = 0
+    trackers.signal(folder)
+    trackers.get(folder, { project: true })
+    trackers.get(folder, { refs: ['gh#1', 'gh#2'] }, 'detail')
+    trackers.get(folder, { epic: 'one' }, 'detail')
+    trackers.columns(folder)
+    trackers.live(folder, 'one')
+    for (const by of ['asked', 'schedule', 'press'] as const) await trackers.refresh(folder, { project: true }, by)
+    await trackers.refresh(folder, { refs: ['gh#3'] }, 'press')
+    await trackers.refresh(folder, { epic: 'one' }, 'press')
+    await trackers.check(folder, gh)
+    await trackers.image(folder, 'gh#1', 'https://github.com/user-attachments/assets/x.png')
+    trackers.sourcesChanged(folder, ['https://github.com/Jalez/kehikko.git'])
+    trackers.tick(NOW.getTime() + 24 * 60 * 60_000)
+    await settle()
+    trackers.forget(folder)
+    expect(called).toEqual([])
+    expect(fetched).toEqual([])
+    expect(run.asked.filter((argv) => argv[0] === 'gh' || argv[0] === 'glab')).toEqual([])
+  })
+
+  test('every read of the reading starts in refresh, after the gate', () => {
+    const source = readFileSync(join(import.meta.dir, '..', 'server', 'trackers', 'reading.ts'), 'utf8')
+    expect(source.split('this.#read(').length - 1).toBe(1)
+    const refresh = source.slice(source.indexOf('  refresh(root: string, scope: Scope, by: ReadBy'), source.indexOf('this.#read('))
+    expect(refresh).toContain('const refused = this.refusal(root, by)')
+    expect(refresh.indexOf('this.refusal(root, by)')).toBeLessThan(refresh.indexOf('if (held.running)'))
+  })
+})
+
 describe('a project removed from the list', () => {
   test('is not read or written by the schedule again', async () => {
     const adapter = fake(() => [ghRow(1)])
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const reads = adapter.reads
     /* The person removes the folder from the list, then deletes its .kehikot/. */
     trackers.forget(folder)
@@ -436,7 +665,7 @@ describe('a project removed from the list', () => {
       return list(...args)
     }
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
-    const read = trackers.refresh(folder, { project: true })
+    const read = trackers.refresh(folder, { project: true }, 'press')
     await settle()
     trackers.forget(folder)
     release()
@@ -461,36 +690,24 @@ describe('a project removed from the list', () => {
     expect(body.indexOf('watchOpenProjects()')).toBeGreaterThan(forgotten)
   })
 
-  test('an agent\'s read that refreshes, removed while it reads, answers without holding it again', async () => {
-    let release = () => {}
-    const held = new Promise<void>((done) => (release = done))
+  test('an agent\'s read that refreshes reads nothing, and a project removed after it is not read or written again (Jalez/kehikko#384)', async () => {
     const adapter = fake(() => [ghRow(1)])
-    const list = adapter.list
-    adapter.list = async (...args) => {
-      await held
-      return list(...args)
-    }
     const db = open(':memory:')
     const added = addProject(db, folder, 'p')
     if (!added.ok) throw new Error(added.why)
     const made = createCanvas(db, 'k', added.project.id)
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
     const door: Door = { db, which: () => new Openness().open(), wake: () => {}, epicsChanged: () => {}, dispositionsChanged: () => {}, seen: async () => [], trackers }
-    const asked = call('read_tracker', { kehikko: made.id, refresh: true }, door)
-    await settle()
+    const said = await call('read_tracker', { kehikko: made.id, refresh: true }, door)
+    expect(said.text).toContain('Refreshed: declined')
+    expect(said.text).toContain('Refresh all')
+    expect(adapter.reads).toBe(0)
     expect(forgetProject(db, added.project.id).ok).toBe(true)
     trackers.forget(folder)
-    rmSync(join(folder, '.kehikot'), { recursive: true })
-    release()
-    const said = await asked
-    expect(said.failed).toBe(true)
-    expect(said.text).toContain('no longer on the project list')
-    await settle()
-    expect(existsSync(join(folder, '.kehikot'))).toBe(false)
-    const reads = adapter.reads
+    rmSync(join(folder, '.kehikot'), { recursive: true, force: true })
     trackers.tick(Date.now() + 20 * 60_000)
     await settle()
-    expect(adapter.reads).toBe(reads)
+    expect(adapter.reads).toBe(0)
     expect(existsSync(join(folder, '.kehikot'))).toBe(false)
     db.close()
   })
@@ -506,9 +723,9 @@ describe('a project removed from the list', () => {
     }
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
     /* A narrower read is running, and a whole-project read waits behind it. */
-    const narrow = trackers.refresh(folder, { refs: ['gh#1'] })
+    const narrow = trackers.refresh(folder, { refs: ['gh#1'] }, 'press')
     await settle()
-    const waiting = trackers.refresh(folder, { project: true })
+    const waiting = trackers.refresh(folder, { project: true }, 'press')
     trackers.forget(folder)
     release()
     await narrow
@@ -583,8 +800,8 @@ describe('an issue carries every held change that declares it', () => {
       adapters: { gitlab: twoReads(() => listed, () => [glRow('issue', 12, { state: 'closed' })]) },
       now: () => NOW,
     })
-    await trackers.refresh(folder, { project: true })
-    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
     expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
     expect(facetsOf(rowOf(trackers, '#12'))).toEqual(['issue:closed', 'closed:done'])
   })
@@ -596,11 +813,11 @@ describe('an issue carries every held change that declares it', () => {
       adapters: { gitlab: twoReads(() => listed, () => [glRow('issue', 12, { state: 'closed' })]) },
       now: () => NOW,
     })
-    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
     expect(rowOf(trackers, '#12').links).toEqual([])
     /* The issue is too old for the listing; only its merge request is in it. */
     listed = [glRow('change', 7, { state: 'merged', ...closes12 })]
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
     /* And a second host process reads it back linked. */
     const again = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => []) }, now: () => NOW })
@@ -617,18 +834,18 @@ describe('an issue carries every held change that declares it', () => {
       adapters: { gitlab: twoReads(() => listed, () => [glRow('change', 7, { state: 'merged', ...closes12 })]) },
       now: clock(),
     })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(rowOf(trackers, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by', state: 'open' }])
-    await trackers.refresh(folder, { refs: ['!7'] })
+    await trackers.refresh(folder, { refs: ['!7'] }, 'press')
     expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by', state: 'merged' }] })
   })
 
   test('a merge request read by ref alone links the issue already held', async () => {
     const named = [glRow('issue', 12), glRow('change', 7, closes12), glRow('change', 8, closes12)]
     const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: twoReads(() => [], () => named) }, now: () => NOW })
-    await trackers.refresh(folder, { refs: ['#12'] })
-    await trackers.refresh(folder, { refs: ['!7'] })
-    await trackers.refresh(folder, { refs: ['!8'] })
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
+    await trackers.refresh(folder, { refs: ['!7'] }, 'press')
+    await trackers.refresh(folder, { refs: ['!8'] }, 'press')
     expect(rowOf(trackers, '#12').links).toEqual([{ ref: '!7', relation: 'closed-by', state: 'open' }, { ref: '!8', relation: 'closed-by', state: 'open' }])
     /* Open declarers say nothing about how it closed. */
     expect('closedByMerge' in rowOf(trackers, '#12')).toBe(false)
@@ -643,10 +860,10 @@ describe('an issue carries every held change that declares it', () => {
       adapters: { gitlab: twoReads(() => [], () => [glRow('issue', 12, { state: 'closed', readAt: now().toISOString() }), merge()]) },
       now,
     })
-    await trackers.refresh(folder, { refs: ['#12', '!7'] })
+    await trackers.refresh(folder, { refs: ['#12', '!7'] }, 'press')
     expect(rowOf(trackers, '#12')).toMatchObject({ closedByMerge: true, links: [{ ref: '!7', relation: 'closed-by' }] })
     declares = false
-    await trackers.refresh(folder, { refs: ['!7'] })
+    await trackers.refresh(folder, { refs: ['!7'] }, 'press')
     expect(rowOf(trackers, '#12').links).toEqual([])
     expect('closedByMerge' in rowOf(trackers, '#12')).toBe(false)
   })
@@ -679,8 +896,8 @@ describe('an issue carries every held change that declares it', () => {
       adapters: { github: twoReads(() => [ghRow(1, { state: 'closed' })], () => named) },
       now: () => NOW,
     })
-    await trackers.refresh(folder, { project: true })
-    await trackers.refresh(folder, { refs: ['gh#2', 'gh#3'] })
+    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { refs: ['gh#2', 'gh#3'] }, 'press')
     const got = trackers.get(folder, { refs: ['gh#1', 'gh#2'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows[0]).toMatchObject({ closedByMerge: true, links: [{ ref: 'gh#3', relation: 'closed-by' }] })
@@ -715,7 +932,7 @@ describe('live.get folds changes under their issues from the reading', () => {
       ghRow(8, { kind: 'change', ...closes('gh#6') }),
     ]
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const live = trackers.live(folder, 'one')!
     expect(live.ghLinks).toEqual({ 'gh:Jalez/kehikko#2': [3], 'gh#70': [5], 'gh#6': [90, 8] })
     expect(live.links).toEqual({})
@@ -740,7 +957,7 @@ describe('live.get folds changes under their issues from the reading', () => {
       glRow('change', 3070),
     ]
     const trackers = new Trackers({ run: glRemotes, adapters: { gitlab: fake(() => rows) }, now: () => NOW })
-    await trackers.refresh(folder, { epic: 'one' })
+    await trackers.refresh(folder, { epic: 'one' }, 'press')
     const live = trackers.live(folder, 'one')!
     expect(live.links).toEqual({ '2252': [3053, 3058] })
     expect(live.ghLinks).toEqual({})
@@ -763,7 +980,7 @@ describe('live.get folds changes under their issues from the reading', () => {
     )
     const rows = [ghRow(2), ghRow(3, { kind: 'change', ...closes('gh#2') }), ghRow(20, { kind: 'change', ...closes('gh#2') })]
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const given = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
     if (!given.ok) throw new Error(given.error)
     const live = given.data as Record<string, unknown>
@@ -777,7 +994,7 @@ describe('the methods, answered', () => {
   const known = () => true
   test('tracker.get is answered from the reading, in the protocol’s shape', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(1)]) }, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const given = answer('example.notes', 'tracker.get', { refs: ['gh#1'] }, known, undefined, folder, undefined, trackers)
     expect(given.ok).toBe(true)
     if (given.ok) expect(methodResults['tracker.get']!.parse(given.data).rows[0].ref).toBe('gh#1')
@@ -787,10 +1004,12 @@ describe('the methods, answered', () => {
     expect(nowhere.ok).toBe(false)
   })
 
-  test('tracker.refresh answers when the read lands', async () => {
-    const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(1)]) }, now: () => NOW })
+  test('tracker.refresh reads nothing for a module: it is declined with the reason (Jalez/kehikko#384)', async () => {
+    const adapter = fake(() => [ghRow(1)])
+    const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
     const given = await answerCall('example.notes', 'tracker.refresh', { project: true }, known, () => {}, folder, () => ({ ok: false, why: '' }), trackers)
-    expect(given).toEqual({ ok: true, data: { outcome: 'read', at: NOW.toISOString(), why: '' } })
+    expect(given.ok && (given.data as { outcome: string; why: string })).toMatchObject({ outcome: 'declined', why: expect.stringContaining('Refresh all') })
+    expect(adapter.reads).toBe(0)
     const elsewhere = await answerCall('example.notes', 'tracker.refresh', { project: true }, known, () => {}, null, () => ({ ok: false, why: '' }), trackers)
     expect(elsewhere.ok && (elsewhere.data as { outcome: string }).outcome).toBe('declined')
   })
@@ -815,7 +1034,7 @@ describe('live.get from the shared reading alone', () => {
     put(folder, { slug: 'one', title: 'One', steps: [] })
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
     expect(trackers.live(folder, 'one')).toBeNull()
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const live = trackers.live(folder, 'one')!
     expect(live.generated).toBe(NOW.toISOString())
     expect(live.ghIssues).toEqual({})
@@ -828,7 +1047,7 @@ describe('live.get from the shared reading alone', () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
     const before = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
     expect(before.ok).toBe(false)
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const after = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
     if (!after.ok) throw new Error(after.error)
     expect((after.data as Record<string, unknown>).generated).toBe(NOW.toISOString())

@@ -1224,6 +1224,20 @@
 
 ## Tracker sources
 
+- The person decides when the trackers are read (`reading` in trackers.json,
+  `trackerModeOf`): on the schedule (`every`, the default: its tick and the
+  person's press, nothing in between), `manual` (only the person's Refresh all,
+  `POST /host/tracker/refresh`, `PAGE_ONLY`, and Check), or `off` (nothing, a
+  press included). Every read of the reading starts in `Trackers.refresh` behind
+  `refusal(root, by)`; a new read path goes through it, never around it. No
+  question starts a read, in any mode: not a module's `tracker.get` or
+  `tracker.refresh`, an agent's `read_tracker`, a first look or an edit of the
+  sources. A ref not read yet, or a detail, is answered `pending` (detail absent)
+  and kept among the asked, so the next allowed read reads it. A project nobody
+  has read is read by the tick `FIRST_LOOK_MS` after somebody first looks.
+- A reading holds at most `TRACKER_ROWS`; the rows somebody names are kept first
+  (`keptRows`). A ref read by name and then cut would be read again on every
+  question (#384).
 - A project's sources are its git remotes plus `<project>/.kehikot/host/trackers.json`.
   The ONE writer of that file is `editTrackers` in `server/trackers/edit.ts`
   (one edit per call, whole file kept, no change → no write); the page reaches it

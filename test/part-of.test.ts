@@ -230,7 +230,7 @@ describe('an epic’s issues come with the changes that are part of them', () =>
       ...GL_MERGES.map((m) => mergeRow(gl, m, NOW)!),
     ]
     const trackers = new Trackers({ run: remotes, adapters: { gitlab: fake(rows) }, now: () => new Date(NOW) })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { epic: 'one' })
     if ('refused' in got) throw new Error(got.refused)
     const refs = got.rows.map((r) => r.ref)

@@ -143,7 +143,7 @@ describe('GitHub Projects, without read:project', () => {
       return queryOf(argv).includes('projectItems') ? ok(fixture('github-no-scope'), 1) : ok(fixture('github-without-boards'))
     })
     const trackers = new Trackers({ run: sync, now: () => NOW })
-    const result = await trackers.refresh(folder, { project: true })
+    const result = await trackers.refresh(folder, { project: true }, 'press')
     expect(result.outcome).toBe('read')
     const listing = trackers.listing(folder, [{ name: 'origin', url: 'https://github.com/Jalez/kehikko.git' }])
     expect(listing.boardsNote).toBe(NEEDS_PROJECT_SCOPE)
@@ -170,7 +170,7 @@ describe('GitLab boards', () => {
   test('an issue is in the list whose scoped label it carries; open without one is Open, closed is Closed', async () => {
     const run = glab()
     const trackers = new Trackers({ run, now: () => NOW })
-    expect((await trackers.refresh(folder, { project: true })).outcome).toBe('read')
+    expect((await trackers.refresh(folder, { project: true }, 'press')).outcome).toBe('read')
     /* One call for the boards, beside the listing. */
     expect(run.asked.filter((a) => a.join(' ').includes('/boards'))).toHaveLength(1)
     const got = trackers.get(folder, { project: true })
@@ -189,7 +189,7 @@ describe('GitLab boards', () => {
 
   test('tracker.columns lists the boards with their lists in board order', async () => {
     const trackers = new Trackers({ run: glab(), now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const columns = trackers.columns(folder)
     expect(trackerColumnsResult.safeParse(columns).success).toBe(true)
     expect(columns).toEqual({
@@ -206,7 +206,7 @@ describe('GitLab boards', () => {
 
   test('the boards and the columns survive a second host process reading the cache', async () => {
     const trackers = new Trackers({ run: glab(), now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const again = new Trackers({ run: glab(), now: () => NOW })
     const got = again.get(folder, { refs: ['#12'] })
     if ('refused' in got) throw new Error(got.refused)
@@ -233,7 +233,7 @@ describe('absent boards', () => {
       return ok([])
     })
     const trackers = new Trackers({ run, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { project: true })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows.length).toBeGreaterThan(0)
@@ -252,7 +252,7 @@ describe('absent boards', () => {
       return ok([])
     })
     const trackers = new Trackers({ run, now: () => NOW })
-    expect((await trackers.refresh(folder, { project: true })).outcome).toBe('read')
+    expect((await trackers.refresh(folder, { project: true }, 'press')).outcome).toBe('read')
     expect(trackers.columns(folder)).toEqual({ boards: [] })
   })
 
@@ -263,7 +263,7 @@ describe('absent boards', () => {
       argv[0] === 'git' ? { code: 0, out: 'origin\thttps://github.com/Jalez/kehikko.git (fetch)', err: '' } : ok(empty),
     )
     const trackers = new Trackers({ run, now: () => NOW })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { project: true })
     if ('refused' in got) throw new Error(got.refused)
     for (const row of got.rows) expect('column' in row).toBe(false)

@@ -4848,7 +4848,7 @@ async function answerRequest(request: Request): Promise<Response> {
       if (edit.kind === 'check') {
         const spelled = spell(edit.input, edit.tracker, edit.host)
         if (!spelled.ok) return json({ outcome: 'declined', why: spelled.why, needs: spelled.needs ?? null, said: '' })
-        const found = await trackers.check({ tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
+        const found = await trackers.check(project.path, { tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
         return json(
           found.ok
             ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issue${found.issues === 1 && !found.capped ? '' : 's'}, ${found.changes}${found.capped ? '+' : ''} change${found.changes === 1 && !found.capped ? '' : 's'} found.`, issues: found.issues, changes: found.changes, source: spelled }
@@ -4932,7 +4932,7 @@ async function answerRequest(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => null)) as { project?: unknown } | null
       const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      return json(await trackers.refresh(project.path, { project: true }))
+      return json(await trackers.refresh(project.path, { project: true }, 'press'))
     }
 
     /*

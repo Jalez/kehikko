@@ -29,9 +29,9 @@ import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
 import { withRoles } from './roles.ts'
 import { withStacks } from './stacks.ts'
-import { detailCurrent, detailVersion } from './itemDetail.ts'
+import { detailCurrent } from './itemDetail.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
-import type { TrackerListing } from '../../src/host/trackerSources.ts'
+import { MODE_REFUSED, trackerModeOf, type TrackerListing, type TrackerMode } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
 import { inScope, READS_DEFAULT, readsKey, writtenReads } from '../../src/host/trackerReads.ts'
 import { basename } from 'node:path'
@@ -108,6 +108,8 @@ const FILE_NAME = 'tracker-reading'
 const VERSION = 1
 /** How many of each kind a listed source's listing reads. A module's number, measured there. */
 export const LIST_LIMIT = 400
+/** How soon after somebody first looks at a project nobody has read the schedule's tick reads it. */
+const FIRST_LOOK_MS = 1000
 /** How long a project counts as looked at after its last question, for the schedule. */
 const LOOKED_AT_MS = 30 * 60_000
 /** How long who the person is on a tracker host is believed. */
@@ -299,6 +301,24 @@ function closedByDeclarers(rows: TrackerRow[], within: (row: TrackerRow, ref: st
 /** A sentence cut to what a reason may be. */
 const clip = (text: string) => (text.length > LIMITS.REASON ? `${text.slice(0, LIMITS.REASON - 1)}…` : text)
 
+/**
+ * The rows a reading keeps, at most `TRACKER_ROWS`: every row somebody names, then the rest newest
+ * updated first, in the order they came. A ref read by name and then cut for room would be missing
+ * at the next question and read again on every one (Jalez/kehikko#384).
+ */
+function keptRows(rows: TrackerRow[], named: ReadonlySet<string>): TrackerRow[] {
+  if (rows.length <= LIMITS.TRACKER_ROWS) return rows
+  const unnamed = rows.filter((row) => !named.has(rowIdentity(row)))
+  const room = Math.max(0, LIMITS.TRACKER_ROWS - (rows.length - unnamed.length))
+  const roomFor = new Set(
+    unnamed
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+      .slice(0, room)
+      .map(rowIdentity),
+  )
+  return rows.filter((row) => named.has(rowIdentity(row)) || roomFor.has(rowIdentity(row))).slice(0, LIMITS.TRACKER_ROWS)
+}
+
 /** A board's identity across sources: one GitHub project may hold several repositories' items. */
 const boardKey = (b: Pick<HeldBoard, 'board' | 'boardUrl'>) => `${b.board}|${b.boardUrl ?? ''}`
 
@@ -426,6 +446,13 @@ export function epicPlacesByRef(root: string): Map<string, EpicPlace[]> {
  */
 export type Scope = { refs: string[] } | { epic: string; also?: readonly string[] } | { project: true }
 
+/**
+ * Who a read is for, which the project's mode lets through or not (`Trackers.refusal`): the
+ * person's press of Refresh all or Check, the schedule's tick, or a module's or an agent's
+ * refresh, which no mode reads for.
+ */
+export type ReadBy = 'press' | 'schedule' | 'asked'
+
 /** The refs an epic scope covers: the epic's own, then `also` that it does not name. Null for no such epic. */
 function epicScopeRefs(root: string, scope: { epic: string; also?: readonly string[] }): string[] | null {
   const own = epicRefs(root, scope.epic)
@@ -439,12 +466,10 @@ interface Held {
   sources: Source[] | null
   running: Promise<TrackerRefreshResult> | null
   runningScope: Scope | null
-  /** Refs and details asked for while nothing covered them, read on the next tick. */
-  queued: Set<string>
+  /** Details asked for and not read yet: the next read that covers the ref reads them. */
   queuedDetail: Set<string>
-  /** Details asked for, by identity and version, so each is asked once. */
-  detailTried: Set<string>
-  kick: ReturnType<typeof setTimeout> | null
+  /** The schedule's first look at a project nobody has read, a moment after somebody first looks (`FIRST_LOOK_MS`). */
+  soon: ReturnType<typeof setTimeout> | null
   lookedAt: number
   /** Per source key: why the person's roles there are not whole, in the sentence they are told. */
   peopleNotes: Map<string, { about: 'me' | 'reviewers'; said: string }>
@@ -515,6 +540,7 @@ export class Trackers {
     const key = `${row.tracker}|${row.host}|${address}`
     const hit = this.#pictures.get(key)
     if (hit && this.#now().getTime() - hit.at < 10 * 60_000) return hit.image
+    if (this.#modeOf(root).mode === 'off') return { outcome: 'declined', why: 'unreadable' }
     const image = await fetchTrackerImage(row, address, this.#images)
     if (image.outcome === 'image') {
       this.#pictures.delete(key)
@@ -539,10 +565,8 @@ export class Trackers {
         sources: null,
         running: null,
         runningScope: null,
-        queued: new Set(),
         queuedDetail: new Set(),
-        detailTried: new Set(),
-        kick: null,
+        soon: null,
         lookedAt: 0,
         peopleNotes: new Map(),
       }
@@ -555,9 +579,7 @@ export class Trackers {
   signal(root: string): TrackerSignal {
     const held = this.#of(root)
     held.lookedAt = Date.now()
-    /* Nothing read yet, and nothing reading: the first look at a project starts
-       its first read. Not at startup — when somebody is actually looking. */
-    if (held.stored.at === null && !held.running) this.#start(root, { project: true })
+    if (held.stored.at === null && !held.running) this.#firstLook(root)
     return { at: held.stored.at, refreshing: held.running !== null }
   }
 
@@ -608,8 +630,44 @@ export class Trackers {
       peopleNote: [...held.peopleNotes].find(([key]) => stored.has(key))?.[1].said ?? null,
       remotes: config.config.remotes,
       every: config.config.every,
+      mode: trackerModeOf(config.config),
       broken: null,
     }
+  }
+
+  /** When the project's trackers are read, from its file; a file that will not read is read as its defaults are. */
+  #modeOf(root: string): { mode: TrackerMode; every: number } {
+    const config = readConfig(root)
+    return config.ok ? { mode: trackerModeOf(config.config), every: config.config.every } : { mode: 'schedule', every: EVERY_DEFAULT }
+  }
+
+  /**
+   * The one gate every tracker read passes (`refresh`, and `check` as a press; `image` fetches
+   * nothing when the mode is off): why a read asked `by` may not be made in this project now, or
+   * null when it may. Off reads nothing, a press included; manual reads only on the person's
+   * press; the schedule reads on its tick and on the person's press. Nothing else starts a read:
+   * a question, a module's or an agent's refresh, a first look or an edit waits for one of those.
+   */
+  refusal(root: string, by: ReadBy): string | null {
+    const { mode } = this.#modeOf(root)
+    if (mode === 'off') return MODE_REFUSED.off
+    if (by === 'press' || (by === 'schedule' && mode === 'schedule')) return null
+    return MODE_REFUSED[mode]
+  }
+
+  /**
+   * A project nobody has read, looked at: on the schedule, its tick comes a moment later
+   * (`FIRST_LOOK_MS`) instead of at the next minute. The read is the tick's own, so the mode
+   * decides it as it decides every other.
+   */
+  #firstLook(root: string): void {
+    const held = this.#of(root)
+    if (held.soon || held.stored.fullAt !== null || this.#modeOf(root).mode !== 'schedule') return
+    held.soon = setTimeout(() => {
+      held.soon = null
+      this.tick()
+    }, FIRST_LOOK_MS)
+    ;(held.soon as { unref?: () => void }).unref?.()
   }
 
   /** `listing`, with the project's remotes asked of git. */
@@ -631,8 +689,8 @@ export class Trackers {
 
   /**
    * The file changed: work the sources out again at once, so the next answer
-   * is the new list, and read. Every container is told when the read starts
-   * and lands, as for any read.
+   * is the new list. What they hold is read by the next read the mode allows:
+   * the schedule's tick or the person's Refresh all.
    */
   sourcesChanged(root: string, remotes: readonly string[]): void {
     const held = this.#of(root)
@@ -642,14 +700,15 @@ export class Trackers {
       remotes,
       [...allEpicRefs(root), ...held.stored.asked],
     )
-    this.#start(root, { project: true })
   }
 
   /**
    * Read one source once, now, as it would be read — nothing is stored. What
    * it found in counts, or why it could not in words with the next step.
    */
-  async check(source: Source): Promise<{ ok: true; issues: number; changes: number; capped: boolean } | { ok: false; why: string }> {
+  async check(root: string, source: Source): Promise<{ ok: true; issues: number; changes: number; capped: boolean } | { ok: false; why: string }> {
+    const refused = this.refusal(root, 'press')
+    if (refused) return { ok: false, why: refused }
     const adapter = this.#adapters[source.tracker]
     const limit = 100
     const read = await adapter.list(source, limit, this.#now().toISOString())
@@ -703,12 +762,16 @@ export class Trackers {
     const known = sources.length > 0 || held.stored.at !== null
     const byId = new Map(held.stored.rows.map((row) => [rowIdentity(row), row]))
     const notFound = new Set(held.stored.notFound)
+    /* A question starts no read: the ref is kept among the asked, and the next read the mode allows (its tick, the person's press) reads it. */
+    const want = (ref: string) => {
+      if (!held.stored.asked.includes(ref)) held.stored = { ...held.stored, asked: [...held.stored.asked, ref].slice(-LIMITS.TRACKER_ROWS) }
+    }
 
     let rows: TrackerRow[] = []
     const missing: TrackerMissing[] = []
     if ('project' in scope) {
       rows = [...byId.values()]
-      if (held.stored.at === null) this.#start(root, { project: true })
+      if (held.stored.at === null) this.#firstLook(root)
     } else {
       const refs = 'refs' in scope ? scope.refs : epicScopeRefs(root, scope)
       if (refs === null) return { refused: 'There is no epic here under that name.' }
@@ -723,7 +786,7 @@ export class Trackers {
           /* A short spelling with no default source for its tracker. Before
              the first read nobody knows the sources yet, so it waits for one. */
           missing.push({ ref, reason: known ? 'no-tracker' : 'pending' })
-          if (!known) held.queued.add(ref)
+          if (!known) want(ref)
           continue
         }
         const found = source ? this.#find(byId, source, name.kind, name.number) : undefined
@@ -731,14 +794,8 @@ export class Trackers {
           const asked = { ...found, ref }
           if (detail === 'summary') delete asked.detail
           else if (!detailCurrent(found)) {
-            /* Asked once per version of the ref: a detail that could not be
-               read is not asked again on every question, which would be a
-               module and this host re-asking each other forever. */
-            const tried = `${rowIdentity(found)}@${detailVersion(found)}`
-            if (!held.detailTried.has(tried)) {
-              held.detailTried.add(tried)
-              held.queuedDetail.add(ref)
-            }
+            want(ref)
+            held.queuedDetail.add(ref)
           }
           rows.push(asked)
           continue
@@ -754,7 +811,7 @@ export class Trackers {
           continue
         }
         missing.push({ ref, reason: 'pending' })
-        held.queued.add(ref)
+        want(ref)
         if (detail === 'detail') held.queuedDetail.add(ref)
       }
       /* An epic's issues come with the changes that are part of them
@@ -777,7 +834,6 @@ export class Trackers {
           }
         }
       }
-      this.#kick(root)
     }
 
     return {
@@ -797,7 +853,7 @@ export class Trackers {
   columns(root: string): TrackerColumns {
     const held = this.#of(root)
     held.lookedAt = Date.now()
-    if (held.stored.at === null) this.#start(root, { project: true })
+    if (held.stored.at === null) this.#firstLook(root)
     const now = new Set(this.#sourcesFor(held).map(sourceKey))
     const seen = new Map<string, TrackerColumns['boards'][number]>()
     for (const one of held.stored.boards) {
@@ -902,36 +958,24 @@ export class Trackers {
     })
   }
 
-  /** Read what was queued, once whatever is running has finished. */
-  #kick(root: string): void {
-    const held = this.#held.get(root)
-    if (!held || held.kick || (!held.queued.size && !held.queuedDetail.size)) return
-    held.kick = setTimeout(() => {
-      held.kick = null
-      const refs = [...new Set([...held.queued, ...held.queuedDetail])]
-      held.queued.clear()
-      if (!refs.length) return
-      void this.refresh(root, { refs: refs.slice(0, LIMITS.TRACKER_ROWS) }).catch(() => {})
-    }, 25)
-  }
-
-  #start(root: string, scope: Scope): void {
-    void this.refresh(root, scope).catch(() => {})
-  }
 
   /**
-   * Read the trackers for one scope and answer when the read lands.
+   * Read the trackers for one scope and answer when the read lands — or decline at once, reading
+   * nothing, when the project's mode does not let a read `by` through (`refusal`). Every read of
+   * the reading starts here.
    *
    * Joins a whole-project read already running; waits behind anything else.
    */
-  refresh(root: string, scope: Scope): Promise<TrackerRefreshResult> {
+  refresh(root: string, scope: Scope, by: ReadBy): Promise<TrackerRefreshResult> {
     const held = this.#of(root)
     held.lookedAt = Date.now()
+    const refused = this.refusal(root, by)
+    if (refused) return Promise.resolve({ outcome: 'declined', at: held.stored.at, why: refused })
     if (held.running) {
       if (held.runningScope && 'project' in held.runningScope) return held.running
       /* Asked again once that lands, unless the project was forgotten meanwhile: that would hold it, and write there, anew. */
       const again = (): Promise<TrackerRefreshResult> =>
-        this.#held.has(root) ? this.refresh(root, scope) : Promise.resolve({ outcome: 'declined', at: null, why: 'This project is no longer on the list.' })
+        this.#held.has(root) ? this.refresh(root, scope, by) : Promise.resolve({ outcome: 'declined', at: null, why: 'This project is no longer on the list.' })
       const after = held.running.then(again, again)
       return after
     }
@@ -939,7 +983,6 @@ export class Trackers {
       held.running = null
       held.runningScope = null
       this.#told(root, { at: held.stored.at, refreshing: false })
-      this.#kick(root)
     })
     held.running = run
     held.runningScope = scope
@@ -1277,7 +1320,7 @@ export class Trackers {
           ...listedSaid(key, was),
         }
       }),
-      rows: withBranches(placedOnBoards(withStacks(backLinked(roled)), boards), branches).slice(0, LIMITS.TRACKER_ROWS),
+      rows: keptRows(withBranches(placedOnBoards(withStacks(backLinked(roled)), boards), branches), wantedIds),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
       notFound: [...notFound].slice(-LIMITS.TRACKER_ROWS),
@@ -1340,7 +1383,7 @@ export class Trackers {
   forget(root: string): void {
     const held = this.#held.get(root)
     if (!held) return
-    if (held.kick) clearTimeout(held.kick)
+    if (held.soon) clearTimeout(held.soon)
     this.#held.delete(root)
   }
 
@@ -1352,11 +1395,10 @@ export class Trackers {
   tick(now: number = Date.now()): void {
     for (const [root, held] of this.#held) {
       if (held.running || now - held.lookedAt > LOOKED_AT_MS) continue
-      const config = readConfig(root)
-      const every = config.ok ? config.config.every : EVERY_DEFAULT
-      if (every <= 0) continue
+      const { mode, every } = this.#modeOf(root)
+      if (mode !== 'schedule') continue
       const last = held.stored.fullAt ? Date.parse(held.stored.fullAt) : 0
-      if (now - last >= every * 60_000) this.#start(root, { project: true })
+      if (now - last >= every * 60_000) void this.refresh(root, { project: true }, 'schedule').catch(() => {})
     }
   }
 }
