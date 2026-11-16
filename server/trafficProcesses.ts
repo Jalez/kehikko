@@ -147,7 +147,41 @@ export function parseListeners(text: string): Map<number, number> {
   return out
 }
 
-const LOOPBACK = (host: string) => host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
+/** How long which process listens on which port is believed: a module started by hand keeps its port for longer than this. */
+export const LISTENERS_MS = 30_000
+
+/**
+ * Which pid listens on each TCP port (`lsof … -sTCP:LISTEN`), for the modules somebody started by
+ * hand: asked at most once per `LISTENERS_MS` and once for looks that want it together, so a
+ * sampler looking every few seconds and the caller lookup do not each start an `lsof` for the
+ * answer they had a moment ago (Jalez/kehikko#384). A module started meanwhile is named from the
+ * next reading.
+ */
+export class ListenerTable {
+  #run: (argv: string[]) => Promise<string | null>
+  #now: () => number
+  #held: { at: number; table: Map<number, number> } | null = null
+  #reading: Promise<Map<number, number>> | null = null
+
+  constructor(deps: { run?: (argv: string[]) => Promise<string | null>; now?: () => number } = {}) {
+    this.#run = deps.run ?? runQuiet
+    this.#now = deps.now ?? Date.now
+  }
+
+  read(): Promise<Map<number, number>> {
+    if (this.#held && this.#now() - this.#held.at < LISTENERS_MS) return Promise.resolve(this.#held.table)
+    this.#reading ??= (async () => {
+      const table = parseListeners((await this.#run(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])) ?? '')
+      this.#held = { at: this.#now(), table }
+      return table
+    })().finally(() => {
+      this.#reading = null
+    })
+    return this.#reading
+  }
+}
+
+const LOOPBACK =(host: string) => host === '127.0.0.1' || host === '::1' || host === 'localhost' || host.startsWith('127.')
 const UNKNOWN = (host: string) => host === '*' || host === '' || host === '0.0.0.0' || host === '::'
 
 export interface SamplerDeps {
