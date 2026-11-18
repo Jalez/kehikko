@@ -1,0 +1,466 @@
+import type { Database } from 'bun:sqlite'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { basename, isAbsolute, join, resolve } from 'node:path'
+
+import { readBundleInfo } from 'kehikot-module-protocol/bundle'
+
+import { isUnder } from './moduleBuilds.ts'
+import type { Official } from './official.ts'
+import { splitRemote } from './trackers/sources.ts'
+import { startedOnSaid, summarySaid, type DevModule, type Development, type MoveStep } from '../src/host/development.ts'
+
+/**
+ * "Kehikko development": where the official modules run from — Kehikot's releases, or the person's
+ * own folders — and the one path that moves a module from one to the other. The words and the
+ * shapes are `src/host/development.ts`.
+ *
+ * ## The rule
+ *
+ * Every official module has a place it should run from (`wantsOf`): its development folder when
+ * development is on, it has one, and the person has not said "use the release for this one";
+ * otherwise its release, `installed/<id>/`. Only official modules that are registered on this
+ * computer are ever moved; a module on no list is the person's own business and is never offered.
+ *
+ * ## Moving a module (`moveOne`)
+ *
+ *  1. To its release: a release copy is put at `installed/<id>/` when none is there (the install
+ *     path: the ready-built bundle, or git when the release has none). To a folder: the folder must
+ *     still be there and still be this module's.
+ *  2. The registration is pointed at the new folder and the module is started from it (`move`,
+ *     the server's: the old one stopped first, as a restart stops it). It must answer.
+ *  3. If it does not, the old registration goes back word for word, the old one is started again
+ *     when it was running, and the sentence says so.
+ *
+ * A person's folder is only ever READ here: its `package.json`, its git config, whether `run.sh`
+ * is there. Nothing in it is written, moved or removed. Kehikot stops using it, and the summary
+ * says which folders it no longer uses, for the person to remove when they want.
+ *
+ * ## Where it is kept
+ *
+ * Machine-level, in the frame database's `settings` table (`development`): the switch, each
+ * module's development folder, and "use the release for this one". Never in a project.
+ *
+ * ## The first start on a machine
+ *
+ * No setting yet: every official module registered from a folder outside `installed/` has that
+ * folder as its development folder, and development starts ON when there is any — so nothing moves
+ * under the person — with one Inbox line saying why and how to turn it off. With none, it is off.
+ */
+
+const KEY = 'development'
+
+/** What is kept. */
+export interface DevStore {
+  on: boolean
+  folders: Record<string, { dir: string; release?: true }>
+  /** The folder each module's registration named when it was last read: a folder is learned from a registration only when that changes. */
+  seen?: Record<string, string>
+}
+
+export function readDevelopment(db: Database): DevStore | null {
+  try {
+    const row = db.query<{ value: string }, [string]>('select value from settings where key = ?').get(KEY)
+    if (!row) return null
+    const stored = JSON.parse(row.value) as unknown
+    if (typeof stored !== 'object' || stored === null || typeof (stored as { on?: unknown }).on !== 'boolean') return null
+    const raw = (stored as { folders?: unknown }).folders
+    const folders: DevStore['folders'] = {}
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [id, one] of Object.entries(raw as Record<string, unknown>)) {
+        const dir = (one as { dir?: unknown } | null)?.dir
+        if (typeof dir === 'string' && isAbsolute(dir)) folders[id] = { dir, ...((one as { release?: unknown }).release === true ? { release: true as const } : {}) }
+      }
+    }
+    const rawSeen = (stored as { seen?: unknown }).seen
+    const seen: Record<string, string> = {}
+    if (rawSeen && typeof rawSeen === 'object' && !Array.isArray(rawSeen)) for (const [id, dir] of Object.entries(rawSeen as Record<string, unknown>)) if (typeof dir === 'string') seen[id] = dir
+    return { on: (stored as { on: boolean }).on, folders, seen }
+  } catch {
+    return null
+  }
+}
+
+export function writeDevelopment(db: Database, store: DevStore): void {
+  db.exec('create table if not exists settings (key text primary key, value text not null)')
+  db.query('insert into settings (key, value) values (?, ?) on conflict (key) do update set value = excluded.value').run(KEY, JSON.stringify(store))
+}
+
+/** One registration, as much as this reads. */
+export interface Registered {
+  id: string
+  dir?: string
+}
+
+export type Moved = { ok: true } | { ok: false; why: string; restored: boolean }
+
+export interface DevelopmentDeps {
+  db: Database
+  official(): readonly Official[]
+  /** `installsDir()`. */
+  installsRoot: string
+  registrations(): Promise<Registered[]>
+  nameOf?(id: string): string | null
+  /** Put a release copy of the entry at `installed/<id>/`, when none is there. */
+  copy(entry: Official): Promise<{ ok: true } | { ok: false; why: string }>
+  /** Point the registration at `dir` and start the module from there; put the old one back when it does not answer. */
+  move(id: string, dir: string): Promise<Moved>
+  /** One line in every project's Inbox, by the host. */
+  tell(message: string): void
+  /** Something a page reads changed. */
+  changed?(): void
+  /** The home folder: to say paths as `~/…` and to look for checkouts under. */
+  home?: string | null
+  log?(line: string): void
+}
+
+/** Two spellings of one folder. */
+function same(a: string, b: string): boolean {
+  const real = (path: string) => {
+    try {
+      return realpathSync(path)
+    } catch {
+      return resolve(path)
+    }
+  }
+  return real(a) === real(b)
+}
+
+/** The repository a folder's git config names as `origin`, `owner/repo`, lower case; null when there is none to read. Read, never run. */
+function originOf(dir: string): string | null {
+  try {
+    const config = readFileSync(join(dir, '.git', 'config'), 'utf8')
+    const block = /\[remote "origin"\]([^[]*)/.exec(config)?.[1] ?? ''
+    const url = /^\s*url\s*=\s*(.+)$/m.exec(block)?.[1]?.trim()
+    const found = url ? splitRemote(url) : null
+    return found ? found.repo.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
+/** The name in a folder's `package.json`, or null. */
+function packageName(dir: string): string | null {
+  try {
+    const name = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: unknown }).name
+    return typeof name === 'string' ? name : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Why `dir` cannot be this module's development folder, or null when it can: a full path to a
+ * folder with a `run.sh`, not one of Kehikot's own copies, and this module's — its git `origin` is
+ * the entry's repository, or its `package.json` is named as the repository is.
+ */
+export function folderRefused(entry: Pick<Official, 'name' | 'repo'>, dir: string, installsRoot: string): string | null {
+  if (!isAbsolute(dir)) return `${dir} is not a full path.`
+  try {
+    if (!statSync(dir).isDirectory()) return `${dir} is not a folder.`
+  } catch {
+    return `${dir} is not there.`
+  }
+  if (isUnder(dir, installsRoot)) return `${dir} is one of Kehikot’s own copies, not your folder.`
+  if (!existsSync(join(dir, 'run.sh'))) return `${dir} has no run.sh, so it is not a module Kehikot can start.`
+  const repo = entry.repo.toLowerCase()
+  const ofRepo = originOf(dir) === repo || packageName(dir)?.toLowerCase() === basename(repo)
+  return ofRepo ? null : `${dir} is not a copy of ${entry.repo}, so it is not ${entry.name}.`
+}
+
+/** The release a copy is: its bundle's version, or its `package.json` version; null when neither says. */
+export function releaseOf(dir: string): string | null {
+  const info = readBundleInfo(dir)
+  if (info) return info.version
+  try {
+    const version = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown }).version
+    return typeof version === 'string' ? version : null
+  } catch {
+    return null
+  }
+}
+
+/** How many folders a look for checkouts reads in one parent, at most. */
+const LOOK_LIMIT = 400
+
+/**
+ * Folders under `~/Projects` (and `~/projects`) that look like a checkout of each entry: named as
+ * its repository is, there or one folder down (`~/Projects/kehikko-modules/kehikko-notes`), and
+ * passing `folderRefused`. Only offered; never taken without a press.
+ */
+export function lookForCheckouts(home: string, entries: readonly Pick<Official, 'id' | 'name' | 'repo'>[], installsRoot: string): Map<string, string> {
+  const found = new Map<string, string>()
+  const wanted = new Map(entries.map((entry) => [basename(entry.repo).toLowerCase(), entry]))
+  const seen = new Set<string>()
+  const list = (dir: string): string[] => {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((one) => one.isDirectory() && !one.name.startsWith('.'))
+        .slice(0, LOOK_LIMIT)
+        .map((one) => one.name)
+    } catch {
+      return []
+    }
+  }
+  const consider = (dir: string, name: string) => {
+    const entry = wanted.get(name.toLowerCase())
+    if (!entry || found.has(entry.id)) return
+    if (folderRefused(entry, dir, installsRoot) === null) found.set(entry.id, dir)
+  }
+  let parents: string[] = []
+  try {
+    parents = readdirSync(home).filter((name) => /^projects$/i.test(name))
+  } catch {
+    return found
+  }
+  for (const parent of parents) {
+    const root = join(home, parent)
+    let real: string
+    try {
+      real = realpathSync(root)
+    } catch {
+      continue
+    }
+    if (seen.has(real)) continue
+    seen.add(real)
+    for (const name of list(root)) {
+      const dir = join(root, name)
+      consider(dir, name)
+      if (!wanted.has(name.toLowerCase())) for (const inner of list(dir)) consider(join(dir, inner), inner)
+    }
+  }
+  return found
+}
+
+export function developmentDesk(deps: DevelopmentDeps) {
+  const moves = new Map<string, { step: MoveStep; why: string | null }>()
+  const queue: string[] = []
+  let moving: Promise<void> | null = null
+  let summary: string | null = null
+  /** What the run under way has done so far. */
+  let tally = { toRelease: 0, toFolder: 0, failed: [] as { name: string; why: string }[], freed: [] as string[] }
+  const home = deps.home ?? null
+  const log = deps.log ?? (() => {})
+
+  const nameOf = (id: string) => deps.nameOf?.(id) ?? deps.official().find((one) => one.id === id)?.name ?? id
+  const entryOf = (id: string) => deps.official().find((one) => one.id === id) ?? null
+  const fromFolder = (dir: string | undefined): dir is string => !!dir && !isUnder(dir, deps.installsRoot)
+  const releaseDir = (id: string) => join(deps.installsRoot, id)
+
+  /** The official modules registered here, with where each is registered from. */
+  async function officialRegistered(): Promise<(Registered & { entry: Official })[]> {
+    const out: (Registered & { entry: Official })[] = []
+    for (const one of await deps.registrations()) {
+      const entry = entryOf(one.id)
+      if (entry) out.push({ ...one, entry })
+    }
+    return out
+  }
+
+  /**
+   * The setting as it stands, learning what the registrations say: a module registered from a
+   * folder has that folder as its development folder. The first time on a machine, the setting is
+   * made — on when any module runs from a folder, with one Inbox line — and kept.
+   */
+  async function current(): Promise<{ store: DevStore; registered: (Registered & { entry: Official })[] }> {
+    const registered = await officialRegistered()
+    const kept = readDevelopment(deps.db)
+    const store: DevStore = kept ?? { on: false, folders: {} }
+    let changed = kept === null
+    store.seen ??= {}
+    for (const one of registered) {
+      /* Learned once per registration: a folder the person forgot here is not learned again from the registration still naming it. */
+      if (!one.dir || store.seen[one.id] === one.dir) continue
+      store.seen[one.id] = one.dir
+      changed = true
+      if (!fromFolder(one.dir)) continue
+      const had = store.folders[one.id]
+      if (had && same(had.dir, one.dir)) continue
+      store.folders[one.id] = { dir: one.dir, ...(had?.release ? { release: true as const } : {}) }
+    }
+    if (kept === null) {
+      const onFolders = registered.filter((one) => fromFolder(one.dir)).length
+      store.on = onFolders > 0
+      writeDevelopment(deps.db, store)
+      if (store.on) {
+        deps.tell(startedOnSaid(onFolders))
+        log(`kehikko: ${onFolders} official module${onFolders === 1 ? '' : 's'} run from your own folders, so Kehikko development starts on`)
+      }
+    } else if (changed) writeDevelopment(deps.db, store)
+    return { store, registered }
+  }
+
+  /** Where a module should run from, by the switch and its own choice. */
+  function wantsOf(store: DevStore, id: string): 'release' | 'folder' {
+    const folder = store.folders[id]
+    return store.on && folder && !folder.release ? 'folder' : 'release'
+  }
+
+  async function state(): Promise<Development> {
+    const { store, registered } = await current()
+    const lacking = store.on && home ? registered.filter((one) => !store.folders[one.id]).map((one) => one.entry) : []
+    const found = lacking.length && home ? lookForCheckouts(home, lacking, deps.installsRoot) : new Map<string, string>()
+    const modules: DevModule[] = registered
+      .filter((one) => !!one.dir)
+      .map((one) => {
+        const dir = one.dir!
+        const folder = store.folders[one.id] ?? null
+        return {
+          id: one.id,
+          name: nameOf(one.id),
+          runs: fromFolder(dir) ? { from: 'folder' as const, dir } : { from: 'release' as const, version: releaseOf(dir) },
+          folder: folder?.dir ?? null,
+          release: folder?.release === true,
+          wants: wantsOf(store, one.id),
+          found: found.get(one.id) ?? null,
+          move: moves.get(one.id) ?? null,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return { on: store.on, home, modules, moving: moving !== null, summary }
+  }
+
+  /** Move one module to where it should run from, when it is not there. */
+  async function moveOne(id: string): Promise<void> {
+    const { store, registered } = await current()
+    const one = registered.find((r) => r.id === id)
+    if (!one?.dir) return void moves.delete(id)
+    const name = nameOf(id)
+    const wants = wantsOf(store, id)
+    const target = wants === 'folder' ? store.folders[id]!.dir : releaseDir(id)
+    if (same(one.dir, target)) return void moves.delete(id)
+    const said = (step: MoveStep, why: string | null = null) => {
+      moves.set(id, { step, why })
+      deps.changed?.()
+    }
+    const failed = (why: string, step: MoveStep = 'failed') => {
+      said(step, why)
+      tally.failed.push({ name, why })
+      log(`kehikko: ${id} was not moved to ${target}: ${why}`)
+    }
+    if (wants === 'release') {
+      said('installing')
+      const copied = await deps.copy(one.entry).catch((error: unknown) => ({ ok: false as const, why: error instanceof Error ? error.message : String(error) }))
+      if (!copied.ok) return failed(`${name}’s release could not be put in place, so it still runs from your folder: ${copied.why}`)
+    } else {
+      const refused = folderRefused(one.entry, target, deps.installsRoot)
+      if (refused) return failed(`${name} still runs from its release: ${refused}`)
+    }
+    said('starting')
+    const moved = await deps.move(id, target).catch((error: unknown): Moved => ({ ok: false, why: error instanceof Error ? error.message : String(error), restored: false }))
+    if (!moved.ok) return failed(moved.why, moved.restored ? 'restored' : 'failed')
+    said('done')
+    log(`kehikko: ${id} now runs from ${target} (was ${one.dir})`)
+    if (wants === 'release') {
+      tally.toRelease += 1
+      /* A folder no other registration names any more is one Kehikot no longer uses. */
+      const others = (await deps.registrations()).some((r) => r.id !== id && r.dir && same(r.dir, one.dir!))
+      if (fromFolder(one.dir) && !others && !tally.freed.some((dir) => same(dir, one.dir!))) tally.freed.push(one.dir)
+    } else {
+      tally.toFolder += 1
+      tally.freed = tally.freed.filter((dir) => !same(dir, target))
+    }
+  }
+
+  /** Move these modules (all the official ones registered here when not given), one at a time. */
+  async function apply(ids?: readonly string[]): Promise<void> {
+    const names = ids ?? (await officialRegistered()).map((one) => one.id)
+    const { store, registered } = await current()
+    for (const id of names) {
+      const one = registered.find((r) => r.id === id)
+      if (!one?.dir) continue
+      const target = wantsOf(store, id) === 'folder' ? store.folders[id]!.dir : releaseDir(id)
+      if (same(one.dir, target) || queue.includes(id)) continue
+      queue.push(id)
+      moves.set(id, { step: 'waiting', why: null })
+    }
+    if (moving || !queue.length) return
+    if (!moving) {
+      tally = { toRelease: 0, toFolder: 0, failed: [], freed: [] }
+      summary = null
+    }
+    moving = (async () => {
+      try {
+        while (queue.length) await moveOne(queue.shift()!).catch((error: unknown) => log(`kehikko: moving a module failed: ${String(error)}`))
+      } finally {
+        summary = summarySaid(tally, home)
+        moving = null
+        deps.tell(summary)
+        deps.changed?.()
+      }
+    })()
+    deps.changed?.()
+  }
+
+  /** The switch. Turning it either way moves every official module to where it then should run from. */
+  async function setOn(on: boolean): Promise<void> {
+    const { store } = await current()
+    if (store.on !== on) writeDevelopment(deps.db, { ...store, on })
+    await apply()
+  }
+
+  /** One module's development folder (null: forget it) or "use the release for this one"; moves it when that changes where it runs. */
+  async function setModule(id: string, change: { folder?: string | null; release?: boolean; move?: true }): Promise<{ ok: true } | { ok: false; why: string; status: number }> {
+    const entry = entryOf(id)
+    if (!entry) return { ok: false, why: `${id} is not on the official module list.`, status: 404 }
+    const { store } = await current()
+    const folders = { ...store.folders }
+    if (change.folder === null) delete folders[id]
+    else if (typeof change.folder === 'string') {
+      const refused = folderRefused(entry, change.folder, deps.installsRoot)
+      if (refused) return { ok: false, why: refused, status: 409 }
+      folders[id] = { dir: resolve(change.folder), ...(folders[id]?.release ? { release: true as const } : {}) }
+    }
+    if (typeof change.release === 'boolean') {
+      const had = folders[id]
+      if (!had && change.release) return { ok: false, why: `${entry.name} has no folder of yours, so it already runs from its release.`, status: 409 }
+      if (had) folders[id] = change.release ? { dir: had.dir, release: true } : { dir: had.dir }
+    }
+    writeDevelopment(deps.db, { ...store, folders })
+    await apply([id])
+    return { ok: true }
+  }
+
+  /** Make the setting now, at the host's start: the first time, that is when the Inbox is told. */
+  async function boot(): Promise<void> {
+    await current()
+  }
+
+  /** Resolves once nothing is being moved. */
+  async function idle(): Promise<void> {
+    while (moving) await moving
+  }
+
+  return { state, setOn, setModule, apply, boot, idle, wantsOf }
+}
+
+export type DevelopmentDesk = ReturnType<typeof developmentDesk>
+
+/**
+ * A registration pointed at another folder: the file merged (every other key, `keep` above all,
+ * kept), written beside itself and renamed into place so a sweep never reads half of one. Returns
+ * what the file said before, word for word, to put back.
+ */
+export function pointRegistrationAt(file: string, dir: string): { ok: true; before: string } | { ok: false; why: string } {
+  let before: string
+  let parsed: unknown
+  try {
+    before = readFileSync(file, 'utf8')
+    parsed = JSON.parse(before)
+  } catch {
+    return { ok: false, why: `${file} could not be read.` }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, why: `${file} is not a registration.` }
+  writeWhole(file, `${JSON.stringify({ ...(parsed as Record<string, unknown>), dir }, null, 2)}\n`)
+  return { ok: true, before }
+}
+
+/** A registration put back as it was. */
+export function restoreRegistration(file: string, before: string): void {
+  writeWhole(file, before)
+}
+
+function writeWhole(file: string, text: string): void {
+  const temporary = `${file}.moving-${process.pid}`
+  writeFileSync(temporary, text)
+  renameSync(temporary, file)
+}

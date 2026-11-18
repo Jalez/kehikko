@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /* First: the host's own log captures everything after it (`hostLogStart.ts`). */
+import { homedir } from 'node:os'
 import { hostLog } from './hostLogStart.ts'
 import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
@@ -181,6 +182,7 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
+import { developmentDesk, pointRegistrationAt, restoreRegistration, type Moved as DevMoved } from './development.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
@@ -845,6 +847,80 @@ void mine
     }
   })
   .catch(() => {})
+
+/* "Kehikko development": whether the official modules run from Kehikot's releases or from the
+   person's own folders, and the one path that moves a module between the two. Every write is the
+   page's alone (`PAGE_ONLY`). See `development.ts`. */
+const development = developmentDesk({
+  db,
+  official: official.current,
+  installsRoot: installsDir(),
+  registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir })),
+  nameOf: (id) => knownName(id),
+  copy: (entry) => installs.copy(entry),
+  move: (id, dir) => moveModule(id, dir),
+  tell: (message) => {
+    for (const project of listProjects(db)) {
+      const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message, level: 'done', refs: [] }, undefined, 'normal')
+      wakes.inboxChanged(project.id, out.rev)
+    }
+  },
+  changed: () => wakes.registryChanged(),
+  home: homedir(),
+  log: (line) => console.log(line),
+})
+/* Made once the official list has been read, so a module on the published list counts. */
+void official
+  .refresh()
+  .catch(() => {})
+  .then(() => development.boot())
+  .catch((error: unknown) => console.log(`kehikko: Kehikko development could not be read: ${String(error)}`))
+
+/**
+ * Run a module from another folder (`development.ts`): stopped from where it runs now — as a
+ * restart stops it, so a module a previous host started is proven before it is stopped — then its
+ * registration pointed at `dir` and started from there. It must answer within an update's wait;
+ * when it does not, the old registration goes back word for word and, if it was running, the old
+ * one is started again. A module set to keep running is never stopped for this.
+ */
+async function moveModule(id: string, dir: string): Promise<DevMoved> {
+  const name = spokenName(id)
+  const before = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+  if (!before?.file) return { ok: false, why: `${name} is not registered on this computer any more.`, restored: false }
+  const from = before.dir ?? 'where it was'
+  const was = await look(before)
+  if (before.keep === true && was.reached) {
+    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from}. Stop it from its menu, then try again.`, restored: false }
+  }
+  const old = startable(before)
+  const mine = !inHand.has(id)
+  inHand.add(id)
+  try {
+    if (old.ok) {
+      const halted = await haltForRestart(id, before, old.run)
+      if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
+    } else if (nursery.holds(id)) halt(id)
+    const pointed = pointRegistrationAt(before.file, dir)
+    if (!pointed.ok) return { ok: false, why: pointed.why, restored: false }
+    wakes.registryChanged()
+    const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+    const can = startable(now)
+    const came = can.ok ? await bringUpOnce(id, can.run, ANSWERS_WITHIN_UPDATE_MS) : { ok: false as const, why: can.why }
+    if (came.ok && came.answered) return { ok: true }
+    /* It did not answer from there: everything goes back as it was. */
+    if (nursery.holds(id)) halt(id)
+    if (can.ok) await gone(can.run.url, WELL_KNOWN)
+    restoreRegistration(before.file, pointed.before)
+    wakes.registryChanged()
+    const back = was.reached && old.ok ? await bringUpOnce(id, old.run, ANSWERS_WITHIN_UPDATE_MS) : null
+    const runs = back ? (back.ok && back.answered ? ', and runs from there again' : '') : ''
+    console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
+    return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
+  } finally {
+    if (mine) inHand.delete(id)
+    wakes.registryChanged()
+  }
+}
 
 /* Proposing a registered module for that list, as an issue in this host's
    repository. See `proposals.ts`. */
@@ -5452,6 +5528,27 @@ async function answerRequest(request: Request): Promise<Response> {
       if (!body || typeof body.module !== 'string' || body.module.length > 64) return json({ error: 'An uninstall names one module.' }, 400)
       const done = await retiring.uninstall(body.module)
       return done.ok ? json(done) : json({ error: done.why }, done.status)
+    }
+    /* "Kehikko development": the switch, a module's folder, and moving modules. `development.ts`. */
+    if (url.pathname === '/host/development') {
+      if (request.method === 'GET') return json(await development.state())
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
+        if (body && typeof body.on === 'boolean') {
+          await development.setOn(body.on)
+          return json(await development.state())
+        }
+        if (body && typeof body.module === 'string' && body.module.length <= 64) {
+          const change = {
+            ...(body.folder === null || (typeof body.folder === 'string' && body.folder.length <= 1024) ? { folder: body.folder as string | null } : {}),
+            ...(typeof body.release === 'boolean' ? { release: body.release } : {}),
+            ...(body.move === true ? { move: true as const } : {}),
+          }
+          const done = await development.setModule(body.module, change)
+          return done.ok ? json(await development.state()) : json({ error: done.why }, done.status)
+        }
+        return json({ error: 'A change of Kehikko development is { on } or { module, folder | release | move }.' }, 400)
+      }
     }
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))
     if (officialAnswer) return officialAnswer

@@ -32,6 +32,7 @@ import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
 import { IntroButton } from './ModuleHelp.tsx'
+import { RunsFrom, useDevelopment } from './Development.tsx'
 
 /**
  * Kehikko modules: everything registered, whether or not it is on the canvas.
@@ -113,6 +114,8 @@ export function ModuleList({
 }) {
   const [query, setQuery] = useState('')
   const official = useOfficial(onLookAgain)
+  /* Where each official module runs from (Kehikko development): said on its row when it matters. */
+  const development = useDevelopment()
   /* Which rows are open: kept for as long as the menu is (the popover unmounts this on close), never stored. */
   const [opened, setOpened] = useState<ReadonlySet<string> | 'all'>(() => (openAtFirst === 'all' ? 'all' : new Set(openAtFirst ?? [])))
   const isOpen = (id: string) => opened === 'all' || opened.has(id)
@@ -234,6 +237,16 @@ export function ModuleList({
                       onUninstall={() => official.uninstall(row.id)}
                       refused={official.refused.get(row.id) ?? null}
                       onIntro={onIntro ? () => onIntro(row.id, { name: row.name, summary: row.summary }) : undefined}
+                      runs={
+                        development.state ? (
+                          <RunsFrom
+                            one={development.state.modules.find((one) => one.id === row.id)}
+                            on={development.state.on}
+                            home={development.state.home}
+                            change={development.change}
+                          />
+                        ) : null
+                      }
                     />
                   ),
                 )}
@@ -565,8 +578,11 @@ function ModuleRow({
   onUninstall,
   refused,
   onIntro,
+  runs,
 }: {
   row: Registered
+  /** Where it runs from (Kehikko development), when that is said. */
+  runs?: ReactNode
   open: boolean
   onToggle(): void
   onPlace(): void
@@ -625,6 +641,7 @@ function ModuleRow({
       onIntro={onIntro}
     >
       <Sentence text={row.summary} />
+      {runs}
       {refused ? (
         <p role="alert" className="text-xs leading-relaxed text-amber-600 dark:text-amber-400">
           {refused}

@@ -113,6 +113,10 @@ export interface Refusal {
  *    (`myModules.ts`): a repository read with their login, cloned and run on
  *    this machine, or deleted from it. A program that could add one could run
  *    any code it liked, so only a press in the page does it.
+ *  - `/host/development` — "Kehikko development" (`development.ts`): whether
+ *    the official modules run from Kehikot's releases or from the person's
+ *    own folders. A change stops modules, points their registrations at
+ *    another folder and starts them from there, so only a press does it.
  *  - `/host/module-settings`, `/list`, `/set`, `/file` — a module's settings
  *    (`moduleSettings.ts`). `/set` mints the pass that makes a change the
  *    person's, so a program reaching it could change a person-only setting;
@@ -179,6 +183,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/mine/remove',
   '/host/uninstall',
   '/host/mine/adopt',
+  '/host/development',
   '/host/projects/locate',
   '/host/projects/followed',
   '/host/storage',

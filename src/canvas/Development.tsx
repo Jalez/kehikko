@@ -1,0 +1,210 @@
+import { useCallback, useEffect, useId, useState } from 'react'
+import { LoaderCircle } from 'lucide-react'
+
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
+import { cn } from '@/lib/utils'
+import {
+  changeDevelopment,
+  DEVELOPMENT,
+  drifted,
+  fetchDevelopment,
+  moveSaid,
+  pathSaid,
+  runsSaid,
+  showsRuns,
+  type DevModule,
+  type Development,
+  type DevelopmentChange,
+} from '@/host/development.ts'
+
+/**
+ * "Kehikko development", as the page draws it: the switch in Settings › Modules with each official
+ * module's line under it, and the few words a module's row in the modules list says about where it
+ * runs from. The rule and the moving are the server's (`server/development.ts`); this reads the
+ * state, sends a press, and reads again while modules are being moved.
+ */
+
+/** How often the state is read again while modules are being moved. */
+const WHILE_MOVING_MS = 1500
+
+export function useDevelopment(): {
+  state: Development | null
+  trouble: string | null
+  change(what: DevelopmentChange): Promise<boolean>
+} {
+  const [state, setState] = useState<Development | null>(null)
+  const [trouble, setTrouble] = useState<string | null>(null)
+  const read = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setState(await fetchDevelopment(signal))
+      setTrouble(null)
+    } catch (error) {
+      if (!signal?.aborted) setTrouble(error instanceof Error ? error.message : String(error))
+    }
+  }, [])
+  useEffect(() => {
+    const abort = new AbortController()
+    void read(abort.signal)
+    return () => abort.abort()
+  }, [read])
+  const moving = state?.moving === true
+  useEffect(() => {
+    if (!moving) return
+    const timer = setInterval(() => void read(), WHILE_MOVING_MS)
+    return () => clearInterval(timer)
+  }, [moving, read])
+  const change = useCallback(async (what: DevelopmentChange) => {
+    try {
+      setState(await changeDevelopment(what))
+      setTrouble(null)
+      return true
+    } catch (error) {
+      setTrouble(error instanceof Error ? error.message : String(error))
+      return false
+    }
+  }, [])
+  return { state, trouble, change }
+}
+
+/** The switch and, under it, every official module with where it runs from. */
+export function DevelopmentSetting() {
+  const { state, trouble, change } = useDevelopment()
+  const id = useId()
+  if (!state) return trouble ? <p className="text-xs text-amber-600 dark:text-amber-400">{trouble}</p> : null
+  const listed = state.modules.filter((one) => state.on || drifted(one) || one.move !== null)
+  return (
+    <div data-development-setting className="rounded-lg border px-4">
+      <div className="flex min-w-0 items-start justify-between gap-4 py-3.5">
+        <div className="min-w-0 space-y-1">
+          <Label htmlFor={id} className="text-sm leading-snug">
+            {DEVELOPMENT.label}
+          </Label>
+          <p id={`${id}-about`} className="text-muted-foreground text-xs leading-relaxed">
+            {DEVELOPMENT.description}
+          </p>
+        </div>
+        <Switch
+          id={id}
+          checked={state.on}
+          onCheckedChange={(on) => void change({ on })}
+          aria-describedby={`${id}-about`}
+          className="mt-0.5"
+          data-testid="development-switch"
+        />
+      </div>
+      {trouble ? (
+        <p role="alert" className="pb-2 text-xs text-amber-600 dark:text-amber-400">
+          {trouble}
+        </p>
+      ) : null}
+      {state.summary ? (
+        <p role="status" className="border-t py-2.5 text-xs leading-relaxed break-words" data-development-summary>
+          {state.summary}
+        </p>
+      ) : null}
+      {listed.length ? (
+        <ul className="divide-y border-t" aria-label="Where each module runs from">
+          {listed.map((one) => (
+            <ModuleLine key={one.id} one={one} on={state.on} home={state.home} change={change} />
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; home: string | null; change(what: DevelopmentChange): Promise<boolean> }) {
+  const [adding, setAdding] = useState(false)
+  const [path, setPath] = useState('')
+  const busy = one.move !== null && (one.move.step === 'waiting' || one.move.step === 'installing' || one.move.step === 'starting')
+  return (
+    <li className="py-2.5 text-xs" data-development-module={one.id}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <span className="font-medium">{one.name}</span>
+          <span className="text-muted-foreground"> · {runsSaid(one.runs, home)}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {one.move ? (
+            <span className={cn('flex items-center gap-1', one.move.step === 'failed' || one.move.step === 'restored' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+              {busy ? <LoaderCircle className="size-3 animate-spin" aria-hidden /> : null}
+              {moveSaid(one.move.step)}
+            </span>
+          ) : null}
+          {!busy && on && one.folder ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, release: !one.release })}>
+              {one.release ? 'Use my folder' : 'Use the release'}
+            </Button>
+          ) : null}
+          {!busy && !on && one.runs.from === 'folder' ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, move: true })}>
+              Use the release
+            </Button>
+          ) : null}
+          {!busy && on && !one.folder && one.found ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, folder: one.found })}>
+              Use {pathSaid(one.found, home)}
+            </Button>
+          ) : null}
+          {!busy && on && !one.folder && !adding ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setAdding(true)}>
+              Use my folder…
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {one.move?.why ? <p className="mt-1 leading-relaxed break-words text-amber-600 dark:text-amber-400">{one.move.why}</p> : null}
+      {on && one.folder && one.release ? <p className="text-muted-foreground mt-0.5">Your folder: {pathSaid(one.folder, home)}</p> : null}
+      {adding ? (
+        <form
+          className="mt-1.5 flex items-center gap-1.5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void change({ module: one.id, folder: path.trim() }).then((ok) => ok && setAdding(false))
+          }}
+        >
+          <Input value={path} onChange={(event) => setPath(event.target.value)} placeholder={`Full path to your copy of ${one.name}`} aria-label={`Your folder for ${one.name}`} className="h-7 text-xs" autoFocus />
+          <Button type="submit" size="sm" className="h-7 px-2 text-xs" disabled={!path.trim()}>
+            Use it
+          </Button>
+          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setAdding(false)}>
+            Cancel
+          </Button>
+        </form>
+      ) : null}
+    </li>
+  )
+}
+
+/**
+ * Where a module runs from, on its row in the modules list: only while development is on, or when
+ * it runs from a folder although it should run from its release — then with the one press that
+ * moves it.
+ */
+export function RunsFrom({ one, on, home, change }: { one: DevModule | undefined; on: boolean; home: string | null; change(what: DevelopmentChange): Promise<boolean> }) {
+  if (!one || !showsRuns(on, one)) return null
+  const unexpected = !on && one.runs.from === 'folder'
+  return (
+    <p className={cn('text-xs leading-relaxed break-words', unexpected ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} data-runs-from={one.runs.from}>
+      {runsSaid(one.runs, home)}
+      {unexpected ? ' — Kehikko development is off, so this should run from its release. ' : null}
+      {one.move ? ` · ${moveSaid(one.move.step)}` : null}
+      {unexpected && !one.move ? (
+        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void change({ module: one.id, move: true })}>
+          Use the release
+        </Button>
+      ) : null}
+      {on && one.folder && !one.move ? (
+        <>
+          {' '}
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void change({ module: one.id, release: !one.release })}>
+            {one.release ? 'Use my folder' : 'Use the release for this one'}
+          </Button>
+        </>
+      ) : null}
+    </p>
+  )
+}
