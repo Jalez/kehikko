@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
  */
 
 const inChild = process.env.KEHIKKO_SETTINGS_DOM === '1'
-const TESTS = 8
+const TESTS = 9
 
 if (!inChild) {
   test('kehikko settings, rendered in a process of its own', () => {
@@ -132,7 +132,7 @@ const answer = (over: Partial<import('../src/host/kehikkoSettings.ts').KehikkoSe
   ...over,
 })
 
-function Window({ start = 'general' as const, load, save, onRename = () => {} }: { start?: 'general' | 'skills' | 'agents'; load: never; save?: never; onRename?: (id: number, name: string) => void }) {
+function Window({ start = 'general' as const, load, save, onRename = async () => ({ ok: true as const }) }: { start?: 'general' | 'skills' | 'agents'; load: never; save?: never; onRename?: (id: number, name: string) => Promise<{ ok: true } | { ok: false; why: string }> }) {
   const [section, setSection] = React.useState<'general' | 'skills' | 'agents'>(start)
   return (
     <UI.KehikkoSettingsDialog
@@ -152,7 +152,7 @@ function Window({ start = 'general' as const, load, save, onRename = () => {} }:
 test('the window: General, Skills and Agents tabs; renaming from General', async () => {
   if (!inChild) return
   const renamed: Array<[number, string]> = []
-  await mount(<Window load={(async () => answer()) as never} onRename={(id, name) => void renamed.push([id, name])} />)
+  await mount(<Window load={(async () => answer()) as never} onRename={async (id, name) => (void renamed.push([id, name]), { ok: true as const })} />)
   expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent?.replace('choose', '').trim())).toEqual(['General', 'Skills', 'Agents'])
   expect(document.querySelector('[data-agents-due]')).not.toBeNull()
   const name = document.querySelector<HTMLInputElement>('#kehikko-settings-name')!
@@ -163,6 +163,27 @@ test('the window: General, Skills and Agents tabs; renaming from General', async
   })
   await act(async () => document.querySelector<HTMLButtonElement>('[data-kehikko-rename]')!.click())
   expect(renamed).toEqual([[2, 'Code review']])
+  expect(document.body.textContent).toContain('Renamed.')
+})
+
+test('renaming says "Renamed." only after the host answers, and the refusal in words', async () => {
+  if (!inChild) return
+  let answerIt: (result: { ok: true } | { ok: false; why: string }) => void = () => {}
+  const waiting = new Promise<{ ok: true } | { ok: false; why: string }>((done) => (answerIt = done))
+  await mount(<Window load={(async () => answer()) as never} onRename={() => waiting} />)
+  const name = document.querySelector<HTMLInputElement>('#kehikko-settings-name')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Code review')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => document.querySelector<HTMLButtonElement>('[data-kehikko-rename]')!.click())
+  /* Not yet answered: nothing has been confirmed. */
+  expect(document.body.textContent).not.toContain('Renamed.')
+  expect(document.body.textContent).toContain('Renaming…')
+  expect(document.querySelector<HTMLButtonElement>('[data-kehikko-rename]')!.disabled).toBe(true)
+  await act(async () => answerIt({ ok: false, why: 'Another kehikko is already called that.' }))
+  expect(document.body.textContent).not.toContain('Renamed.')
+  expect(document.body.textContent).toContain('Not renamed: Another kehikko is already called that.')
 })
 
 test('Agents: a quiet reminder after Later, and the same cubes to choose with', async () => {
@@ -195,7 +216,7 @@ test('a deep link opens that kehikko’s settings at that section', async () => 
     { id: 1, name: 'Writing', project: 1, placements: [] },
     { id: 2, name: 'Review', project: 1, placements: [] },
   ]
-  await mount(<UI.KehikkoSettingsHost canvases={canvases} open={canvases[0]!} onRename={() => {}} load={load} save={(async () => answer()) as never} />)
+  await mount(<UI.KehikkoSettingsHost canvases={canvases} open={canvases[0]!} onRename={async () => ({ ok: true as const })} load={load} save={(async () => answer()) as never} />)
   expect(document.querySelector('[data-kehikko-settings]')).toBeNull()
   await act(async () => links.openKehikkoSettings('agents', 'primary-agent', 2))
   await act(async () => {})
@@ -210,7 +231,7 @@ test('the question opens by itself when a second agent module is placed, and not
   const one = { id: 1, name: 'Writing', project: 1, placements: [{ i: 'stand.alpha' }] }
   const due = { current: false }
   const load = (async () => answer({ due: due.current })) as never
-  const draw = (open: typeof one) => <UI.KehikkoSettingsHost canvases={[open]} open={open} onRename={() => {}} load={load} save={(async () => answer()) as never} />
+  const draw = (open: typeof one) => <UI.KehikkoSettingsHost canvases={[open]} open={open} onRename={async () => ({ ok: true as const })} load={load} save={(async () => answer()) as never} />
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
