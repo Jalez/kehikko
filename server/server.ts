@@ -160,6 +160,7 @@ import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
+import { bundleDesk, type Swapped } from './moduleBundles.ts'
 import { describeFolder, readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
@@ -177,7 +178,7 @@ import { PeerLookup, type Found, type Root } from './callers.ts'
 import { ListenerTable, ProcessSampler } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
-import { HOST_REPO, OFFICIAL, RETIRED } from './official.ts'
+import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
 import { readFileSync } from 'node:fs'
@@ -205,7 +206,7 @@ import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
 import { onboardingEditSchema } from '../src/host/onboarding.ts'
 import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
 import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
-import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
+import { releaseVersion, steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
@@ -615,7 +616,7 @@ function knownName(id: string): string | null {
 /** One module's place: named as it calls itself when that is known, with its releases when it is installed. */
 function placeOf(id: string, dir: string): Place {
   const name = knownName(id) ?? id
-  return { id, name, dir, ...(isInstalled(dir) ? { releases: follower, build: buildPlace } : {}) }
+  return { id, name, dir, ...(isInstalled(dir) ? { releases: follower, build: buildPlace, bundles, gitCopy: gitCopyOf } : {}) }
 }
 
 /** Every installed module's copy as it is now: no fetch, and none that could not be read. */
@@ -679,6 +680,35 @@ const follower = releaseFollower({
     kept: registered.get(id)?.keep === true,
   }),
 })
+
+/** An installed module's list entry, official first, then the person's own: where its repository is. */
+function entryOf(id: string): (Official & { host?: string; mine?: boolean }) | null {
+  return official.current().find((one) => one.id === id) ?? readMine(myModulesFile()).modules.find((one) => one.id === id) ?? null
+}
+
+/**
+ * Ready-built bundles (`moduleBundles.ts`): installs and updates download the
+ * release's bundle when it has one, from the repository the module's list
+ * entry names — on GitHub only, never from a request.
+ */
+const bundles = bundleDesk({
+  root: installsDir(),
+  repoOf: (id) => {
+    const entry = entryOf(id)
+    return entry && (entry.host ?? 'github.com') === 'github.com' ? entry.repo : null
+  },
+  tags: { tags: (url, fresh) => tagLister.tags(url, fresh) },
+  entryProtocol: (id) => entryOf(id)?.protocol,
+  apps: () => appProtocols.apps(),
+  log: (line) => console.log(line),
+})
+
+/** A git copy of a release for an installed bundle whose release has no bundle (`Place.gitCopy`). */
+function gitCopyOf(place: Place, tag: string, job: Job | null, signal?: AbortSignal) {
+  const entry = entryOf(place.id)
+  if (!entry) return Promise.resolve({ ok: false as const, why: `${place.name} is on no module list, so where its releases are is not known.` })
+  return installs.gitCopy(entry, tag, job, signal)
+}
 
 /**
  * An installed copy was moved back on its own to a release this Kehikot runs: said once in every
@@ -781,6 +811,8 @@ const installs = installDesk({
   releases: { settle: (place) => follower.settle(place) },
   /* And built at that release before it is registered (`moduleBuilds.ts`). */
   build: (copy) => builds.build(copy),
+  /* Or, when its release has one, downloaded ready-built instead (`moduleBundles.ts`). */
+  bundles,
   log: (line) => console.log(line),
   steps: jobSteps,
 })
@@ -1961,7 +1993,7 @@ function isInstalled(dir: string): boolean {
 /** An installed module's place, with the follower that reads its releases; null for anything else. */
 function installedPlace(id: string): Place | null {
   const dir = registered.get(id)?.dir
-  return dir && isInstalled(dir) ? { id, name: knownName(id) ?? id, dir, releases: follower, build: buildPlace } : null
+  return dir && isInstalled(dir) ? { id, name: knownName(id) ?? id, dir, releases: follower, build: buildPlace, bundles, gitCopy: gitCopyOf } : null
 }
 
 /** Whether a registered module is an installed copy. */
@@ -2320,6 +2352,8 @@ async function level(place: Place): Promise<void> {
   }
   if (!hasUpdate(reading) || reading.blocked) return
   const done = await update(place)
+  /* Swapped in while stopped: settled or rolled back at the start that follows. */
+  if (done.ok && done.swapped) unsettled.set(place.id, done.swapped)
   /* A step back put in place on its own (`moduleReleases.ts`): the person is told. */
   if (done.ok && reading.release?.back && reading.release.target) auto.movedBack(place.id, place.name, reading.release.installed, reading.release.target)
   console.log(
@@ -3068,7 +3102,67 @@ const PATIENT_FROM_MS = 60_000
  * asked. The wait ends early when the process ends: a script that has exited
  * will not answer, and the reason is in what it printed.
  */
+/**
+ * Versions swapped in while their module was not running (`level`, or an
+ * update of a module nothing had open): settled at their first start that
+ * answers, rolled back at one that does not. By id.
+ */
+const unsettled = new Map<string, Swapped & { from: string | null }>()
+
+/** The swapped-in version answers: keep one previous, and remove a git checkout it replaced (`moduleBundles.ts`). */
+function settleSwap(id: string): void {
+  unsettled.delete(id)
+  bundles.settle(id)
+}
+
+/** Said in every project's Inbox, by the host: a new version did not start, and the one before runs again. */
+function tellRolledBack(sentence: string): void {
+  for (const project of listProjects(db)) {
+    const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message: sentence, level: 'done', refs: [] }, undefined, 'normal')
+    wakes.inboxChanged(project.id, out.rev)
+  }
+}
+
+/**
+ * The version an update swapped in did not answer: stop what was started, put
+ * the previous version back at the same folder, start it, and say so. Nothing
+ * of the person's is lost: only the program folder moves.
+ */
+async function rollBack(id: string, registration: Registration | null, runnable: Runnable, swapped: Swapped & { from: string | null }, failed: Extract<ModuleOutcome, { ran: 'failed' }>): Promise<ModuleOutcome> {
+  unsettled.delete(id)
+  await haltForRestart(id, registration, runnable)
+  if (!bundles.rollback(id)) return failed
+  const name = spokenName(id)
+  const back = swapped.from ? releaseVersion(swapped.from) : 'the version before'
+  const to = swapped.to ? releaseVersion(swapped.to) : 'the new version'
+  console.log(`kehikko: ${id} ${to} did not answer after the update; rolled back to ${back}`)
+  const came = await bringUpOnce(id, runnable, ANSWERS_WITHIN_UPDATE_MS)
+  const why = `${name} ${to} did not answer after the update, so it was put back on ${back}${came.ok && came.answered ? ', which runs again' : ''}. What it printed is in ${logFile(id)}.`
+  tellRolledBack(why)
+  return { ran: 'failed', why, detail: failed.detail }
+}
+
 async function bringUp(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
+  const came = await bringUpOnce(id, runnable, within, onInstalling, onStarted)
+  const swapped = unsettled.get(id)
+  if (!swapped) return came
+  if (came.ok && came.answered) {
+    settleSwap(id)
+    return came
+  }
+  /* Its first start after a swap did not answer: the version before goes back, and is started instead. */
+  unsettled.delete(id)
+  halt(id)
+  await gone(runnable.url, WELL_KNOWN)
+  if (!bundles.rollback(id)) return came
+  const back = swapped.from ? releaseVersion(swapped.from) : 'the version before'
+  const to = swapped.to ? releaseVersion(swapped.to) : 'the new version'
+  console.log(`kehikko: ${id} ${to} did not answer at its first start; rolled back to ${back}`)
+  tellRolledBack(`${spokenName(id)} ${to} did not start, so it was put back on ${back}. What it printed is in ${logFile(id)}.`)
+  return bringUpOnce(id, runnable, within, onInstalling, onStarted)
+}
+
+async function bringUpOnce(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
   exits.delete(id)
   const ran = run(id, runnable)
   if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
@@ -3872,6 +3966,15 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
           detail: came.detail,
         }
       }
+    }
+    /* A version swapped in (`moduleBundles.ts`): one that did not answer is
+       rolled back to the version before, and said; one that answers is
+       settled; one nothing started yet is settled or rolled back at its start. */
+    if (done.swapped) {
+      const now = outcome as ModuleOutcome
+      if (now.ran === 'failed' && can.ok) outcome = await rollBack(id, registration, can.run, done.swapped, now)
+      else if (now.ran === 'restarted' || now.ran === 'started') settleSwap(id)
+      else unsettled.set(id, done.swapped)
     }
     /* Assigned inside the hook, which the compiler does not follow. */
     const came = outcome as ModuleOutcome

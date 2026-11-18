@@ -34,7 +34,7 @@
  * Nothing here is kept across a restart of the host: it is what is running.
  */
 
-export type StepName = 'queued' | 'fetching' | 'cloning' | 'checkout' | 'installing' | 'building' | 'starting' | 'waiting' | 'done' | 'failed'
+export type StepName = 'queued' | 'fetching' | 'cloning' | 'checkout' | 'unpacking' | 'installing' | 'building' | 'starting' | 'waiting' | 'done' | 'failed'
 
 export type JobKind = 'install' | 'update'
 
@@ -56,6 +56,8 @@ export interface JobSaid {
   totalMs: number
   /** The steps finished before this one, with how long each took. */
   steps: Array<{ step: StepName; ms: number }>
+  /** Installed or updated from a ready-built bundle: downloaded, checked and unpacked, nothing installed or built here. */
+  bundle?: boolean
   /** Nothing has moved for `STALLED_AFTER_MS`: the page says so and offers Cancel. */
   stalled: boolean
   /** Ended in failure: the step it failed at, and the plain-words reason. */
@@ -104,6 +106,7 @@ export class Job {
   #steps: Array<{ step: StepName; ms: number }> = []
   #endedAt: number | null = null
   #failed: { step: StepName; why: string } | null = null
+  #bundle = false
 
   constructor(id: string, name: string, kind: JobKind, now: () => number, changed: () => void, kill: (pid: number, signal: NodeJS.Signals) => void) {
     this.id = id
@@ -172,6 +175,18 @@ export class Job {
     if (this.#fraction !== null && Math.abs(clamped - this.#fraction) < 0.005) return
     this.#fraction = clamped
     this.#movedAt = this.#now()
+  }
+
+  /**
+   * Bytes of a download so far, and of how many when that is known: the real
+   * fraction, as the app's own download bar has it (a ready-built bundle,
+   * `moduleBundles.ts`). Marks the job as one from a bundle.
+   */
+  received(bytes: number, total: number | null): void {
+    this.#bundle = true
+    this.#bytes = bytes
+    if (total !== null && total > 0) this.fraction(bytes / total)
+    else this.touched()
   }
 
   /** Something the step runs printed: it is alive. */
@@ -269,6 +284,7 @@ export class Job {
       stepMs: (ended ?? now) - this.#stepAt,
       totalMs: (ended ?? now) - this.startedAt,
       steps: [...this.#steps],
+      ...(this.#bundle ? { bundle: true } : {}),
       stalled: ended === null && this.#step !== 'queued' && now - this.#movedAt >= STALLED_AFTER_MS,
       ...(this.#failed ? { failed: this.#failed } : {}),
       cancellable: ended === null,

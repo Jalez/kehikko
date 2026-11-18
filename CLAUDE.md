@@ -562,6 +562,18 @@
   request. After that it is an ordinary registered module that runs its
   releases (see "Modules run from their releases"). An entry's `protocol`
   applies to every release of it; each release's own `package.json` pin too.
+- Ready-built bundles (`server/moduleBundles.ts`, format in the protocol's
+  `docs/bundles.md`): when a release carries `<id>-<version>.tar.gz` and its
+  `.sha256`, install and update download it (HTTPS, the list entry's GitHub
+  repository only, sha256 and every entry checked before a byte is written)
+  instead of cloning, installing and building. The running version stays at
+  `installed/<id>/` (agent modules write that path into the person's config,
+  so it is never versioned); the one before is `installed/.previous/<id>/` for
+  rollback, a download in progress `installed/.incoming/`. An update stages
+  while the old version runs and swaps at the restart; one that does not
+  answer is rolled back (`rollBack`, `bringUp` in `server/server.ts`). A git
+  copy moves to a bundle at its next update and its checkout is removed once
+  the bundle answers. A release with no bundle keeps the git path.
 - A registered module not on the list can be proposed for it
   (`server/proposals.ts`), which files an issue here through the person's `gh`.
 
