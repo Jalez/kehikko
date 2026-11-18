@@ -11,6 +11,7 @@ import {
   DEVELOPMENT,
   drifted,
   fetchDevelopment,
+  moveNowWarning,
   moveSaid,
   pathSaid,
   runsSaid,
@@ -119,6 +120,7 @@ export function DevelopmentSetting() {
 function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; home: string | null; change(what: DevelopmentChange): Promise<boolean> }) {
   const [adding, setAdding] = useState(false)
   const [path, setPath] = useState('')
+  const [confirming, setConfirming] = useState(false)
   const busy = one.move !== null && (one.move.step === 'waiting' || one.move.step === 'installing' || one.move.step === 'starting')
   return (
     <li className="py-2.5 text-xs" data-development-module={one.id}>
@@ -133,6 +135,11 @@ function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; ho
               {busy ? <LoaderCircle className="size-3 animate-spin" aria-hidden /> : null}
               {moveSaid(one.move.step)}
             </span>
+          ) : null}
+          {!busy && one.keeps && one.move?.step === 'later' ? (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setConfirming(true)}>
+              Move now
+            </Button>
           ) : null}
           {!busy && on && one.folder ? (
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, release: !one.release })}>
@@ -156,6 +163,26 @@ function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; ho
           ) : null}
         </div>
       </div>
+      {confirming ? (
+        <div role="alertdialog" aria-label={`Move ${one.name} now`} className="mt-1.5 space-y-1.5 rounded-md border px-2.5 py-2" data-move-now={one.id}>
+          <p className="leading-relaxed">{moveNowWarning(one.name)}</p>
+          <div className="flex gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                setConfirming(false)
+                void change({ module: one.id, move: true, now: true })
+              }}
+            >
+              Restart and move
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {one.move?.why ? <p className="mt-1 leading-relaxed break-words text-amber-600 dark:text-amber-400">{one.move.why}</p> : null}
       {on && one.folder && one.release ? <p className="text-muted-foreground mt-0.5">Your folder: {pathSaid(one.folder, home)}</p> : null}
       {adding ? (
