@@ -36,7 +36,7 @@ export type Edit =
       default?: boolean
       list?: boolean
       off?: boolean
-      /** What its listing reads (Jalez/kehikko#318); null: back to everything, whole. */
+      /** What its listing reads (Jalez/kehikko#318); null: back to the defaults (`READS_DEFAULT`). */
       reads?: ReadsWritten | null
     }
   | { kind: 'schedule'; every: number }

@@ -3,7 +3,7 @@ import { reverse } from 'node:dns/promises'
 import { LIMITS, type TrafficConnection, type TrafficProcesses } from 'kehikot-module-protocol'
 
 import { owners, type Root } from './callers.ts'
-import { untraced, type TrafficRecord } from './traffic.ts'
+import { spawnedFor, untraced, type TrafficRecord } from './traffic.ts'
 
 /**
  * Connections nobody reported (protocol 2.20.0): what is open on this host's own processes and on each
@@ -330,7 +330,8 @@ export class ProcessSampler {
           this.#deps.record.add({
             at: now,
             ms: null,
-            reason: null,
+            /* A program this host started for a reason (a tracker read's `gh`) carries it to its connections. */
+            reason: spawnedFor(socket.pid),
             kind: socket.proto,
             host: (remote ? `${remote}${socket.remotePort ? `:${socket.remotePort}` : ''}` : '').slice(0, LIMITS.TRAFFIC_HOST),
             path: '',

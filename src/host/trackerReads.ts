@@ -19,10 +19,22 @@ import { z } from 'zod'
  * - `kinds`: any of `issues`, `tasks` (a GitLab work item type) and `changes`
  *   (merge or pull requests). Absent: all of them.
  * - `closed`: `false` reads open items only; a number of days reads open items
- *   and the ones closed or merged within that many days; `true` or absent reads
- *   every state.
+ *   and the ones closed or merged within that many days; `true` reads every
+ *   state. Absent: `CLOSED_DEFAULT` days.
  * - `since`: after a whole read, each read asks only for what was updated since
- *   the last one and merges it into the rows held. Absent: off.
+ *   the last one and merges it into the rows held. Absent: on; `false` turns it
+ *   off.
+ *
+ * ## The defaults read little
+ *
+ * A project nobody configured reads open items and what closed in the last
+ * `CLOSED_DEFAULT` days, and after its first whole read only what changed. A
+ * busy repository's old closed items were listed again on every scheduled read
+ * when the defaults were "every state, whole every time"; now an old closed
+ * item is read once, when something names it, and again only when it changes
+ * or the person presses Refresh all. A person who wants every state or a whole
+ * read every time says so, and the file keeps that as `closed: true` or
+ * `since: false`.
  *
  * Additive: an older host strips the key and reads everything, as it always
  * did. A `reads` this host cannot make sense of is ignored, never a reason to
@@ -37,6 +49,8 @@ export type ReadKind = (typeof READ_KINDS)[number]
 
 /** The look-back windows the panel offers for closed items, in days. */
 export const CLOSED_CHOICES = [7, 30, 90] as const
+/** How many days of closed items a source reads when its entry does not say. */
+export const CLOSED_DEFAULT = 30
 /** The longest look-back window the file may say, in days. */
 const CLOSED_MAX_DAYS = 3650
 
@@ -56,20 +70,20 @@ export interface Reads {
   since: boolean
 }
 
-export const READS_DEFAULT: Reads = { kinds: [...READ_KINDS], closed: true, since: false }
+export const READS_DEFAULT: Reads = { kinds: [...READ_KINDS], closed: CLOSED_DEFAULT, since: true }
 
 /** `reads` from the file or the page, each choice it does not make at its default. Null for what is not one. */
 export function readsOf(written: unknown): Reads | null {
   const parsed = readsSchema.safeParse(written)
   if (!parsed.success) return null
   const kinds = parsed.data.kinds ? READ_KINDS.filter((k) => parsed.data.kinds!.includes(k)) : [...READ_KINDS]
-  return { kinds, closed: parsed.data.closed ?? true, since: parsed.data.since ?? false }
+  return { kinds, closed: parsed.data.closed ?? READS_DEFAULT.closed, since: parsed.data.since ?? READS_DEFAULT.since }
 }
 
-/** Whether these are the defaults: a source that reads everything, whole, every time. */
+/** Whether these are the defaults: every kind, open and recently closed, only what changed after a whole read. */
 export function isDefaultReads(reads: Reads | null | undefined): boolean {
   if (!reads) return true
-  return reads.kinds.length === READ_KINDS.length && reads.closed === true && !reads.since
+  return reads.kinds.length === READ_KINDS.length && reads.closed === READS_DEFAULT.closed && reads.since === READS_DEFAULT.since
 }
 
 /** `reads` as the file keeps it: only the choices that differ from the defaults; null when none do. */
@@ -77,8 +91,8 @@ export function writtenReads(reads: Reads): ReadsWritten | null {
   if (isDefaultReads(reads)) return null
   return {
     ...(reads.kinds.length === READ_KINDS.length ? {} : { kinds: [...reads.kinds] }),
-    ...(reads.closed === true ? {} : { closed: reads.closed }),
-    ...(reads.since ? { since: true } : {}),
+    ...(reads.closed === READS_DEFAULT.closed ? {} : { closed: reads.closed }),
+    ...(reads.since === READS_DEFAULT.since ? {} : { since: reads.since }),
   }
 }
 

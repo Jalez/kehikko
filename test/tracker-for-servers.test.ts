@@ -197,7 +197,8 @@ describe('related branches on GitLab', () => {
       ['glab api --hostname gitlab.example.org projects/group%2Fproject/issues', ok([issueAt(12), issueAt(13)])],
       ['glab api --hostname gitlab.example.org projects/group%2Fproject/merge_requests', ok([])],
       ['glab api --hostname gitlab.example.org projects/group%2Fproject/boards', ok([])],
-      ['glab api --hostname gitlab.example.org projects/group%2Fproject/repository/branches', ok([{ name: 'main' }, { name: '12-started' }])],
+      /* Asked conditionally (an ETag kept for the next read); its answer is the first page. */
+      ['glab api -i --hostname gitlab.example.org projects/group%2Fproject/repository/branches', ok(`HTTP/2.0 200 OK\r\nEtag: W/"b1"\r\n\r\n${JSON.stringify([{ name: 'main' }, { name: '12-started' }])}`)],
       ['glab api --hostname gitlab.example.org graphql', ok({ data: { project: { issues: { nodes: [
         { iid: '12', state: 'opened', title: 't12', webUrl: 'w12' },
         { iid: '13', state: 'opened', title: 't13', webUrl: 'w13' },

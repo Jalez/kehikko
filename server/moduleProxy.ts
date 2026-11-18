@@ -1,6 +1,7 @@
 import { readBuild, START_HEADER, startVerdict, WELL_KNOWN } from 'kehikot-module-protocol'
 
 import { REFUSAL_HEADER } from './quiet.ts'
+import { because, tag } from './traffic.ts'
 import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeOf, type ModuleRoute } from '../src/host/moduleAddress.ts'
 
 /**
@@ -23,7 +24,11 @@ import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeO
  *  - Every answer is checked again: one that carries another start token is refused, even when
  *    the check before it passed, because the process may have changed in between.
  *
- * What it found is kept for `KEEP_MS`, and dropped as soon as a forward fails to connect.
+ * What it found is kept for `KEEP_MS`, and dropped as soon as a forward fails to connect. An answer
+ * that carries the very start token this host handed the module proves who answered as well as the
+ * manifest would, so it is believed for `CONFIRMED_MS` after each such answer: a page polling its
+ * module every two seconds no longer has the host ask the module's manifest before each request. A
+ * module that says no token is asked again once `KEEP_MS` has passed, as before.
  *
  * ## What it changes on the way
  *
@@ -79,8 +84,24 @@ import { ADDRESS_CHECK_PATH, frameOriginOf, isModuleHost, machineBaseFor, routeO
  * door counts as use (`used`), so a module an agent keeps using is not stopped for being idle.
  */
 
+/**
+ * Why a forwarded request is made, for the record of traffic, on the row received and on the call
+ * forwarded: a module's frame asks its own server; a program (an agent's client) uses its door. And
+ * the manifest asked before forwarding. Without these every request a module's page polls with was
+ * filed as "the page loads Kehikot" coming in and with no reason going out.
+ */
+export const FRAME_REASON = 'a module’s page asks its own server'
+export const DOOR_REASON = 'a program uses a module’s door'
+export const IDENTIFY_REASON = 'the host checks which program answers for a module'
+
 /** How long what `identify` found is believed. Short: a module restarting changes it. */
 export const KEEP_MS = 2_000
+/**
+ * How long after an answer that carried this host's start token what was found is believed. A
+ * restart by this host hands a new token (another key); another process says another token and is
+ * refused on its answer; a forward that fails to connect forgets at once.
+ */
+export const CONFIRMED_MS = 30_000
 
 /** How long the manifest gets to answer before the module is called not running. */
 export const IDENTIFY_TIMEOUT_MS = 1_500
@@ -259,7 +280,7 @@ export class ModuleProxy {
   readonly #fetch: typeof fetch
   readonly #now: () => number
   /** What `identify` last found, per module, for the origin and token it was found for. */
-  readonly #found = new Map<string, { origin: string; token: string | null; at: number; identity: Identity }>()
+  readonly #found = new Map<string, { origin: string; token: string | null; at: number; identity: Identity; confirmed?: number }>()
   /** How many requests are held per module right now (`HOLD_MOST`). */
   readonly #holding = new Map<string, number>()
 
@@ -313,10 +334,19 @@ export class ModuleProxy {
    */
   async identify(name: string, key: string, target: ProxyTarget): Promise<Identity> {
     const kept = this.#found.get(key)
-    if (kept && kept.origin === target.origin && kept.token === target.token && this.#now() - kept.at < KEEP_MS) return kept.identity
-    const identity = await this.#ask(name, key.split('@')[0]!, target)
+    if (kept && kept.origin === target.origin && kept.token === target.token) {
+      const now = this.#now()
+      if (now - kept.at < KEEP_MS || (kept.confirmed !== undefined && now - kept.confirmed < CONFIRMED_MS)) return kept.identity
+    }
+    const identity = await because(IDENTIFY_REASON, () => this.#ask(name, key.split('@')[0]!, target))
     this.#found.set(key, { origin: target.origin, token: target.token, at: this.#now(), identity })
     return identity
+  }
+
+  /** An answer carried this host's start token for `target`: what was found of it holds from now. */
+  #confirmed(key: string, target: ProxyTarget): void {
+    const kept = this.#found.get(key)
+    if (kept && kept.identity.ok && kept.origin === target.origin && kept.token === target.token) kept.confirmed = this.#now()
   }
 
   async #ask(name: string, id: string, target: ProxyTarget): Promise<Identity> {
@@ -368,6 +398,12 @@ export class ModuleProxy {
     const route = routeOf(host, pathname)
     if (!route) return null
     if (route.kind === 'machine' && host !== null && !own.has(host.trim().toLowerCase())) return null
+    const reason = route.kind === 'frame' ? FRAME_REASON : DOOR_REASON
+    tag(request, { reason })
+    return because(reason, () => this.#handle(request, srv, route, patient))
+  }
+
+  async #handle(request: Request, srv: Upgrader, route: ModuleRoute, patient: (request: Request) => void): Promise<Response | 'upgraded' | null> {
     patient(request)
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       const opened = await this.openSocket(request, route)
@@ -424,11 +460,13 @@ export class ModuleProxy {
       if ((error as Error)?.name === 'AbortError') return refused(499, 'The request was given up before the module answered.', machine)
       return refused(503, `${said(route)} stopped answering at ${target.origin}.`, machine)
     }
-    if (startVerdict(target.token, answer.headers.get(START_HEADER)) === 'other') {
+    const verdict = startVerdict(target.token, answer.headers.get(START_HEADER))
+    if (verdict === 'other') {
       void answer.body?.cancel().catch(() => {})
       this.forget(route.id)
       return refused(502, `That answer came from another process than the ${said(route)} this host started, so it was not passed on.`, machine)
     }
+    if (verdict === 'same') this.#confirmed(keyOf({ id: route.id, ...(route.version ? { version: route.version } : {}) }), target)
     const status = answer.status
     const body = status === 204 || status === 304 || method === 'HEAD' ? null : answer.body
     return new Response(body, { status, statusText: answer.statusText, headers: backHeaders(answer.headers, route, real, this.#deps.port) })

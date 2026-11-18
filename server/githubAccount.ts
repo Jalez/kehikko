@@ -629,6 +629,8 @@ export function githubAccount(deps: AccountDeps) {
       return ran
     }
     const said = call.include ? splitIncluded(ran.out) : null
+    /* A conditional request GitHub answered 304 (nothing changed since the ETag) costs nothing against the limit, so nothing against the share. */
+    if (/^HTTP\/[\d.]+ 304\b/.test(said ? `HTTP/1.1 ${said.status}` : ran.out)) charge(resource, -1)
     if (said) {
       const limit = githubHeaders(said.headers)
       if (limit) learned(limit.resource, limit.limit)

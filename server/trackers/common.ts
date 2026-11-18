@@ -122,6 +122,57 @@ export interface Adapter {
    * or why that could not be read, in a sentence. For `myRoles`. (2.7.0)
    */
   me?(host: string): Promise<Me>
+  /**
+   * Whether anything in the source was updated since the last probe that was
+   * kept: a conditional request for its newest updated item, which the
+   * tracker answers 304 when nothing moved — without counting it against the
+   * rate limit. See `Probe`.
+   */
+  changed?(source: Source): Promise<Probe>
+}
+
+/**
+ * What a probe found: `changed` false when the tracker said nothing was
+ * updated since the probe last kept, true when something was, null when it
+ * could not say (treated as changed). `keep` makes this probe the one the
+ * next is compared with; the reading calls it only once the read that
+ * followed it landed cleanly, so a failed read never makes the next probe
+ * say "nothing changed" over changes nobody read.
+ */
+export interface Probe {
+  changed: boolean | null
+  keep(): void
+  /** With `changed` true: what the request answered, so a probe that is also the first page is not asked twice. */
+  body?: string
+}
+
+/** A probe that cannot say: what an adapter without one, or a failed probe, comes to. */
+export const UNKNOWN: Probe = { changed: null, keep: () => {} }
+
+/**
+ * Conditional requests (`-i -H If-None-Match: <etag>`), as `gh api` and
+ * `glab api` both make them, against a store of the ETags kept per address.
+ * One request; a 304 is "the same", a 200 with an ETag is "changed" and
+ * hands back a `keep` that stores its ETag; anything else cannot say.
+ */
+export function etags(): {
+  ask(run: (argv: string[]) => Promise<Ran>, argv: readonly string[], key: string): Promise<Probe>
+} {
+  const kept = new Map<string, string>()
+  return {
+    async ask(run, argv, key) {
+      const was = kept.get(key)
+      const ran = await run([...argv.slice(0, 2), '-i', ...(was ? ['-H', `If-None-Match: ${was}`] : []), ...argv.slice(2)])
+      const split = /\r?\n\r?\n/.exec(ran.out)
+      const head = split ? ran.out.slice(0, split.index) : ran.out
+      const body = split ? ran.out.slice(split.index + split[0].length) : ''
+      const status = Number(/^HTTP\/[\d.]+ (\d{3})/.exec(head)?.[1] ?? 0)
+      if (status === 304 && was) return { changed: false, keep: () => {} }
+      const etag = /^etag:\s*(.+?)\s*$/im.exec(head)?.[1]
+      if (status !== 200 || !etag) return UNKNOWN
+      return { changed: true, keep: () => void kept.set(key, etag), body }
+    },
+  }
 }
 
 /** Who the person is on one tracker host, or why it is not known. */

@@ -225,6 +225,20 @@ describe('the runner', () => {
     expect(account.account()?.graphql?.share).toEqual({ limit: 1000, used: 4 })
   })
 
+  test('a conditional request answered 304 is not charged to the share: GitHub does not count it', async () => {
+    const { account, calls } = stubbed({
+      answer: (argv) =>
+        argv.includes('If-None-Match: W/"e"')
+          ? { code: 1, out: 'HTTP/2.0 304 Not Modified\r\nEtag: W/"e"', err: 'gh: HTTP 304' }
+          : null,
+    })
+    const ran = await account.run(['gh', 'api', '-i', '-H', 'If-None-Match: W/"e"', 'repos/a/b/issues?per_page=1'])
+    /* Asked as the caller asked it: its own -i, no second --include. */
+    expect(calls.at(-1)).toEqual(['gh', 'api', '-i', '-H', 'If-None-Match: W/"e"', 'repos/a/b/issues?per_page=1'])
+    expect(ran.out).toStartWith('HTTP/2.0 304')
+    expect(account.account()?.core?.share?.used ?? 0).toBe(0)
+  })
+
   test('a background read past the share is held, recorded with its reason, and never run; a pressed one goes', async () => {
     const { account, calls, held } = stubbed()
     await account.run(['gh', 'api', 'repos/a/b'])
