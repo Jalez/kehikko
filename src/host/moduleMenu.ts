@@ -255,15 +255,39 @@ export function deprecatedSaid(presence: Pick<Presence, 'retired'>): string | nu
   return retired.successor ? `Replaced by ${retired.successor.name}.` : retired.says
 }
 
+/** Bytes in words, as the summary says them. */
+export function bytesSaid(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} kB`
+}
+
 /**
- * What Uninstall asks before it acts, in one sentence that says what happens. A copy Kehikot installed is
- * deleted; a checkout the person registered is only unregistered ("Unregister"), their folder stays.
- * Either way it comes off every kehikko it is on, and what it kept in the projects stays.
+ * What Uninstall asks before it acts, in one sentence that says what happens: it is stopped, and
+ * everything Kehikot put on this computer for it goes (its copy, logs, registration, what it put in
+ * the agent). A checkout the person registered is never deleted: "Your folder <dir> is kept." What it
+ * saved in projects stays unless the checkbox says otherwise (`projectsBoxSaid`). Its containers stay,
+ * saying it was removed.
  */
-export function uninstallSaid(name: string, own: boolean): string {
-  return own
-    ? `Unregister ${name} from this computer? It is taken off every kehikko it is on. Your own folder is not deleted, and what it kept in your projects stays.`
-    : `Uninstall ${name} from this computer? It is taken off every kehikko it is on and the copy Kehikot installed is deleted. What it kept in your projects stays.`
+export function uninstallSaid(ask: { name: string; own?: string | undefined; bytes?: number }): string {
+  const space = ask.bytes && ask.bytes > 0 ? ` (${bytesSaid(ask.bytes)})` : ''
+  return [
+    `Uninstall ${ask.name} from this computer?`,
+    `It is stopped, and everything Kehikot put here for it is removed${space}: its copy, logs and registration, and what it put in your agent.`,
+    ask.own ? `Your folder ${ask.own} is kept.` : null,
+    'Its containers stay and say it was removed.',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** The checkbox for a module's saved data in projects, or null when it has none. */
+export function projectsBoxSaid(projects: readonly { name: string; bytes: number }[]): { label: string; list: string } | null {
+  if (!projects.length) return null
+  return {
+    label: `Also remove its saved data in ${projects.length === 1 ? '1 project' : `${projects.length} projects`}`,
+    list: projects.map((one) => `${one.name} (${bytesSaid(one.bytes)})`).join(', '),
+  }
 }
 
 /** How long a row's one sentence may run before it is clipped. */

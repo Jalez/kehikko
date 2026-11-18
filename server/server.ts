@@ -55,7 +55,7 @@ import { fetchManifest, look, type FramedModule, type Presence } from './discove
 import { AcceptedTasks, reportSaid } from './agentSession.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, leaving, Nursery, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, hostEnv, leaving, Nursery, originEnv, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { portToHand } from './modulePorts.ts'
@@ -72,7 +72,8 @@ import { Adoption } from './adoption.ts'
 import { adoptRoutes } from './adoptRoutes.ts'
 import { answerLogged, failedAnswer } from './routeFailure.ts'
 import { carriedValues, holderOf, isSetupKey, refreshChoice, type SetupDeps } from './agentSetup.ts'
-import { BY as HOST_BY, isOwnCheckout, noteOf, retireDesk } from './retired.ts'
+import { BY as HOST_BY, noteOf, RETIRED_INBOX_MODULE, RETIRED_ITEM, retiredOffer, retiredStill } from './retired.ts'
+import { isOwnCheckout, runCleanUp, uninstallDesk, uninstalledModules } from './uninstall.ts'
 import { placeDesk } from './placeRoutes.ts'
 import { changesOfCopy, hostChanges } from './agentChanges.ts'
 import { withoutForAgents } from 'kehikot-module-protocol'
@@ -146,7 +147,7 @@ import { claudeSkillsDir, everywhereFor, skillsRoute } from './skills.ts'
 import { ownSkillAt, ownSkillDeclarations, withHost } from './ownSkills.ts'
 import { ensureSettings, forgetMade, readSettings, recordMade, settingsRoute } from './agentSettings.ts'
 import { automatic } from '../src/host/agentSettings.ts'
-import { AgentSync, settingsInbox, type ModuleSeen } from './agentSync.ts'
+import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
@@ -580,6 +581,8 @@ const callers = new Map<string, string>()
  * gone.
  */
 const registered = new Map<string, import('./registrations.ts').Registration>()
+/** Look again at the retired modules still installed (`retired.ts`); set once the offer exists. */
+let offerRetired: () => void = () => {}
 
 /** Where the desktop shell watches for a restart request, when it started this host. */
 const RESTART_FILE = process.env.KEHIKKO_RESTART_FILE?.trim() || null
@@ -1017,6 +1020,7 @@ async function survey(kept = false): Promise<{
    * installed here. False when the folder was there and could not be read (`unreadable`).
    */
   scanned: boolean
+  removed: { id: string; name: string; at: number }[]
   protocol: number
 }> {
   const swept = ++sweeps
@@ -1127,6 +1131,8 @@ async function survey(kept = false): Promise<{
     : new Set([...found.registrations.map((r) => r.id), ...found.rejected.map((one) => idOfFile(one.file))])
   lastPresences.clear()
   for (const presence of presences) lastPresences.set(presence.id, presence)
+  /* The retired modules still installed: one Inbox item, put up or taken down. `retired.ts`. */
+  offerRetired()
   /* Whether anything the agent sync cares about moved. It runs only when so. `agentSync.ts`. */
   agentSync.saw(seenOf(presences))
   /* What each module's manifest asks for, kept from the last sweep that READ
@@ -1198,6 +1204,9 @@ async function survey(kept = false): Promise<{
     },
     sweep: found,
     scanned: found.unreadable !== true,
+    /* The modules uninstalled on this computer and not registered again: their containers say
+       "Module removed" with Reinstall (`uninstall.ts`). */
+    removed: uninstalledModules(db, new Set(found.registrations.map((r) => r.id))),
     protocol: PROTOCOL,
   }
 }
@@ -2758,7 +2767,8 @@ function act(standing: readonly Standing[], now: number, mayStart: boolean): voi
   /* The versions containers are pinned to, by the same rule as the modules:
      started for an open kehikko, stopped when nothing pins them or nobody has
      looked for the grace period. See `versionRuns.ts`. */
-  const canvases = listCanvases(db)
+  /* A module that is not registered (uninstalled; its containers say so) runs no pinned version. */
+  const canvases = listCanvases(db).map((canvas) => ({ ...canvas, placements: canvas.placements.filter((p) => registered.has(p.i)) }))
   versionRuns.reconcile(pinUses(canvases), pinsNeeded(canvases, new Set(openness.every(now))), mayStart)
 
   for (const id of toStop(standing, now)) {
@@ -3575,6 +3585,15 @@ const setupDeps: SetupDeps = {
   },
 }
 
+/** Whoever is waiting on what the agent sync says (an Uninstall, for its summary): each line goes to each, beside the Inbox. */
+const agentTold: string[][] = []
+function heardBy<T extends Pick<SyncDeps, 'tell' | 'trouble'>>(speech: T): T {
+  return { ...speech, tell: (line: string) => {
+    for (const told of agentTold) told.push(line)
+    speech.tell(line)
+  } }
+}
+
 const agentSync = new AgentSync({
   db,
   refresh: () => refreshChoice(setupDeps),
@@ -3587,7 +3606,7 @@ const agentSync = new AgentSync({
   loaders: skillLoaderNames,
   /* The host is never "no longer registered": its own skills are never tidied away. */
   registry: () => withHost(lastRegistry),
-  ...settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev)),
+  ...heardBy(settingsInbox(inbox, settingsProjects, (project, rev) => wakes.inboxChanged(project, rev))),
 })
 
 const settingsDesk = settingsRoute({
@@ -3643,6 +3662,8 @@ const inboxRoutes = inboxDesk({
   changed: (project, rev) => wakes.inboxChanged(project, rev),
   /* A tracker notice's ref and page: what pressing it picks on a kehikko, or opens. */
   linkOf: (project, module, id) => (module === TRACKER_NOTICES_MODULE ? trackerNotices.link(project, id) : null),
+  /* The retired modules' "Uninstall them?": the host does it itself. `retired.ts`. */
+  hostAnswer: (_project, entry, text) => (entry.module === RETIRED_INBOX_MODULE && entry.id === RETIRED_ITEM ? retiredOffers.answer(text) : null),
 })
 
 /*
@@ -3715,20 +3736,80 @@ const adoptDesk = adoptRoutes({
   hasProject: (project) => projectById(db, project) !== null,
 })
 
-/* A module the official list retired, still here: said on its presence, removed only on a press
-   (`/host/uninstall`, for any module). See `retired.ts`. */
-const retiring = retireDesk({
+/* Uninstall, for any module, on a person's press (`/host/uninstall`): everything Kehikot put on this
+   computer for it, its own clean-up run, and a summary in words. See `uninstall.ts`. */
+const uninstalling = uninstallDesk({
   db,
-  retired: official.retired,
-  root: installsDir(),
+  installed: installsDir(),
+  versions: versionsDir(),
+  logs: logsDir(),
   registry: registryDir(),
-  registered: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir })),
-  stop: (id) => void halt(id),
-  keep: (project) => keep(db, project),
-  woke: (kehikko) => wakes.woke(kehikko),
-  registryChanged: () => wakes.registryChanged(),
+  registered: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, url: r.url, dir: r.dir })),
+  nameOf: (id) => knownName(id) ?? known(db).get(id)?.name ?? nameFromId(id),
+  projects: () => listProjects(db).filter((one) => !one.missing).map((one) => ({ id: one.id, name: one.name, path: one.path })),
+  busy: (id) => inHand.has(id) || working.has(id),
+  /* By its handle, as Stop does; what this host did not start is refused before anything is touched.
+     A registration's `keep` does not hold against Uninstall: the person asked for the module to go. */
+  stop: async (id) => {
+    stoppedByPerson.stop(id)
+    starting.delete(id)
+    failures.delete(id)
+    const registration = registered.get(id) ?? (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+    if (!nursery.holds(id)) {
+      if (registration && (await look(registration)).reached) {
+        return { ok: false, why: `${spokenName(id)} answers at ${registration.url} and Kehikot did not start it: stop it where it runs, then press Uninstall again` }
+      }
+      return { ok: true }
+    }
+    halt(id)
+    if (registration) await gone(registration.url, WELL_KNOWN)
+    return { ok: true }
+  },
+  stopVersions: (id) => versionRuns.stopModule(id),
+  cleanUp: (dir) => {
+    const own = buildBun()
+    return runCleanUp(dir, own.bun, { ...process.env, ...originEnv(process.env), ...own.env, ...hostEnv() })
+  },
+  agentModule: (id) => declared(id, 'agents:message'),
+  registryChanged: async () => {
+    await sweepSince(Date.now()).catch(() => null)
+    wakes.registryChanged()
+  },
+  /* The host's own entries in the agent for a module no longer registered: removed by the agent sync,
+     and what it said is said with the summary. */
+  agentTidy: async () => {
+    const told: string[] = []
+    agentTold.push(told)
+    try {
+      await agentSync.settle()
+    } finally {
+      agentTold.splice(agentTold.indexOf(told), 1)
+    }
+    return told
+  },
+  forgetInbox: (id) => {
+    for (const changed of inbox.forgetAll(id, '')) wakes.inboxChanged(changed.project, changed.rev)
+  },
   log: (line) => console.log(line),
 })
+
+/* The retired modules still installed: ONE Inbox item, "… are retired and still installed. Uninstall
+   them?", answered with one press. See `retired.ts`. */
+const retiredOffers = retiredOffer({
+  inbox,
+  where: settingsProjects,
+  changed: (project, rev) => wakes.inboxChanged(project, rev),
+  still: async () => retiredStill(official.retired(), [...(lastRegistry ?? [])], (id) => knownName(id)),
+  uninstall: (id) => uninstalling.uninstall(id),
+  tell: (line) => {
+    for (const project of settingsProjects()) {
+      const out = inbox.notice(project, RETIRED_INBOX_MODULE, HOST_BY.name, { epic: '', message: line, level: 'done', refs: [] }, undefined, 'normal')
+      wakes.inboxChanged(project, out.rev)
+    }
+  },
+})
+offerRetired = () => void retiredOffers.offer().catch(() => undefined)
+offerRetired()
 
 /*
  * A conversation's place (protocol 2.4.0): the token a session carries on every
@@ -5581,10 +5662,17 @@ async function answerRequest(request: Request): Promise<Response> {
     if (notesAnswer) return notesAnswer
 
     /* The official module list, installing from it, and proposing for it. */
+    /* Uninstall: `GET` is what the confirmation shows (what goes, the person's own folder, the projects
+       with saved data and their sizes); `POST { module, projects? }` does it and answers the summary. */
+    if (url.pathname === '/host/uninstall' && request.method === 'GET') {
+      const module = url.searchParams.get('module') ?? ''
+      const seen = await uninstalling.preview(module)
+      return seen.ok ? json(seen) : json({ error: seen.why }, seen.status)
+    }
     if (url.pathname === '/host/uninstall' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { module?: unknown } | null
+      const body = (await request.json().catch(() => null)) as { module?: unknown; projects?: unknown } | null
       if (!body || typeof body.module !== 'string' || body.module.length > 64) return json({ error: 'An uninstall names one module.' }, 400)
-      const done = await retiring.uninstall(body.module)
+      const done = await uninstalling.uninstall(body.module, { projects: body.projects === true })
       return done.ok ? json(done) : json({ error: done.why }, done.status)
     }
     /* "Kehikko development": the switch, a module's folder, and moving modules. `development.ts`. */

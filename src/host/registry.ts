@@ -282,6 +282,12 @@ export interface RegistryView {
    * be read. Absent from an older host, which is read as true.
    */
   scanned?: boolean
+  /**
+   * The modules uninstalled on this computer and not registered again (`server/uninstall.ts`): a
+   * container of one says "Module removed" with Reinstall, rather than "not installed". Absent from an
+   * older host.
+   */
+  removed?: { id: string; name: string; at: number }[]
   /** What each container pinned to a version is doing — see `server/pins.ts`. Absent from an older host. */
   pins?: import('./versions.ts').PinView[]
 }
