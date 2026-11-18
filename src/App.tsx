@@ -1,4 +1,5 @@
 import { TRACKER_NEWS_FROM } from '@/host/trackerNews.ts'
+import type { TrackerListing } from '@/host/trackerSources.ts'
 import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -4405,10 +4406,22 @@ export function App() {
         : { on: !messagesMuted.has(TRACKER_NEWS_FROM.module), onChange: (on: boolean) => muteMessages(TRACKER_NEWS_FROM.module, !on) },
     [projectId, messagesMuted, muteMessages],
   )
+  /* An edit in Settings › Trackers is kept by the page, not by the panel (which closing Settings unmounts). */
+  const onTrackerListing = useCallback((project: number, listing: TrackerListing) => {
+    if (project === projectRef.current) setTracker((was) => ({ ...was, project, listing }))
+  }, [])
+  /* The panel opened: read what the host holds, so the panel shows what is on disk. */
+  const onTrackerOpen = useCallback(() => {
+    const project = projectRef.current
+    if (project === null) return
+    void fetchTracker(project)
+      .then((found) => project === projectRef.current && setTracker(found))
+      .catch(() => undefined)
+  }, [])
   /* Settings › Trackers: the open project's reading, "Refresh all" and the news switch (`TrackerSettings.tsx`). */
   const trackersDoor = useMemo(
-    () => (projectId === null ? null : { tracker, onRefresh: onRefreshTrackers, news: trackerNews }),
-    [projectId, tracker, onRefreshTrackers, trackerNews],
+    () => (projectId === null ? null : { tracker, onRefresh: onRefreshTrackers, news: trackerNews, onListing: onTrackerListing, onOpen: onTrackerOpen }),
+    [projectId, tracker, onRefreshTrackers, trackerNews, onTrackerListing, onTrackerOpen],
   )
   /* "Use inbox" off, named for the panel: the way back is where the muting is said. */
   const mutedModules = useMemo(

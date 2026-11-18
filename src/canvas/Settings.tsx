@@ -1094,6 +1094,11 @@ function About({ onClose }: { onClose(): void }) {
           onChange={whatsNew.set}
         />
       </div>
+      {whatsNew.trouble ? (
+        <p role="status" className="text-destructive text-xs" data-whats-new-trouble>
+          {whatsNew.trouble}
+        </p>
+      ) : null}
       <Rows>
         <LinkRow
           icon={KehikotMark}
@@ -1180,8 +1185,9 @@ function Diagnostics() {
 }
 
 /** "Show What's new after updates": read from the host, changed there, and told to whoever shows it. Null until read. */
-function useWhatsNewSetting(): { show: boolean | null; set(on: boolean): void } {
+function useWhatsNewSetting(): { show: boolean | null; set(on: boolean): void; trouble: string | null } {
   const [show, setShow] = useState<boolean | null>(null)
+  const [trouble, setTrouble] = useState<string | null>(null)
   useEffect(() => {
     const abort = new AbortController()
     void fetchShowSetting(abort.signal).then((got) => !abort.signal.aborted && setShow(got ?? true))
@@ -1191,13 +1197,23 @@ function useWhatsNewSetting(): { show: boolean | null; set(on: boolean): void } 
       off()
     }
   }, [])
+  const kept = useRef<boolean | null>(null)
+  kept.current = show
   const set = useCallback((on: boolean) => {
+    const was = kept.current
     setShow(on)
     void postWhatsNew({ show: on }).then((record) => {
-      if (record) announceShow(record.show)
+      if (record) {
+        setTrouble(null)
+        announceShow(record.show)
+      } else {
+        /* The switch says what is kept: it goes back, and the person is told in words. */
+        setShow(was)
+        setTrouble('Not saved: Kehikot did not answer. The switch is as it was. Try again.')
+      }
     })
   }, [])
-  return { show, set }
+  return { show, set, trouble }
 }
 
 /**
