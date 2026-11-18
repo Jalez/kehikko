@@ -435,7 +435,7 @@ describe('the pieces', () => {
     expect(runsSaid({ from: 'folder', dir: '/Users/a/projects/kehikko-notes' }, '/Users/a')).toBe('Your folder ~/projects/kehikko-notes')
     expect(startedOnSaid(20)).toBe('Kehikko development is on because 20 modules run from your own folders. Turn it off in Settings › Development to run them all from Kehikot’s releases.')
     expect(summarySaid({ toRelease: 1, toFolder: 0, failed: [], freed: ['/Users/a/projects/kehikko-notes'] }, '/Users/a')).toBe(
-      '1 module now runs from Kehikot’s releases. Your folder ~/projects/kehikko-notes is no longer used by Kehikot; you can remove it.',
+      '1 module now runs from Kehikot’s releases. Your folder ~/projects/kehikko-notes is no longer used by Kehikot; you can remove it. Press Move unused folders to the Trash in Settings › Development to clear it; each is checked first.',
     )
   })
 })

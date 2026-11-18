@@ -7,10 +7,21 @@ import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { cn } from '@/lib/utils'
 import {
+  fetchUnused,
+  sizeSaid,
+  TRASH_BUTTON,
+  trashedSaid,
+  trashUnused,
+  verdictSaid,
+  type UnusedList,
+} from '@/host/unusedFolders.ts'
+import {
   changeDevelopment,
   DEVELOPMENT,
   runsCounted,
+  drifted,
   fetchDevelopment,
+  MODES,
   moveNowWarning,
   moveSaid,
   pathSaid,
@@ -107,6 +118,7 @@ export function DevelopmentSetting() {
           {state.summary}
         </p>
       ) : null}
+      {state.unused > 0 ? <UnusedFolders home={state.home} /> : null}
       {listed.length ? (
         <p className="text-muted-foreground border-t py-2.5 text-xs" data-development-count>
           {runsCounted(listed)}
@@ -119,6 +131,85 @@ export function DevelopmentSetting() {
           ))}
         </ul>
       ) : null}
+    </div>
+  )
+}
+
+/** A module's own choice, beside the switch: it beats the switch. */
+export function ModeChoice({ one, change }: { one: DevModule; change(what: DevelopmentChange): Promise<boolean> }) {
+  return (
+    <select
+      className="bg-background h-6 rounded-md border px-1 text-xs"
+      aria-label={`Where ${one.name} runs from`}
+      value={one.mode}
+      onChange={(event) => void change({ module: one.id, mode: event.target.value as 'follow' | 'folder' | 'release' })}
+      data-mode-choice={one.id}
+    >
+      {MODES.map((choice) => (
+        <option key={choice.mode} value={choice.mode}>
+          {choice.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** "Move unused folders to the Trash": the list with each folder's size and verdict, then one confirm. */
+function UnusedFolders({ home }: { home: string | null }) {
+  const [list, setList] = useState<UnusedList | null>(null)
+  const [said, setSaid] = useState<string | null>(null)
+  const [trouble, setTrouble] = useState<string | null>(null)
+  const open = async () => {
+    setSaid(null)
+    try {
+      setList(await fetchUnused())
+      setTrouble(null)
+    } catch (error) {
+      setTrouble(error instanceof Error ? error.message : String(error))
+    }
+  }
+  const confirm = async () => {
+    if (!list) return
+    try {
+      const done = await trashUnused(list.folders.filter((one) => one.trash).map((one) => one.dir))
+      setSaid(trashedSaid(done, home))
+      setList(null)
+    } catch (error) {
+      setTrouble(error instanceof Error ? error.message : String(error))
+    }
+  }
+  return (
+    <div className="space-y-1.5 border-t py-2.5 text-xs" data-unused-folders>
+      {list ? (
+        <div role="alertdialog" aria-label="Move unused folders to the Trash" className="space-y-1.5">
+          <ul className="space-y-0.5">
+            {list.folders.map((one) => (
+              <li key={one.dir} className={cn('break-words', one.trash ? '' : 'text-muted-foreground')}>
+                {pathSaid(one.dir, home)} · {sizeSaid(one.bytes)} · {verdictSaid(one)}
+              </li>
+            ))}
+          </ul>
+          <p>
+            {list.folders.some((one) => one.trash)
+              ? `${sizeSaid(list.freedBytes)} will be freed. They go to the Trash, where you can put them back.`
+              : 'Nothing passes the checks, so nothing will be moved.'}
+          </p>
+          <div className="flex gap-1.5">
+            <Button size="sm" className="h-7 px-2 text-xs" disabled={!list.folders.some((one) => one.trash)} onClick={() => void confirm()}>
+              Move to the Trash
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setList(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => void open()}>
+          {TRASH_BUTTON}
+        </Button>
+      )}
+      {said ? <p role="status">{said}</p> : null}
+      {trouble ? <p role="alert" className="text-amber-600 dark:text-amber-400">{trouble}</p> : null}
     </div>
   )
 }
@@ -147,11 +238,7 @@ function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; ho
               Move now
             </Button>
           ) : null}
-          {!busy && on && one.folder ? (
-            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, release: !one.release })}>
-              {one.release ? 'Use my folder' : 'Use the release'}
-            </Button>
-          ) : null}
+          {!busy && one.folder ? <ModeChoice one={one} change={change} /> : null}
           {!busy && !on && one.runs.from === 'folder' ? (
             <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => void change({ module: one.id, move: true })}>
               Use the release
@@ -219,10 +306,11 @@ function ModuleLine({ one, on, home, change }: { one: DevModule; on: boolean; ho
  */
 export function RunsFrom({ one, on, home, change }: { one: DevModule | undefined; on: boolean; home: string | null; change(what: DevelopmentChange): Promise<boolean> }) {
   if (!one || !showsRuns(on, one)) return null
-  const unexpected = !on && one.runs.from === 'folder'
+  const unexpected = drifted(one) && !on && one.runs.from === 'folder'
   return (
     <p className={cn('text-xs leading-relaxed break-words', unexpected ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')} data-runs-from={one.runs.from}>
       {runsSaid(one.runs, home)}
+      {one.mode === 'folder' && one.runs.from === 'folder' ? ' (kept in development)' : null}
       {unexpected ? ' — Kehikko development is off, so this should run from its release. ' : null}
       {one.move ? ` · ${moveSaid(one.move.step)}` : null}
       {unexpected && !one.move ? (
@@ -230,12 +318,10 @@ export function RunsFrom({ one, on, home, change }: { one: DevModule | undefined
           Use the release
         </Button>
       ) : null}
-      {on && one.folder && !one.move ? (
+      {one.folder && !one.move ? (
         <>
           {' '}
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void change({ module: one.id, release: !one.release })}>
-            {one.release ? 'Use my folder' : 'Use the release for this one'}
-          </Button>
+          <ModeChoice one={one} change={change} />
         </>
       ) : null}
     </p>

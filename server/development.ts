@@ -64,9 +64,11 @@ const KEY = 'development'
 /** What is kept. */
 export interface DevStore {
   on: boolean
-  folders: Record<string, { dir: string; release?: true }>
+  folders: Record<string, { dir: string; release?: true; always?: true }>
   /** The folder each module's registration named when it was last read: a folder is learned from a registration only when that changes. */
   seen?: Record<string, string>
+  /** Folders Kehikot stopped using when a module moved to its release, until the person clears them (`unusedFolders.ts`). */
+  freed?: string[]
 }
 
 export function readDevelopment(db: Database): DevStore | null {
@@ -80,13 +82,15 @@ export function readDevelopment(db: Database): DevStore | null {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       for (const [id, one] of Object.entries(raw as Record<string, unknown>)) {
         const dir = (one as { dir?: unknown } | null)?.dir
-        if (typeof dir === 'string' && isAbsolute(dir)) folders[id] = { dir, ...((one as { release?: unknown }).release === true ? { release: true as const } : {}) }
+        if (typeof dir === 'string' && isAbsolute(dir)) folders[id] = { dir, ...((one as { release?: unknown }).release === true ? { release: true as const } : (one as { always?: unknown }).always === true ? { always: true as const } : {}) }
       }
     }
     const rawSeen = (stored as { seen?: unknown }).seen
     const seen: Record<string, string> = {}
     if (rawSeen && typeof rawSeen === 'object' && !Array.isArray(rawSeen)) for (const [id, dir] of Object.entries(rawSeen as Record<string, unknown>)) if (typeof dir === 'string') seen[id] = dir
-    return { on: (stored as { on: boolean }).on, folders, seen }
+    const rawFreed = (stored as { freed?: unknown }).freed
+    const freed = Array.isArray(rawFreed) ? rawFreed.filter((dir): dir is string => typeof dir === 'string' && isAbsolute(dir)) : []
+    return { on: (stored as { on: boolean }).on, folders, seen, ...(freed.length ? { freed } : {}) }
   } catch {
     return null
   }
@@ -272,6 +276,15 @@ export function developmentDesk(deps: DevelopmentDeps) {
   const fromFolder = (dir: string | undefined): dir is string => !!dir && !isUnder(dir, deps.installsRoot)
   const releaseDir = (id: string) => join(deps.installsRoot, id)
 
+  /** Remember folders Kehikot no longer uses, for "Move unused folders to the Trash". */
+  function rememberFreed(dirs: readonly string[]): void {
+    if (!dirs.length) return
+    const store = readDevelopment(deps.db) ?? { on: false, folders: {} }
+    const freed = [...(store.freed ?? [])]
+    for (const dir of dirs) if (!freed.some((one) => same(one, dir))) freed.push(dir)
+    writeDevelopment(deps.db, { ...store, freed })
+  }
+
   /** The official modules registered here, with where each is registered from. */
   async function officialRegistered(): Promise<(Registered & { entry: Official })[]> {
     const out: (Registered & { entry: Official })[] = []
@@ -302,7 +315,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
       if (!fromFolder(one.dir)) continue
       const had = store.folders[one.id]
       if (had && same(had.dir, one.dir)) continue
-      store.folders[one.id] = { dir: one.dir, ...(had?.release ? { release: true as const } : {}) }
+      store.folders[one.id] = { dir: one.dir, ...(had?.release ? { release: true as const } : had?.always ? { always: true as const } : {}) }
     }
     if (kept === null) {
       const onFolders = registered.filter((one) => fromFolder(one.dir)).length
@@ -319,11 +332,39 @@ export function developmentDesk(deps: DevelopmentDeps) {
   /** Where a module should run from, by the switch and its own choice. */
   function wantsOf(store: DevStore, id: string): 'release' | 'folder' {
     const folder = store.folders[id]
-    return store.on && folder && !folder.release ? 'folder' : 'release'
+    if (!folder || folder.release) return 'release'
+    /* An exemption: "always my folder" holds whatever the switch says. */
+    return store.on || folder.always ? 'folder' : 'release'
   }
 
   /** What a module set to keep running says while it has not moved. */
   const laterWhy = 'It is set to keep running, so Kehikot did not stop it. It moves at its next restart, or press Move now.'
+
+  /** The folders freed and still there. */
+  async function unusedCandidates(): Promise<string[]> {
+    const store = readDevelopment(deps.db)
+    return (store?.freed ?? []).filter((dir) => existsSync(dir))
+  }
+
+  /** Who still uses `dir`: a registration naming it, or a module set to run from it. */
+  async function usedBy(dir: string): Promise<string | null> {
+    const registered = await deps.registrations()
+    const named = registered.find((one) => one.dir && same(one.dir, dir))
+    if (named) return nameOf(named.id)
+    const store = readDevelopment(deps.db)
+    if (store) for (const [id, folder] of Object.entries(store.folders)) if (same(folder.dir, dir) && wantsOf(store, id) === 'folder') return nameOf(id)
+    return null
+  }
+
+  /** Folders cleared: no longer freed, and no longer anyone's development folder. */
+  function cleared(dirs: readonly string[]): void {
+    const store = readDevelopment(deps.db)
+    if (!store) return
+    const folders = Object.fromEntries(Object.entries(store.folders).filter(([, one]) => !dirs.some((dir) => same(dir, one.dir))))
+    const freed = (store.freed ?? []).filter((one) => !dirs.some((dir) => same(dir, one)))
+    writeDevelopment(deps.db, { ...store, folders, freed })
+    deps.changed?.()
+  }
 
   async function state(): Promise<Development> {
     const { store, registered } = await current()
@@ -344,6 +385,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
           runs: fromFolder(dir) ? { from: 'folder' as const, dir } : { from: 'release' as const, version: releaseOf(dir) },
           folder: folder?.dir ?? null,
           release: folder?.release === true,
+          mode: folder?.release ? ('release' as const) : folder?.always ? ('folder' as const) : ('follow' as const),
           keeps: one.keep === true,
           wants,
           found: found.get(one.id) ?? null,
@@ -351,7 +393,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-    return { on: store.on, home, modules, moving: moving !== null, summary }
+    return { on: store.on, home, modules, moving: moving !== null, summary, unused: (await unusedCandidates()).length }
   }
 
   /** Move one module to where it should run from, when it is not there. */
@@ -419,6 +461,8 @@ export function developmentDesk(deps: DevelopmentDeps) {
     if (moving || !queue.length) return
     if (!moving) {
       tally = { toRelease: 0, toFolder: 0, failed: [], freed: [] }
+      /* The exemptions: modules that stay on their own folder whatever the switch says. */
+      tally.kept = store.on ? [] : registered.filter((one) => store.folders[one.id]?.always && fromFolder(one.dir) && same(one.dir!, store.folders[one.id]!.dir)).map((one) => nameOf(one.id))
       summary = null
     }
     moving = (async () => {
@@ -434,6 +478,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
           })
         }
       } finally {
+        rememberFreed(tally.freed)
         summary = summarySaid(tally, home)
         moving = null
         /* One Inbox line each, the first the one a person reads first: the Inbox keeps a line only so long (`SUMMARY_LINE_MAX`). */
@@ -453,7 +498,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
   }
 
   /** One module's development folder (null: forget it) or "use the release for this one"; moves it when that changes where it runs. */
-  async function setModule(id: string, change: { folder?: string | null; release?: boolean; move?: true; now?: true }): Promise<{ ok: true } | { ok: false; why: string; status: number }> {
+  async function setModule(id: string, change: { folder?: string | null; release?: boolean; mode?: 'follow' | 'folder' | 'release'; move?: true; now?: true }): Promise<{ ok: true } | { ok: false; why: string; status: number }> {
     const entry = entryOf(id)
     tried.delete(id)
     if (!entry) return { ok: false, why: `${id} is not on the official module list.`, status: 404 }
@@ -463,7 +508,12 @@ export function developmentDesk(deps: DevelopmentDeps) {
     else if (typeof change.folder === 'string') {
       const refused = folderRefused(entry, change.folder, deps.installsRoot)
       if (refused) return { ok: false, why: refused, status: 409 }
-      folders[id] = { dir: resolve(change.folder), ...(folders[id]?.release ? { release: true as const } : {}) }
+      folders[id] = { dir: resolve(change.folder), ...(folders[id]?.release ? { release: true as const } : folders[id]?.always ? { always: true as const } : {}) }
+    }
+    if (change.mode) {
+      const had = folders[id]
+      if (!had) return { ok: false, why: `${entry.name} has no folder of yours to follow, so it runs from its release.`, status: 409 }
+      folders[id] = change.mode === 'release' ? { dir: had.dir, release: true } : change.mode === 'folder' ? { dir: had.dir, always: true } : { dir: had.dir }
     }
     if (typeof change.release === 'boolean') {
       const had = folders[id]
@@ -540,6 +590,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
             : { toRelease: 0, toFolder: 1, failed: [], freed: [] },
           home,
         )
+        if (wants === 'release' && fromFolder(from) && !others) rememberFreed([from])
         for (const line of lines.reverse()) deps.tell(line)
         deps.changed?.()
       },
@@ -556,7 +607,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
     while (moving) await moving
   }
 
-  return { state, setOn, setModule, apply, boot, idle, wantsOf, owes, beforeStart }
+  return { state, setOn, setModule, apply, boot, idle, wantsOf, owes, beforeStart, unusedCandidates, usedBy, cleared }
 }
 
 export type DevelopmentDesk = ReturnType<typeof developmentDesk>

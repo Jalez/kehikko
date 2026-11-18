@@ -37,6 +37,8 @@ export const devModuleSchema = z.object({
   folder: z.string().nullable(),
   /** "Use the release for this one", while development is on. */
   release: z.boolean(),
+  /** The module's own choice: follow the switch, always its folder (an exemption), or always its release. */
+  mode: z.enum(['follow', 'folder', 'release']).default('follow'),
   /** Whether the module is set to keep running: Kehikot does not stop it, so it moves at its next restart or on "Move now". */
   keeps: z.boolean(),
   /** Where it should run from, by the switch and its own choice. */
@@ -56,6 +58,8 @@ export const developmentSchema = z.object({
   moving: z.boolean(),
   /** What the last switch came to, in a sentence or two; null before any. */
   summary: z.string().nullable(),
+  /** How many folders Kehikot no longer uses and the person has not cleared (`unusedFolders.ts`). */
+  unused: z.number().default(0),
 })
 export type Development = z.infer<typeof developmentSchema>
 
@@ -96,6 +100,13 @@ export function showsRuns(on: boolean, one: Pick<DevModule, 'runs' | 'wants'>): 
   return on || one.runs.from === 'folder'
 }
 
+/** The three choices of a module, as its row says them. */
+export const MODES: ReadonlyArray<{ mode: 'follow' | 'folder' | 'release'; label: string }> = [
+  { mode: 'follow', label: 'Follow the switch' },
+  { mode: 'folder', label: 'Always my folder' },
+  { mode: 'release', label: 'Always the release' },
+]
+
 /** The one Inbox line a machine with modules on the person's folders starts with. */
 export function startedOnSaid(count: number): string {
   return `Kehikko development is on because ${count} module${count === 1 ? '' : 's'} run${count === 1 ? 's' : ''} from your own folders. Turn it off in Settings › Development to run them all from Kehikot’s releases.`
@@ -114,6 +125,8 @@ export interface Tally {
   toFolder: number
   failed: Unmoved[]
   freed: string[]
+  /** Modules exempt from the switch: kept on their own folders. */
+  kept?: string[]
 }
 
 /** The most one line of the summary says: what the Inbox keeps of a notice (`DETAIL_MAX` in `inbox.ts`), so none of it is cut off. */
@@ -157,6 +170,8 @@ export function summaryLines(done: Tally, home: string | null): string[] {
     }
     lines.push(`${line}.`)
   }
+  if (done.kept?.length) lines.push(`Kept in development: ${done.kept.join(', ')}.`)
+  if (done.freed.length) lines.push(`Press Move unused folders to the Trash in Settings › Development to clear ${done.freed.length === 1 ? 'it' : 'them'}; each is checked first.`)
   return lines.length ? lines.map(clip) : ['Every module already ran from where it should.']
 }
 
@@ -166,7 +181,7 @@ export function summarySaid(done: Tally, home: string | null): string {
 }
 
 /** What the page sends: the switch, or one module's folder or choice. */
-export type DevelopmentChange = { on: boolean } | { module: string; folder?: string | null; release?: boolean } | { module: string; move: true; now?: true }
+export type DevelopmentChange = { on: boolean } | { module: string; folder?: string | null; release?: boolean; mode?: 'follow' | 'folder' | 'release' } | { module: string; move: true; now?: true }
 
 async function said(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null

@@ -52,6 +52,7 @@ const one = (id: string, name: string, runs: Development['modules'][number]['run
   folder: runs.from === 'folder' ? runs.dir : null,
   release: false,
   keeps: false,
+  mode: 'follow',
   wants: 'release',
   found: null,
   move: null,
@@ -76,7 +77,7 @@ const MODULES = [
 
 test('with development off, every module’s line is there, under the count', async () => {
   if (!inChild) return
-  const done = await draw({ on: false, home: '/Users/me', modules: MODULES, moving: false, summary: null })
+  const done = await draw({ on: false, home: '/Users/me', modules: MODULES, moving: false, summary: null, unused: 0 })
   expect(document.querySelector('[data-testid="development-switch"]')!.getAttribute('aria-checked')).toBe('false')
   expect(document.querySelector('[data-development-count]')!.textContent).toBe('2 from releases · 1 from your folder')
   const lines = [...document.querySelectorAll('[data-development-module]')]
@@ -88,7 +89,7 @@ test('with development off, every module’s line is there, under the count', as
 
 test('with development on, the same lines and count', async () => {
   if (!inChild) return
-  const done = await draw({ on: true, home: '/Users/me', modules: MODULES.slice(0, 2), moving: false, summary: null })
+  const done = await draw({ on: true, home: '/Users/me', modules: MODULES.slice(0, 2), moving: false, summary: null, unused: 0 })
   expect(document.querySelector('[data-development-count]')!.textContent).toBe('2 from releases')
   expect(document.querySelectorAll('[data-development-module]').length).toBe(2)
   await done()
