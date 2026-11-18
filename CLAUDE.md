@@ -289,8 +289,9 @@
   which `allow`s that one move). Never widen this to any other case.
 - A module registered from somebody's own checkout (not under `installed/`)
   follows its branch as before; only an installed copy's `Place` carries the
-  follower (`placeOf` in `server/server.ts`). A registration never names a
-  working checkout or a worktree.
+  follower (`placeOf` in `server/server.ts`). Which modules run from a
+  person's folder is "Kehikko development" (below); an agent never points a
+  registration at a working checkout or a worktree.
 - The Updates menu says "Journeys 1.5.0 → 1.6.0", "up to date · 1.6.0",
   "following main · no releases yet" or "running main ahead of 1.6.0"
   (`releaseSaid`), and "What's new" opens the GitHub Release notes of every
@@ -328,6 +329,36 @@
 - What reaches the app is what is RELEASED (what is merged to main, for a
   module with no release yet); the host itself reaches people only through a
   desktop release, which is automatic (next section).
+
+## Kehikko development (a module from the person's own folder)
+
+- One machine-level switch, Settings › Modules › "Kehikko development", off by
+  default: off, every OFFICIAL module registered here runs from its release
+  (`installed/<id>/`); on, the ones with a development folder run from it, and
+  the person can still say "use the release for this one". The rule and the
+  moving are `server/development.ts`; the words and shapes
+  `src/host/development.ts`; the page `src/canvas/Development.tsx`. Kept in the
+  frame database's `settings` row `development` (switch, folders, choices).
+- A development folder is LEARNED from a registration that names a folder
+  outside `installed/` (what `bun run register` in a checkout writes), or
+  picked by the person; a checkout found under `~/Projects` is only offered.
+  A module on no official list is never listed or moved.
+- The first start on a machine with official modules registered from folders
+  makes the switch ON (nothing moves) with ONE Inbox line; with none, off.
+- Moving a module is ONE path, `moveModule` in `server/server.ts` behind
+  `development.move`: a release copy put in place first (`installs.copy`:
+  bundle, else git), the module stopped as a restart stops it, the registration
+  pointed at the new folder (every other key kept), started, and it must
+  answer; otherwise the old registration goes back word for word and the old
+  one is started again. A module set to `keep` and running is not moved. Never
+  write a registration's `dir` anywhere else.
+- A person's folder is only READ (git config, package.json, run.sh). Never
+  write, move or remove anything in it; the summary names the folders Kehikot
+  no longer uses, for the person to remove.
+- An agent module that wrote its own folder into the person's agent config
+  points it at the folder it runs from at every start (the agent module's
+  job, not the host's: the host never edits that config for it).
+- `POST /host/development` is `PAGE_ONLY`; no MCP tool reaches it.
 
 ## How the host reaches the app (automatic releases)
 

@@ -56,6 +56,7 @@ import {
   type ToolState,
 } from '@/host/agentSettings.ts'
 import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
+import { DevelopmentSetting } from './Development.tsx'
 import { isGitReason } from '@/host/gitSaid.ts'
 import { adoptSorts, adoptVisits } from '@/host/pickerStore.ts'
 import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
@@ -513,6 +514,8 @@ export function SettingsBody({
                         />
                       </div>
                     ) : null}
+                    {/* Where the official modules run from: Kehikot's releases, or your own folders. Machine-wide. */}
+                    {shown === 'modules' ? <DevelopmentSetting /> : null}
                     {/* Only while it is shown: listing asks every module, and each form asks its own. */}
                     {shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null}
                   </>

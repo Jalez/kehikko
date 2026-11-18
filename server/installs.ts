@@ -6,7 +6,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
 import { buildBun, markInstalled } from './moduleBuilds.ts'
-import { INCOMING, sizeSaid, type BundleDesk } from './moduleBundles.ts'
+import { INCOMING, isBundle, sizeSaid, type BundleDesk } from './moduleBundles.ts'
 import { Cancelled, gitFraction, type Job, type JobSteps, type StepName } from './jobSteps.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
@@ -231,11 +231,11 @@ export function installDesk(deps: Deps) {
 
   const list = (): Promise<Listed[]> => listOf(entries())
 
-  async function work(entry: Installable, job: Job | null): Promise<void> {
+  async function work(entry: Installable, job: Job | null, registers = true): Promise<void> {
     /* Its turn first: a few run at once, and the rest say how many are ahead. */
     const release = job && deps.steps ? await deps.steps.slots.take(job) : () => {}
     try {
-      await steps(entry, job)
+      await steps(entry, job, registers)
     } finally {
       release()
     }
@@ -294,10 +294,11 @@ export function installDesk(deps: Deps) {
     return { ok: true, dir }
   }
 
-  async function steps(entry: Installable, job: Job | null): Promise<void> {
+  async function steps(entry: Installable, job: Job | null, registers = true): Promise<void> {
     const dir = join(deps.root, entry.id)
     const step = (now: Step) => jobs.set(entry.id, { state: 'installing', step: now })
     if (await fromBundle(entry, dir, job)) {
+      if (!registers) return
       step('registering')
       return register(entry, dir)
     }
@@ -387,8 +388,36 @@ export function installDesk(deps: Deps) {
       await deps.build({ id: entry.id, name: entry.name, dir }).catch(() => null)
     }
 
+    if (!registers) return
     step('registering')
     await register(entry, dir)
+  }
+
+  /**
+   * A release copy of an entry at `installed/<id>/`, for a module registered from somewhere else
+   * that is to run from its release (`development.ts`): the install's own steps — the ready-built
+   * bundle, or git when the release has none — and nothing registered. A bundle already there is
+   * used as it is. Resolves when the copy is ready, or with why it is not.
+   */
+  async function copy(entry: Installable): Promise<{ ok: true } | { ok: false; why: string }> {
+    const dir = join(deps.root, entry.id)
+    if (existsSync(dir) && isBundle(dir)) return { ok: true }
+    const newer = unmet(entry)
+    if (newer) return { ok: false, why: installRefusedSaid(entry.name, newer) }
+    if (busy(entry.id)) return { ok: false, why: `${entry.name} is being installed already.` }
+    jobs.set(entry.id, { state: 'installing', step: 'cloning' })
+    const job = deps.steps?.begin(entry.id, entry.name, 'install') ?? null
+    try {
+      await work(entry, job, false)
+      job?.done()
+      return { ok: true }
+    } catch (error) {
+      const why = error instanceof Cancelled ? cancelledSaid(entry.name, error.step) : (error as Error).message
+      job?.fail(why)
+      return { ok: false, why }
+    } finally {
+      jobs.delete(entry.id)
+    }
   }
 
   /** Write the registration naming `dir`, unless somebody registered the module meanwhile. */
@@ -481,7 +510,7 @@ export function installDesk(deps: Deps) {
     return null
   }
 
-  return { list, listOf, install, begin, busy, forget, route, gitCopy }
+  return { list, listOf, install, begin, busy, forget, route, gitCopy, copy }
 }
 
 export type InstallDesk = ReturnType<typeof installDesk>
