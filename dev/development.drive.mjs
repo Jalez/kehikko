@@ -377,6 +377,17 @@ export async function developmentDrive({ check = false } = {}) {
     expect(row(await state(), sample.id)?.move?.step === 'done', 'its row says it moved')
     expect(/Sample now runs|1 module now runs from Kehikot’s releases/.test(await inboxNow()), 'and the Inbox says so')
 
+    /* ---- 6. A registration edited a moment before Start is read as it is -------------------------
+       The host's last look at the registrations is a sweep old, and a sweep under load is later still:
+       a start that judged by it owed no move to a module whose `keep` was just added (CI, once). */
+    const again = execFileSync('lsof', ['-ti', `tcp:${ports.sample}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim().split('\n')[0]
+    process.kill(Number(again), 'SIGTERM')
+    writeFileSync(join(scratch.root, 'modules', `${sample.id}.json`), JSON.stringify({ url: `http://127.0.0.1:${ports.sample}`, dir: sampleFolder, keep: true }))
+    expect((await post('/host/start', { module: sample.id })).ok, 'Sample is started the moment its registration says keep')
+    await settled()
+    expect(registration(sample.id).dir === installed(sample.id), `and that start moves it, from the registration as it is on disk (${registration(sample.id).dir})`)
+    expect((await until('Sample answers as its release', async () => (await versionAt(ports.sample)) === '1.0.0', 60_000).catch(() => false)) === true, 'and it answers as its release')
+
     const sampleChanged = changedIn(before.sample, fingerprint(sampleFolder))
     expect(!sampleChanged.length, `Sample’s folder is exactly as it was: every file, mode and time${sampleChanged.length ? ` (changed: ${sampleChanged.join(', ')})` : ''}`)
     const brokenChanged = changedIn(before.broken, fingerprint(brokenFolder))

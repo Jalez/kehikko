@@ -954,7 +954,10 @@ const settling = new Set<string>()
  * is started from there; when it does not answer, the registration goes back and the old one starts.
  */
 async function bringUpSettled(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
-  const was = registered.get(id) ?? null
+  /* The registration as it is on disk now: `registered` is the last sweep's, and a start asked a moment after
+     a registration was edited (`keep` added by hand, or by a press) would otherwise judge the one before it
+     and owe no move. A press reads the disk for the same reason (`/host/start`). */
+  const was = (await readRegistrations()).registrations.find((r) => r.id === id) ?? registered.get(id) ?? null
   if (settling.has(id) || !development.owes(id, was)) return bringUp(id, runnable, within, onInstalling, onStarted)
   settling.add(id)
   try {
@@ -2662,6 +2665,10 @@ async function ended(id: string, at: number, code: number | null): Promise<void>
     if (sweeping) await sweeping.catch(() => null)
     const view = await sweep()
     const presence = view.presences.find((one) => one.id === id)
+    /* The sweep took its time, and a start began meanwhile (a person's press, the host's own): the
+       process in `starting` and in `runs` is that one's, not the one that ended. Judging it by this
+       end blamed it for a failure that was not its own and cleared its `starting`. It decides for itself. */
+    if (runs.has(id)) return
     /* Something answers there: this module was already running, and the copy
        the host started stepped aside, which is what it is meant to do. */
     if (!presence || presence.reached) return
