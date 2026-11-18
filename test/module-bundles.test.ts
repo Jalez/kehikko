@@ -333,3 +333,23 @@ describe('the steps a person sees', () => {
     expect(barExplained(said)).toMatch(/ready-built/)
   })
 })
+
+describe('versions of a module installed as a bundle', () => {
+  test('lists only the releases that carry a bundle, newest first, and remembers what it was told', async () => {
+    const gh = github({ 'v1.0.0': {}, 'v1.1.0': { archive: archiveOf('1.1.0') }, 'v1.2.0': { archive: archiveOf('1.2.0') }, 'v1.3.0': {} })
+    const bundles = desk(fresh(), gh)
+    const source = { id: ID, repo: REPO }
+    const first = await bundles.bundled(source, false)
+    expect(first).toEqual({ tags: ['v1.2.0', 'v1.1.0'], error: null })
+    const asks = gh.asked.length
+    expect((await bundles.bundled(source, false)).tags).toEqual(['v1.2.0', 'v1.1.0'])
+    /* The ones with a bundle are known for good; the ones with none are asked again only after a while. */
+    expect(gh.asked.length).toBe(asks)
+  })
+
+  test('says why when the releases cannot be read, and lists none', async () => {
+    const gh = github({})
+    const bundles = bundleDesk({ root: fresh(), repoOf: () => REPO, fetch: gh.get, have: '2.102.0', tags: { tags: async () => ({ ok: false as const, why: 'offline', at: 0 }) } })
+    expect(await bundles.bundled({ id: ID, repo: REPO }, true)).toEqual({ tags: [], error: 'offline' })
+  })
+})

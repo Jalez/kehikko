@@ -60,6 +60,10 @@ const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
 const SMALL_TIMEOUT_MS = 20_000
 /** A tag's protocol pin is read at most this often per tag that failed to read. */
 const NEED_RETRY_MS = 10 * 60_000
+/** How many of a module's newest releases are asked about, for what it can be pinned to. */
+const PINNABLE = 30
+/** How many of those are asked at once. */
+const ASKS_AT_ONCE = 6
 
 /** Where a module's releases are: its id and the GitHub repository its list entry names. */
 export interface Source {
@@ -139,6 +143,7 @@ export function bundleDesk(deps: BundleDeps) {
   const now = deps.now ?? Date.now
   const needs = new Map<string, { need: string | null; at: number; ok: boolean }>()
   const releasesOf = new Map<string, string[]>()
+  const carries = new Map<string, { has: boolean; at: number }>()
 
   const incoming = join(deps.root, INCOMING)
   const previous = join(deps.root, PREVIOUS)
@@ -212,7 +217,7 @@ export function bundleDesk(deps: BundleDeps) {
    * first (`unpackBundle`). Nothing that runs is touched: this is what happens
    * while the old version keeps answering.
    */
-  async function stage(source: Source, tag: string, job?: Job | null, signal?: AbortSignal): Promise<Staged> {
+  async function stage(source: Source, tag: string, job?: Job | null, signal?: AbortSignal, into?: string): Promise<Staged> {
     const found = await find(source, tag, signal)
     if (!found.ok) return { ok: false, why: found.why, none: found.none }
     job?.say('cloning', tag)
@@ -223,8 +228,10 @@ export function bundleDesk(deps: BundleDeps) {
       return { ok: false, why: (error as Error).message }
     }
     job?.say('unpacking', tag)
-    mkdirSync(incoming, { recursive: true })
-    const dir = join(incoming, `${source.id}-${tag.slice(1)}-${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`)
+    /* An install or an update unpacks beside the installed copy; a version pinned beside it unpacks where it will run (`into`). */
+    const landing = into ?? incoming
+    mkdirSync(landing, { recursive: true })
+    const dir = join(landing, `${source.id}-${tag.slice(1)}-${now().toString(36)}${Math.random().toString(36).slice(2, 6)}`)
     const unpacked = unpackBundle(archive, dir, { sha256: found.sha256, id: source.id, version: tag.slice(1), ...(deps.platform ? { platform: deps.platform } : {}) })
     if (!unpacked.ok) {
       log(`kehikko: ${source.id}: the bundle of ${tag} was refused: ${unpacked.why}`)
@@ -345,10 +352,10 @@ export function bundleDesk(deps: BundleDeps) {
   }
 
   /** The releases on the module's repository, newest first; the last list known when `fetch` is false. */
-  async function releases(source: Source, fetch: boolean): Promise<{ releases: string[]; error: string | null }> {
+  async function releases(source: Source, fetch: boolean, fresh = true): Promise<{ releases: string[]; error: string | null }> {
     const url = `https://github.com/${source.repo}.git`
     if (!fetch || !deps.tags) return { releases: releasesOf.get(url) ?? [], error: null }
-    const got = await deps.tags.tags(url, true)
+    const got = await deps.tags.tags(url, fresh)
     if (!got.ok) return { releases: releasesOf.get(url) ?? [], error: got.why }
     const list = releasesNewestFirst(got.tags)
     releasesOf.set(url, list)
@@ -411,12 +418,45 @@ export function bundleDesk(deps: BundleDeps) {
     return { tag: picked.newest, needsNewer: picked.needsNewer, error: null }
   }
 
+  /**
+   * The releases of a module that carry a ready-built bundle, newest first: what a container can be
+   * pinned to when the module has no git checkout (it was installed as a bundle). From the module's
+   * GitHub releases, read as `releases` reads them, each one asked for its `.sha256` — one small
+   * request, kept: a release that has a bundle always does, one that has none is asked again later
+   * (a release publishes its bundle in the same run, so a miss is usually an old release). Only the
+   * newest `PINNABLE` are asked about.
+   */
+  async function bundled(source: Source, fresh: boolean): Promise<{ tags: string[]; error: string | null }> {
+    const listed = await releases(source, true, fresh)
+    if (listed.error && listed.releases.length === 0) return { tags: [], error: listed.error }
+    const considered = listed.releases.slice(0, PINNABLE)
+    const answers = new Map<string, boolean>()
+    let next = 0
+    const worker = async () => {
+      for (; next < considered.length; ) {
+        const tag = considered[next++]!
+        const key = `${source.repo}\u0000${tag}`
+        const known = carries.get(key)
+        if (known && !fresh && (known.has || now() - known.at < NEED_RETRY_MS)) {
+          answers.set(tag, known.has)
+          continue
+        }
+        const found = await find(source, tag)
+        /* A failure that was not "there is none" is not remembered as one. */
+        if (found.ok || found.none) carries.set(key, { has: found.ok, at: now() })
+        answers.set(tag, found.ok)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(ASKS_AT_ONCE, considered.length) }, worker))
+    return { tags: considered.filter((tag) => answers.get(tag) === true), error: listed.error }
+  }
+
   /** The disk a folder holds: what a person is told moving to bundles freed. */
   function measure(dir: string): { files: number; bytes: number } {
     return existsSync(dir) && statSync(dir).isDirectory() ? sizeOf(dir) : { files: 0, bytes: 0 }
   }
 
-  return { sourceOf, find, stage, swap, rollback, settle, read, newestFor, measure, sweepIncoming }
+  return { sourceOf, find, stage, swap, rollback, settle, read, newestFor, bundled, measure, sweepIncoming }
 }
 
 export type BundleDesk = ReturnType<typeof bundleDesk>

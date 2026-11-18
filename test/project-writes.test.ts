@@ -31,6 +31,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'installs.ts: mkdirSync(deps.registry, { recursive: true })': 'the module registry',
   'installs.ts: mkdirSync(join(deps.root, INCOMING), { recursive: true })': 'a release being cloned beside an installed module, under the installed-modules directory',
   'moduleBundles.ts: mkdirSync(incoming, { recursive: true })': 'a bundle being checked and unpacked, under the installed-modules directory (installsDir/.incoming)',
+  'moduleBundles.ts: mkdirSync(landing, { recursive: true })': 'a bundle being checked and unpacked, under the installed-modules directory or beside a pinned version (versionsDir/<module>/.incoming)',
   'moduleBundles.ts: mkdirSync(previous, { recursive: true })': 'the version before an installed module, kept for rollback (installsDir/.previous)',
   "canvases.ts: if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })": 'frame.sqlite',
   'officialSource.ts: mkdirSync(dirname(deps.cache), { recursive: true })': 'the official list cache',

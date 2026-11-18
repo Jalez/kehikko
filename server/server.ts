@@ -160,7 +160,7 @@ import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
-import { bundleDesk, type Swapped } from './moduleBundles.ts'
+import { bundleDesk, isBundle, type Swapped } from './moduleBundles.ts'
 import { describeFolder, readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
@@ -186,7 +186,7 @@ import { join } from 'node:path'
 import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
 import { appProtocolSource, appProtocolsOn } from './appProtocols.ts'
 import { run as runQuietly, remoteOf, TagLister } from './versions.ts'
-import { FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
+import { BundleMaterialiser, FactsStore, SourceMaterialiser, VersionRuns, type Instance, type Tree } from './versionRuns.ts'
 import { ownBytes, packageCache, privateBytes, recordVersions, slimPass, type PassCopy } from './sharedFiles.ts'
 import { pinSummary, pinsNeeded, pinUses, Pins } from './pins.ts'
 import { within } from './takeover.ts'
@@ -1238,7 +1238,14 @@ const idleness = new Idleness()
  * ------------------------------------------------------------------ */
 
 const VERSIONS = versionsDir()
-const materialiser = new SourceMaterialiser(VERSIONS)
+/* A version of a module installed as a bundle is its release's bundle, unpacked under the versions
+   directory; a module installed from git is a worktree at the tag, as before. */
+const materialiser = new BundleMaterialiser(VERSIONS, new SourceMaterialiser(VERSIONS), async (id, tag, into) => {
+  const source = bundles.sourceOf(id)
+  if (!source) return { ok: false, why: `${id} is on no module list, so where its releases are is not known.` }
+  const staged = await bundles.stage(source, tag, null, undefined, into)
+  return staged.ok ? { ok: true, dir: staged.dir } : { ok: false, why: staged.why, ...(staged.none ? { none: true } : {}) }
+})
 const facts = new FactsStore(VERSIONS)
 const tagLister = new TagLister()
 /** The version processes this host started, keyed `<module>@<tag>`. Separate from `nursery`, whose keys are module ids. */
@@ -1389,6 +1396,8 @@ const versionRuns = new VersionRuns({
     const registration = await registrationOf(id)
     if (!registration) return { why: `${id} is not registered on this computer` }
     if (!registration.dir) return { why: `${id} is registered without a directory, so there is no repository to read its versions from` }
+    /* Installed as a bundle: no checkout, so its versions are its releases' bundles. */
+    if (isBundle(registration.dir)) return { id, name: known(db).get(id)?.name ?? id, dir: registration.dir, remote: null, bundled: true }
     const remote = await remoteOf(registration.dir)
     if (!remote) return { why: `${registration.dir} has no remote to fetch versions from` }
     return { id, name: known(db).get(id)?.name ?? id, dir: registration.dir, remote }
@@ -1533,6 +1542,14 @@ const pins = new Pins({
   wake: (canvas) => wakes.woke(canvas),
   keep: (project) => keep(db, project),
   released: (repo) => releaseNotes.released(repo),
+  /* The releases that carry a bundle, for a module installed as one (it has no git checkout to list tags from). */
+  bundled: async (id, fresh) => {
+    const registration = await registrationOf(id)
+    const source = bundles.sourceOf(id)
+    if (!registration?.dir || !isBundle(registration.dir) || !source) return null
+    const got = await bundles.bundled(source, fresh)
+    return { repo: source.repo, ...got }
+  },
   /* The release an installed module's copy runs, and the newest it can. */
   release: async (id) => {
     const registration = await registrationOf(id)
