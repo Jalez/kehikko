@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ModuleList } from '../src/canvas/Modules.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { arrange, attention, builtFrom, deprecatedSaid, HERE, matches, OTHER, rowsOf, shelfOf, uninstallSaid } from '../src/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, HERE, matches, OTHER, projectsBoxSaid, rowsOf, shelfOf, uninstallSaid } from '../src/host/moduleMenu.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
@@ -296,13 +296,21 @@ describe('a deprecated module, and Uninstall', () => {
     expect(html.match(/>Add to this kehikko</g)).toHaveLength(3)
   })
 
-  test('the confirm says what happens: a copy Kehikot installed is deleted, a person’s own checkout only unregistered', () => {
-    expect(uninstallSaid('Paper', false)).toBe(
-      'Uninstall Paper from this computer? It is taken off every kehikko it is on and the copy Kehikot installed is deleted. What it kept in your projects stays.',
+  test('the confirm says what happens: everything Kehikot put here goes, the person’s own folder is named as kept', () => {
+    expect(uninstallSaid({ name: 'Paper', bytes: 3 * 1024 * 1024 })).toBe(
+      'Uninstall Paper from this computer? It is stopped, and everything Kehikot put here for it is removed (3 MB): its copy, logs and registration, and what it put in your agent. Its containers stay and say it was removed.',
     )
-    const own = uninstallSaid('Scores', true)
-    expect(own).toContain('Unregister Scores')
-    expect(own).toContain('Your own folder is not deleted')
-    expect(own).toContain('what it kept in your projects stays')
+    const own = uninstallSaid({ name: 'Scores', own: '/Users/me/projects/kehikko-scores' })
+    expect(own).toContain('Uninstall Scores')
+    expect(own).toContain('Your folder /Users/me/projects/kehikko-scores is kept.')
+  })
+
+  test('project data is a checkbox only when there is some, listing each project with its size', () => {
+    expect(projectsBoxSaid([])).toBeNull()
+    expect(projectsBoxSaid([{ name: 'thesis', bytes: 2048 }, { name: 'app', bytes: 5 * 1024 * 1024 }])).toEqual({
+      label: 'Also remove its saved data in 2 projects',
+      list: 'thesis (2 kB), app (5 MB)',
+    })
+    expect(projectsBoxSaid([{ name: 'thesis', bytes: 1 }])!.label).toBe('Also remove its saved data in 1 project')
   })
 })

@@ -1,49 +1,31 @@
-import { existsSync, readdirSync, realpathSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import type { ActivityItem } from 'kehikot-module-protocol'
 
-import type { Database } from 'bun:sqlite'
-
-import { editCanvas, listCanvases, type PlacementInput } from './canvases.ts'
+import type { Inbox } from './inbox.ts'
 import type { Retired } from './official.ts'
-import { idOfFile } from './registrations.ts'
+import type { UninstallOutcome } from './uninstall.ts'
 
 /**
- * A module the official list retired, still on this machine, and Uninstall.
+ * A module the official list retired, still on this machine.
  *
  * The list (`modules.json`'s `retired`, read by `officialSource.ts`) says which modules are
- * deprecated. Nothing is ever removed by itself: a person installed it, or put their own checkout
- * there, and containers on their kehikot may hold it. Every registered module the list retires
- * carries a note on its presence (`noteOf`) — wherever its directory is — which the modules menu
- * draws as a "Deprecated" badge, with "Replaced by <successor>." when the list names one.
+ * deprecated. Every registered module the list retires carries a note on its presence (`noteOf`) —
+ * wherever its directory is — which the modules menu draws as a "Deprecated" badge, with "Replaced by
+ * <successor>." when the list names one, and Uninstall beside it.
  *
- * `uninstall`, on a press and for ANY registered module, takes it off this computer:
- *  - its containers come off every kehikko (`editCanvas`, then the kehikko is told to re-read);
- *  - its process, if this host holds one, is stopped;
- *  - its registration file is deleted;
- *  - a copy under `installed/<id>/` (what this host installed) is deleted. A registration that
- *    names another directory is somebody's own checkout: it is unregistered and the folder left whole.
+ * And ONE Inbox item says it (`retiredOffer`): "Atlas, Notifications and Tests are retired and still
+ * installed. Uninstall them?", with one press to uninstall them all — each fully, as Uninstall does
+ * (`uninstall.ts`), project data kept. Asked on start and when the list or the registry changes; "Not
+ * now" holds until the app starts again. Nothing is ever removed without that press.
  *
- * Nothing under a project's `.kehikot/<module>/` is touched: what the module kept stays.
  * The host names no module here; every id and word arrives from the list or the registry.
  */
-export interface RetireDeps {
-  db: Database
-  retired: () => readonly Retired[]
-  /** `installed/`, where this host puts what it installs. */
-  root: string
-  /** Where registrations are. */
-  registry: string
-  registered: () => Promise<{ id: string; dir?: string | undefined }[]>
-  stop: (id: string) => void
-  /** Write a project's kehikot file after its arrangement changed. */
-  keep: (project: number | null) => void
-  woke: (kehikko: number) => void
-  registryChanged: () => void
-  log: (line: string) => void
-}
 
 /** The host speaks as itself, under the name it goes by. */
 export const BY = { module: 'kehikko', name: 'Kehikot' } as const
+
+/** The host's own Inbox list the offer is in: about the modules on this computer. */
+export const RETIRED_INBOX_MODULE = 'kehikko.modules'
+export const RETIRED_ITEM = 'retired-installed'
 
 /** What a presence says of a retired module: the list's words, and the successor when it names one. */
 export interface RetiredNote {
@@ -59,52 +41,101 @@ export function noteOf(retired: readonly Retired[], id: string, nameOf: (id: str
   return { says: entry.says, ...(entry.replacedBy && name ? { successor: { id: entry.replacedBy, name } } : {}) }
 }
 
-const real = (path: string): string => {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
+/** The retired modules registered here, by name. `nameOf` is the registered name, else the list's. */
+export function retiredStill(retired: readonly Retired[], registered: readonly string[], nameOf: (id: string) => string | null): { id: string; name: string }[] {
+  const here = new Set(registered)
+  return retired
+    .filter((one) => here.has(one.id))
+    .map((one) => ({ id: one.id, name: nameOf(one.id) ?? one.name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** "A, B and C". */
+export function listed(names: readonly string[]): string {
+  if (names.length <= 1) return names.join('')
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+}
+
+/** The words of the offer and its two choices. Pure. */
+export function retiredWords(names: readonly string[]): { label: string; yes: string; no: string } {
+  const one = names.length === 1
+  return {
+    label: `${listed(names)} ${one ? 'is' : 'are'} retired and still installed. Uninstall ${one ? 'it' : 'them'}?`,
+    yes: one ? 'Uninstall it' : 'Uninstall them',
+    no: 'Not now',
   }
 }
 
-/** Whether a registration's directory is somebody's own checkout rather than the copy under `installed/<id>/`. No directory is not a copy of ours. */
-export function isOwnCheckout(dir: string | undefined, copy: string): boolean {
-  return dir === undefined || real(dir) !== real(copy)
+/** The one Inbox item, as the host reports it into its own list. */
+export function retiredItem(names: readonly string[]): ActivityItem {
+  const words = retiredWords(names)
+  return {
+    id: RETIRED_ITEM,
+    state: 'attention',
+    priority: 'normal',
+    label: words.label,
+    detail: 'Each is taken off this computer fully: stopped, its copy, logs and registration removed, and what it put in your agent taken out. What it saved in your projects stays.',
+    question: { text: words.label, choices: [words.yes, words.no], to: { module: RETIRED_INBOX_MODULE, session: RETIRED_ITEM } },
+  } as ActivityItem
 }
 
-export function retireDesk(deps: RetireDeps) {
-  function files(id: string): string[] {
-    try {
-      return readdirSync(deps.registry)
-        .filter((file) => /\.(json|ya?ml)$/i.test(file) && idOfFile(file) === id)
-        .map((file) => join(deps.registry, file))
-    } catch {
-      return []
+export interface RetiredOfferDeps {
+  inbox: Pick<Inbox, 'report'>
+  /** The projects to speak in (the open ones, else the first). */
+  where(): number[]
+  changed(project: number, rev: number): void
+  /** The retired modules registered here now. */
+  still(): Promise<{ id: string; name: string }[]>
+  /** One full Uninstall, project data kept. */
+  uninstall(id: string): Promise<UninstallOutcome>
+  /** One line in the Inbox, said where the person is. */
+  tell(line: string): void
+}
+
+/** The offer: put up, taken down, and answered. */
+export function retiredOffer(deps: RetiredOfferDeps) {
+  const holding = new Set<number>()
+  let declined = false
+  let said = ''
+
+  function put(names: readonly string[]): void {
+    const items = names.length && !declined ? [retiredItem(names)] : []
+    const text = items.length ? retiredWords(names).label : ''
+    const now = deps.where()
+    if (text === said && now.every((project) => holding.has(project) === items.length > 0)) return
+    said = text
+    for (const project of new Set([...holding, ...now])) {
+      const out = deps.inbox.report(project, RETIRED_INBOX_MODULE, BY.name, items)
+      deps.changed(project, out.rev)
     }
+    holding.clear()
+    if (items.length) for (const project of now) holding.add(project)
   }
 
-  /** Take a module off this computer, on the person's press. Its data in projects stays. */
-  async function uninstall(id: string): Promise<{ ok: true; removed: string; own: boolean } | { ok: false; why: string; status: number }> {
-    if (!/^[a-z0-9][\w.-]{0,63}$/i.test(id)) return { ok: false, why: 'An uninstall names one module.', status: 400 }
-    const copy = join(deps.root, id)
-    const registration = (await deps.registered()).find((r) => r.id === id)
-    const registrations = files(id)
-    const copied = existsSync(copy)
-    if (!registration && registrations.length === 0 && !copied) return { ok: false, why: `${id} is not on this computer.`, status: 404 }
-    const own = registration !== undefined && isOwnCheckout(registration.dir, copy)
-
-    for (const canvas of listCanvases(deps.db).filter((c) => c.placements.some((p) => p.i === id))) {
-      editCanvas(deps.db, canvas.id, { placements: canvas.placements.filter((p) => p.i !== id) as PlacementInput[] })
-      deps.keep(canvas.project)
-      deps.woke(canvas.id)
-    }
-    deps.stop(id)
-    for (const file of registrations) rmSync(file, { force: true })
-    if (copied) rmSync(copy, { recursive: true, force: true })
-    deps.registryChanged()
-    deps.log(`kehikko: ${id} was uninstalled on a press: its containers and registration${own ? '' : ' and installed copy'} are gone; project data${own ? ' and its own folder' : ''} is kept`)
-    return { ok: true, removed: id, own }
+  /** Look again: on start, and whenever the list or the registry changes. */
+  async function offer(): Promise<void> {
+    put((await deps.still()).map((one) => one.name))
   }
 
-  return { uninstall }
+  /** The person's press on one of the item's choices. */
+  async function answer(text: string): Promise<{ ok: true; said: string } | { ok: false; why: string }> {
+    const still = await deps.still()
+    const words = retiredWords(still.map((one) => one.name))
+    if (text === words.no) {
+      declined = true
+      put([])
+      return { ok: true, said: '' }
+    }
+    if (text !== words.yes) return { ok: false, why: `Press “${words.yes}” or “${words.no}”.` }
+    const lines: string[] = []
+    for (const one of still) {
+      const done = await deps.uninstall(one.id)
+      lines.push(done.ok ? done.said : `${one.name} was not uninstalled: ${done.why}`)
+    }
+    for (const line of lines) deps.tell(line)
+    await offer()
+    return { ok: true, said: lines.join(' ') }
+  }
+
+  return { offer, answer }
 }

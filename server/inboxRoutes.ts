@@ -3,7 +3,7 @@ import { INBOX_VIA, messageFromPlaceSchema, type InboxEvent } from 'kehikot-modu
 
 import type { AgentMessages } from './agentMessages.ts'
 import type { Narrowing, Inbox } from './inbox.ts'
-import { answerFor, type Entry, type Present, type Scope } from '../src/host/inbox.ts'
+import { answerFor, isHostModule, type Entry, type Present, type Scope } from '../src/host/inbox.ts'
 import { itemsIn } from './inbox.ts'
 import { HOST_ID } from './kehikot.ts'
 import type { NoticeLink } from '../src/host/trackerNotices.ts'
@@ -68,6 +68,12 @@ export interface InboxDeps {
   changed(project: number, rev: number): void
   /** Where one of the host's own items points (a tracker notice's `NoticeLink`), or null. */
   linkOf?(project: number, module: string, id: string): NoticeLink | null
+  /**
+   * The answer to a question one of the HOST's own items asks (`isHostModule`): the host acts on it
+   * itself rather than sending it to a session — the retired modules' "Uninstall them?" (`retired.ts`).
+   * Null when the item is not one the host answers.
+   */
+  hostAnswer?(project: number, entry: Entry, text: string): Promise<{ ok: true; said: string } | { ok: false; why: string }> | null
 }
 
 export const ANSWER_SAYS = {
@@ -284,6 +290,14 @@ export function inboxDesk(deps: InboxDeps) {
       if (!entry || entry.closed !== null) return reply({ ok: false, why: ANSWER_SAYS.noItem }, 404)
       const said = answerFor(entry, { answer: body.answer, choice: body.choice })
       if (!said.ok) return reply({ ok: false, why: said.why }, 409)
+      const acted = isHostModule(module) ? deps.hostAnswer?.(project, entry, said.text) ?? null : null
+      if (acted) {
+        const done = await acted
+        if (!done.ok) return reply({ ok: false, why: done.why }, 409)
+        const marked = inbox.answer(project, module, id, said.text)
+        if (marked) deps.changed(project, marked.rev)
+        return reply({ ok: true, said: done.said, ...inbox.snapshot(project) })
+      }
       if (!deps.messages) return reply({ ok: false, why: ANSWER_SAYS.noMessages }, 503)
       const message = answerMessage(entry, said.text)
       const sent = deps.messages.send(project, message.from, message.body, message.to, null, message.extras)

@@ -480,6 +480,24 @@ export class VersionRuns {
     return [...this.#runs.values()]
   }
 
+  /**
+   * Stop every version of one module, now (Uninstall). A preparation still under way is only
+   * forgotten: `#bring` checks `#pinned` before it spawns, and the module is no longer pinned there.
+   */
+  stopModule(id: string): string[] {
+    const stopped: string[] = []
+    for (const instance of [...this.#runs.values()]) {
+      if (instance.id !== id) continue
+      this.#pinned.delete(instance.key)
+      this.#runs.delete(instance.key)
+      if (instance.state === 'preparing' || instance.state === 'failed') continue
+      this.#deps.stop(instance.key, instance)
+      stopped.push(instance.key)
+    }
+    if (stopped.length) this.#deps.changed()
+    return stopped
+  }
+
   /** The instance for this version, started if there is none. Never a second one. */
   ensure(id: string, tag: string): Instance {
     const key = versionKey(id, tag)

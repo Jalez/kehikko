@@ -1,6 +1,6 @@
 import { placementShows } from '@/host/arriving.ts'
 import { ModuleCover } from './Conditions.tsx'
-import { Missing } from './Missing.tsx'
+import { Missing, Removed } from './Missing.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
 /**
@@ -15,12 +15,15 @@ export function Absent({
 }: {
   id: string
   /** The page's latest reading of the modules, or null before its first. */
-  reading: { scanned?: boolean } | null
+  reading: { scanned?: boolean; removed?: readonly { id: string; name: string }[] } | null
   /** The module's name as the last reading gave it, for the cover. */
   name: string | null
   onRemove(): void
 }) {
-  return placementShows(false, reading) === 'arriving' ? <Arriving id={id} name={name} /> : <Missing id={id} onRemove={onRemove} />
+  if (placementShows(false, reading) === 'arriving') return <Arriving id={id} name={name} />
+  /* Uninstalled on this computer: said as such, with Reinstall beside Remove container. */
+  const removed = reading?.removed?.find((one) => one.id === id)
+  return removed ? <Removed id={id} name={removed.name} onRemove={onRemove} /> : <Missing id={id} onRemove={onRemove} />
 }
 
 /**

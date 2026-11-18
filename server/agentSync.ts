@@ -201,11 +201,13 @@ export async function syncOnce(deps: SyncDeps, settings: AgentSettings = readSet
     if (one.answering) row.skills = await skillsFor(one)
   }
 
-  /* Entries made for modules no longer registered: removed when they still point where they were made to. */
-  if (active(settings, 'tools')) {
+  /* Entries made for modules no longer registered: removed when they still point where they were made to.
+     Not held to the settings, as `tidySkills` is not: Kehikot made them, so it takes them away with the
+     module — an Uninstall (`uninstall.ts`) leaves nothing of the host's own behind in the agent. */
+  {
     const registered = new Set(seen.map((one) => one.id))
     for (const mine of made.values()) {
-      if (registered.has(mine.module) || settings.tools.except.includes(mine.module)) continue
+      if (registered.has(mine.module)) continue
       const there = urlOf(known.get(mine.name))
       if (!there || normal(there) !== normal(mine.url)) {
         forgetMade(deps.db, mine.module)
@@ -507,6 +509,16 @@ export class AgentSync {
       void this.now()
     }, this.#timing.debounceMs)
     ;(this.#timer as { unref?: () => void }).unref?.()
+  }
+
+  /**
+   * Wait for the run in flight, then run once more and wait for that: what a press that changed the
+   * registry waits on (Uninstall), so what the run removed can be said with it.
+   */
+  async settle(): Promise<void> {
+    if (this.#stopped) return
+    if (this.#running) await this.#running.catch(() => {})
+    await this.now()
   }
 
   /** What a sweep found. A run only when it differs from what the last run worked from. */

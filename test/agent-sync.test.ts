@@ -211,6 +211,15 @@ describe('tools, kept connected', () => {
     expect(madeEntries(at.db)).toEqual([])
   })
 
+  test('an uninstalled module’s entry Kehikot made goes even with the setup off: Uninstall leaves nothing of the host’s own in the agent', async () => {
+    const claude = fakeClaude({ gone: { url: 'http://127.0.0.1:7850/mcp' } })
+    const at = setup([], DEFAULT_SETTINGS, claude)
+    recordMade(at.db, { module: 'kehikot.gone', name: 'gone', url: 'http://127.0.0.1:7850/mcp', title: 'Gone' })
+    await syncOnce(at.deps)
+    expect(at.claude.calls).toEqual([['mcp', 'remove', 'gone']])
+    expect(madeEntries(at.db)).toEqual([])
+  })
+
   test('a failed claude is said once as the quiet item and retried', async () => {
     const at = setup([mod('kehikot.browser', 7801)])
     at.deps.run = async () => ({ ok: false, said: 'claude: command not found' })

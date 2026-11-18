@@ -11,8 +11,8 @@ import { runsAsSaid, type BuildDetails } from '@/host/moduleBuilds.ts'
 import { needsNewerSaid, releaseVersion, worksSaid, type ModuleRelease } from '@/host/moduleReleases.ts'
 import { protocolDetailSaid } from '@/host/worksWith.ts'
 import { fetchModuleRelease } from '@/host/updates.ts'
-import { arrange, attention, builtFrom, deprecatedSaid, firstSentence, HERE, rowsOf, uninstallSaid, type Available, type Registered } from '@/host/moduleMenu.ts'
-import { fetchOfficial, installOfficial, uninstallModule, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal } from '@/host/official.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, firstSentence, HERE, projectsBoxSaid, rowsOf, uninstallSaid, type Available, type Registered } from '@/host/moduleMenu.ts'
+import { fetchOfficial, installOfficial, uninstallModule, uninstallPreview, proposeModule, staleLine, type ListStanding, type OfficialModule, type Proposal, type UninstallPreview } from '@/host/official.ts'
 import {
   addRepository,
   adoptMine,
@@ -206,6 +206,15 @@ export function ModuleList({
       <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onKeys}>
         {/* Where the official list would begin: said once, in a sentence, so a short list is not a mystery. */}
         {stale ? <p className="text-muted-foreground border-b px-3 py-2 text-[11px] leading-relaxed">{stale}</p> : null}
+        {/* What the last Uninstall removed, the space it freed, and what it left and why: said until read. */}
+        {official.uninstalled ? (
+          <div role="status" className="bg-muted/30 border-b px-3 py-2 text-[11px] leading-relaxed" data-uninstalled="">
+            <p>{official.uninstalled}</p>
+            <button type="button" className="text-muted-foreground mt-1 underline" onClick={official.readUninstalled}>
+              OK
+            </button>
+          </div>
+        ) : null}
         {sections.length ? (
           sections.map((section) => (
             <section key={section.heading} aria-label={section.heading}>
@@ -234,7 +243,7 @@ export function ModuleList({
                       onPlace={() => onPlace(row.id)}
                       onUnplace={() => onUnplace(row.id)}
                       onRemove={row.mine ? () => official.remove(row.id) : undefined}
-                      onUninstall={() => official.uninstall(row.id)}
+                      onUninstall={(projects) => official.uninstall(row.id, projects)}
                       refused={official.refused.get(row.id) ?? null}
                       onIntro={onIntro ? () => onIntro(row.id, { name: row.name, summary: row.summary }) : undefined}
                       runs={
@@ -291,6 +300,8 @@ function useOfficial(onInstalled?: () => void) {
   const [mine, setMine] = useState<MineList | null>(null)
   const [standing, setStanding] = useState<ListStanding | null>(null)
   const [refused, setRefused] = useState<ReadonlyMap<string, string>>(new Map())
+  /** What the last Uninstall did, in words, until the person has read it. */
+  const [uninstalled, setUninstalled] = useState<string | null>(null)
   const [asked, setAsked] = useState(0)
   const installed = useRef<Set<string> | null>(null)
   const told = useRef(onInstalled)
@@ -339,7 +350,13 @@ function useOfficial(onInstalled?: () => void) {
     install: (id: string) => press(id, () => installOfficial(id)),
     installMine: (id: string) => press(id, () => installMine(id)),
     remove: (id: string) => press(id, () => removeMine(id)),
-    uninstall: (id: string) => press(id, () => uninstallModule(id)),
+    uninstall: (id: string, projects: boolean) =>
+      press(id, async () => {
+        setUninstalled(await uninstallModule(id, projects))
+        told.current?.()
+      }),
+    uninstalled,
+    readUninstalled: () => setUninstalled(null),
     adopt: (id: string) => press(id, () => adoptMine(id)),
     again: () => setAsked((n) => n + 1),
   }
@@ -463,7 +480,7 @@ function FootButton({ children, onClick, hint }: { children: ReactNode; onClick(
 }
 
 const REMOVE_HINT = 'take it off this kehikko — it stays registered, and stays on any other kehikko'
-const UNINSTALL_HINT = 'take it off this computer and every kehikko (the “remove” button only takes it off this one)'
+const UNINSTALL_HINT = 'take it off this computer: stopped, and everything Kehikot put here for it removed (the “remove” button only takes it off this kehikko)'
 
 /** The one sentence an open row says. */
 function Sentence({ text }: { text: string }) {
@@ -589,8 +606,8 @@ function ModuleRow({
   onUnplace(): void
   /** One of the person's own: take it off this computer. */
   onRemove?(): void
-  /** Uninstall: off this computer and every kehikko; asked once first. */
-  onUninstall(): void
+  /** Uninstall: off this computer fully; asked once first. `projects`: its saved data in projects too. */
+  onUninstall(projects: boolean): void
   /** Why the last press on it was refused. */
   refused?: string | null
   /** Open "What <name> is" (its introduction, how to use it, what it works with): the "?". */
@@ -669,7 +686,7 @@ function ModuleRow({
             Remove
           </FootButton>
         ) : null}
-        <UninstallAsk name={row.name} own={presence.own === true} onUninstall={onUninstall} />
+        <UninstallAsk id={row.id} name={row.name} onUninstall={onUninstall} />
       </RowFoot>
     </RowShell>
   )
@@ -927,10 +944,26 @@ function AddedByYou({ repo }: { repo: string }) {
  */
 /**
  * Uninstall: take the module off this computer, as against "remove", which takes it off this kehikko.
- * Asks once, in the words of `uninstallSaid`.
+ * Asks once, in the words of `uninstallSaid`, from what the host says will go (`uninstallPreview`):
+ * the person's own folder is named as kept, and its saved data in projects is a checkbox, off, that
+ * lists the projects and their sizes.
  */
-function UninstallAsk({ name, own, onUninstall }: { name: string; own: boolean; onUninstall(): void }) {
+function UninstallAsk({ id, name, onUninstall }: { id: string; name: string; onUninstall(projects: boolean): void }) {
   const [asking, setAsking] = useState(false)
+  const [preview, setPreview] = useState<UninstallPreview | null>(null)
+  const [projects, setProjects] = useState(false)
+  useEffect(() => {
+    if (!asking) return
+    let alive = true
+    setPreview(null)
+    setProjects(false)
+    void uninstallPreview(id)
+      .then((got) => alive && setPreview(got))
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [asking, id])
   if (!asking) {
     return (
       <FootButton hint={UNINSTALL_HINT} onClick={() => setAsking(true)}>
@@ -938,23 +971,34 @@ function UninstallAsk({ name, own, onUninstall }: { name: string; own: boolean; 
       </FootButton>
     )
   }
+  const box = preview ? projectsBoxSaid(preview.projects) : null
   return (
-    <p role="alert" className="text-muted-foreground basis-full text-[11px] leading-relaxed">
-      {uninstallSaid(name, own)}{' '}
-      <button
-        type="button"
-        className="text-foreground underline"
-        onClick={() => {
-          setAsking(false)
-          onUninstall()
-        }}
-      >
-        {own ? 'Unregister' : 'Uninstall'}
-      </button>{' '}
-      <button type="button" className="underline" onClick={() => setAsking(false)}>
-        Cancel
-      </button>
-    </p>
+    <div role="alert" className="text-muted-foreground basis-full space-y-1 text-[11px] leading-relaxed" data-uninstall-ask="">
+      <p>{uninstallSaid({ name, own: preview?.own, bytes: preview?.bytes })}</p>
+      {box ? (
+        <label className="flex items-start gap-1.5">
+          <input type="checkbox" className="mt-0.5" checked={projects} onChange={(event) => setProjects(event.target.checked)} />
+          <span>
+            <span className="text-foreground">{box.label}</span>: {box.list}. Otherwise it stays, as your work.
+          </span>
+        </label>
+      ) : null}
+      <p>
+        <button
+          type="button"
+          className="text-foreground underline"
+          onClick={() => {
+            setAsking(false)
+            onUninstall(projects)
+          }}
+        >
+          Uninstall
+        </button>{' '}
+        <button type="button" className="underline" onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </p>
+    </div>
   )
 }
 

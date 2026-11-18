@@ -80,10 +80,50 @@ function ageOf(ms: number): string {
   return `${Math.round(hours / 24)} days ago`
 }
 
-/** Take a module off this computer: off every kehikko, unregistered, and its installed copy deleted. Data in projects stays. */
-export async function uninstallModule(id: string): Promise<void> {
-  const response = await post('/host/uninstall', id)
+/** What the Uninstall confirmation shows: what goes, the person's own folder, and the projects with saved data. */
+const uninstallPreviewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  own: z.string().optional(),
+  bytes: z.number().catch(0),
+  projects: z.array(z.object({ id: z.number(), name: z.string(), path: z.string(), bytes: z.number().catch(0) })).catch([]),
+  cleanUp: z.boolean().catch(false),
+})
+export type UninstallPreview = z.infer<typeof uninstallPreviewSchema>
+
+export async function uninstallPreview(id: string): Promise<UninstallPreview> {
+  const response = await fetch(`/host/uninstall?module=${encodeURIComponent(id)}`, { cache: 'no-store' })
   if (!response.ok) throw new Error(await reason(response))
+  return uninstallPreviewSchema.parse(await response.json())
+}
+
+const uninstalledSchema = z.object({ said: z.string() })
+
+/**
+ * Take a module off this computer: stopped, everything Kehikot put here for it removed, its own
+ * clean-up run. Data in projects only when `projects`. Answers the summary in words.
+ */
+export async function uninstallModule(id: string, projects = false): Promise<string> {
+  const response = await fetch('/host/uninstall', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ module: id, projects }),
+  })
+  if (!response.ok) throw new Error(await reason(response))
+  return uninstalledSchema.parse(await response.json()).said
+}
+
+/**
+ * Install a module that was uninstalled here again, from the list it came from: the official list,
+ * else the person's own (`/host/mine/install`). It returns at once; the registry says when it is back.
+ */
+export async function reinstallModule(id: string): Promise<void> {
+  const official = await post('/host/official/install', id)
+  if (official.ok) return
+  const why = await reason(official)
+  if (official.status !== 404) throw new Error(why)
+  const mine = await post('/host/mine/install', id)
+  if (!mine.ok) throw new Error(mine.status === 404 ? why : await reason(mine))
 }
 
 /** Start installing one official module. It returns at once; the list says how it is going. */

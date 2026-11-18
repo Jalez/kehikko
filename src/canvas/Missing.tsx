@@ -1,7 +1,9 @@
 import { X } from 'lucide-react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Hint } from './Hint.tsx'
+import { reinstallModule } from '@/host/official.ts'
 
 /**
  * A container for a module this computer has no registration for.
@@ -59,6 +61,47 @@ export function Missing({ id, onRemove }: { id: string; onRemove(): void }) {
           <span className="font-mono">{id}</span> is not installed on this computer. Its container stays where it
           is; install the module from Kehikko modules, or take it off this kehikko.
         </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A container for a module the person uninstalled on this computer (`server/uninstall.ts`): "Module
+ * removed", never a broken frame. The placement stays, for the reason `Missing` gives — the
+ * arrangement travels with the project — and the two decisions left are the person's: Reinstall
+ * (from the list it came from: `reinstallModule`), or Remove container. Same header shape as a
+ * real container, so it drags and narrows like its neighbours.
+ */
+export function Removed({ id, name, onRemove }: { id: string; name: string; onRemove(): void }) {
+  const [state, setState] = useState<{ kind: 'idle' } | { kind: 'asking' } | { kind: 'refused'; why: string }>({ kind: 'idle' })
+  const reinstall = () => {
+    setState({ kind: 'asking' })
+    void reinstallModule(id).catch((error: unknown) => setState({ kind: 'refused', why: (error as Error).message }))
+  }
+  return (
+    <div className="pointer-events-none @container/container relative flex h-full flex-col overflow-hidden rounded-lg border border-dashed" data-removed={id}>
+      <header className="container-grip bg-card pointer-events-auto flex h-8 shrink-0 cursor-move items-center gap-2 border-b px-2.5 select-none @max-[300px]/container:gap-1">
+        <span className="bg-muted-foreground/40 size-1.5 shrink-0 rounded-full" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-xs" title={id}>
+          {name}
+        </span>
+        <span className="text-muted-foreground shrink-0 text-[11px] @max-[300px]/container:hidden">removed</span>
+      </header>
+      <div className="bg-card/80 pointer-events-auto flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-3 text-center">
+        <p className="text-xs font-medium">Module removed</p>
+        <p className="text-muted-foreground max-w-prose text-xs leading-snug">
+          {name} was uninstalled from this computer. Its container stays where it is, with what it saved in this project.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
+          <Button size="sm" variant="outline" className="h-7 text-xs" disabled={state.kind === 'asking'} onClick={reinstall}>
+            {state.kind === 'asking' ? 'Reinstalling…' : 'Reinstall'}
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onRemove}>
+            Remove container
+          </Button>
+        </div>
+        {state.kind === 'refused' ? <p className="text-destructive max-w-prose text-[11px] leading-snug">{state.why}</p> : null}
       </div>
     </div>
   )

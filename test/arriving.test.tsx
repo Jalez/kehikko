@@ -46,6 +46,24 @@ describe('what a container without a presence draws', () => {
   })
 })
 
+describe('a container of a module uninstalled on this computer', () => {
+  test('is "Module removed" with Reinstall and Remove container, never a broken frame or "not installed"', () => {
+    const reading = { scanned: true, removed: [{ id: 'kehikot.paper', name: 'Paper' }] }
+    const html = renderToStaticMarkup(<Absent id="kehikot.paper" reading={reading} name={null} onRemove={() => {}} />)
+    expect(html).toContain('Module removed')
+    expect(html).toContain('Paper was uninstalled from this computer.')
+    expect(html).toContain('>Reinstall<')
+    expect(html).toContain('>Remove container<')
+    expect(html).not.toContain(NOT_INSTALLED)
+    expect(html).not.toContain('<iframe')
+  })
+
+  test('another module that is simply not here still says "not installed"', () => {
+    const reading = { scanned: true, removed: [{ id: 'kehikot.paper', name: 'Paper' }] }
+    expect(renderToStaticMarkup(<Absent id="kehikot.notes" reading={reading} name={null} onRemove={() => {}} />)).toContain(NOT_INSTALLED)
+  })
+})
+
 describe('the names and icons remembered for those covers', () => {
   const store = () => {
     const kept = new Map<string, string>()
