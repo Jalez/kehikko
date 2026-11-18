@@ -237,14 +237,20 @@ export function AgentsSection({
   )
 }
 
-/** Kehikko settings › General: what the kehikko is called. */
-function GeneralSection({ kehikko, onRename }: { kehikko: KehikkoRef; onRename(id: number, name: string): void }) {
+/** What the host answered to a rename: done, or why not, in words. */
+export type RenameResult = { ok: true } | { ok: false; why: string }
+
+/**
+ * Kehikko settings › General: what the kehikko is called. It says "Renamed." only after the host has
+ * answered that it kept the name, and says in words why when it did not.
+ */
+function GeneralSection({ kehikko, onRename }: { kehikko: KehikkoRef; onRename(id: number, name: string): Promise<RenameResult> }) {
   const [name, setName] = useState(kehikko.name)
   const [said, setSaid] = useState<string | null>(null)
-  useEffect(() => {
-    setName(kehikko.name)
-    setSaid(null)
-  }, [kehikko.id, kehikko.name])
+  const [renaming, setRenaming] = useState(false)
+  /* Another kehikko is another sentence; the same kehikko's own new name is not a reason to take back what was just said. */
+  useEffect(() => setSaid(null), [kehikko.id])
+  useEffect(() => setName(kehikko.name), [kehikko.id, kehikko.name])
   const tidy = name.trim().replace(/\s+/g, ' ')
   return (
     <form
@@ -252,9 +258,14 @@ function GeneralSection({ kehikko, onRename }: { kehikko: KehikkoRef; onRename(i
       data-settings-target="kehikko-name"
       onSubmit={(event) => {
         event.preventDefault()
-        if (!tidy || tidy === kehikko.name) return
-        onRename(kehikko.id, tidy)
-        setSaid('Renamed.')
+        if (!tidy || tidy === kehikko.name || renaming) return
+        const id = kehikko.id
+        setRenaming(true)
+        setSaid('Renaming…')
+        void onRename(id, tidy)
+          .then((result) => (result.ok ? 'Renamed.' : `Not renamed: ${result.why}`), (error: unknown) => `Not renamed: ${error instanceof Error ? error.message : 'the host did not answer'}`)
+          .then((sentence) => setSaid(sentence))
+          .finally(() => setRenaming(false))
       }}
     >
       <Label htmlFor="kehikko-settings-name" className="text-xs">
@@ -262,7 +273,7 @@ function GeneralSection({ kehikko, onRename }: { kehikko: KehikkoRef; onRename(i
       </Label>
       <div className="flex gap-2">
         <Input id="kehikko-settings-name" value={name} maxLength={60} placeholder="kehikko" onChange={(event) => setName(event.target.value)} className="h-8" aria-label={`what ${kehikko.name} is called`} />
-        <Button type="submit" size="sm" disabled={!tidy || tidy === kehikko.name} data-kehikko-rename="">
+        <Button type="submit" size="sm" disabled={!tidy || tidy === kehikko.name || renaming} data-kehikko-rename="">
           Rename
         </Button>
       </div>
@@ -293,7 +304,7 @@ export function KehikkoSettingsDialog({
   onSection(section: KehikkoSection): void
   target?: string | null
   onTargetShown?(): void
-  onRename(id: number, name: string): void
+  onRename(id: number, name: string): Promise<RenameResult>
   load?: typeof fetchKehikkoSettings
   save?: typeof postKehikkoSettings
   /** For tests: how Skills reads and writes. */
@@ -419,7 +430,7 @@ export function KehikkoSettingsHost({
 }: {
   canvases: readonly (KehikkoRef & { placements: readonly { i: string }[] })[]
   open: (KehikkoRef & { placements: readonly { i: string }[] }) | null
-  onRename(id: number, name: string): void
+  onRename(id: number, name: string): Promise<RenameResult>
   load?: typeof fetchKehikkoSettings
   save?: typeof postKehikkoSettings
 }) {

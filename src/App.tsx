@@ -3426,11 +3426,17 @@ export function App() {
    * which the gear on every row of the kehikko menu opens.
    */
   const onRename = useCallback(
-    (id: number, name: string) => {
-      setCanvases((was) => was.map((canvas) => (canvas.id === id ? { ...canvas, name } : canvas)))
-      writer.write(id, { name })
+    async (id: number, name: string): Promise<{ ok: true } | { ok: false; why: string }> => {
+      /* Sent now and answered: the name on screen changes with the host's answer, never before it. */
+      try {
+        const saved = await editCanvas(id, { name })
+        setCanvases((was) => was.map((canvas) => (canvas.id === id ? { ...canvas, name: saved.name } : canvas)))
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, why: error instanceof Error ? error.message : 'the host did not answer' }
+      }
     },
-    [writer],
+    [],
   )
 
   const onDelete = useCallback(
