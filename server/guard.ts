@@ -117,6 +117,8 @@ export interface Refusal {
  *    the official modules run from Kehikot's releases or from the person's
  *    own folders. A change stops modules, points their registrations at
  *    another folder and starts them from there, so only a press does it.
+ *  - `/host/unused-folders` — "Move unused folders to the Trash" (`unusedFolders.ts`): moves
+ *    the person's own folders to the Trash, so only a press in the page does it.
  *  - `/host/module-settings`, `/list`, `/set`, `/file` — a module's settings
  *    (`moduleSettings.ts`). `/set` mints the pass that makes a change the
  *    person's, so a program reaching it could change a person-only setting;
@@ -184,6 +186,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/uninstall',
   '/host/mine/adopt',
   '/host/development',
+  '/host/unused-folders',
   '/host/projects/locate',
   '/host/projects/followed',
   '/host/storage',

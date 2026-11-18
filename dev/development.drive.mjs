@@ -309,6 +309,14 @@ export async function developmentDrive({ check = false } = {}) {
       expect(/Broken/.test(told) && /did not move/.test(told), 'and the line about Broken')
     }
 
+    /* The folders Kehikot no longer uses are listed, each checked: Sample's has work not committed, so it is kept. Nothing is moved. */
+    const unusedNow = await (await fetch(`${api}/host/unused-folders`, { headers })).json()
+    const sampleListed = unusedNow.folders?.find((one) => one.dir === sampleFolder)
+    expect(sampleListed?.trash === false && /uncommitted changes/.test(sampleListed?.why ?? ''), `the unused-folders list keeps Sample's folder, which has work not committed (${JSON.stringify(sampleListed)})`)
+    expect(existsSync(sampleFolder), 'and moved nothing')
+    const refusedTrash = await fetch(`${api}/host/unused-folders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trash: [sampleFolder] }) })
+    expect(refusedTrash.status === 403 || refusedTrash.status === 400 || refusedTrash.status === 409, `a request that is not the page's is refused (${refusedTrash.status})`)
+
     /* ---- 4. The real Claude module, set to keep running: deferred, then "Move now", and its hook follows it --- */
     if (withClaude) {
       const claudeRow = row(off, 'kehikot.claude')

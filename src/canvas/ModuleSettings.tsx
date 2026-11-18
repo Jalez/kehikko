@@ -1,4 +1,5 @@
 import { FileJson, Lock, Plus, Settings as Gear, X } from 'lucide-react'
+import { ModeChoice, useDevelopment } from './Development.tsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
@@ -425,6 +426,19 @@ function FileDialog({ shown, name, onClose }: { shown: { file: string; text: str
  * The modal, and how it is reached
  * ------------------------------------------------------------------ */
 
+/** Where this module runs from, when it has a folder of the person's: follow the switch, always the folder, always the release. */
+function RunsFromChoice({ module, name }: { module: string; name: string }) {
+  const { state, change } = useDevelopment()
+  const one = state?.modules.find((entry) => entry.id === module)
+  if (!one?.folder) return null
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs" data-runs-from-choice={module}>
+      <span className="text-muted-foreground">Where {name} runs from</span>
+      <ModeChoice one={one} change={change} />
+    </div>
+  )
+}
+
 export function ModuleSettingsDialog({
   open,
   onOpenChange,
@@ -490,6 +504,7 @@ export function ModuleSettingsDialog({
         {/* The scope and the tab strip stay put; only the tab's own content scrolls. */}
         <ModalBody scroll={false} className="gap-4 px-4 py-4 sm:px-5">
         {scope ? <ScopeControl module={module} scope={scope.value} onPick={scope.onPick} /> : null}
+        {open ? <RunsFromChoice module={module} name={name} /> : null}
         <Tabs value={shown} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
           {tabs.length > 1 ? (
             <TabsList aria-label={`${name} settings sections`} className="w-full">

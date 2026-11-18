@@ -182,6 +182,7 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
+import { folderSize, inspect as inspectUnused, moveToTrash, runGit, trashUnused as trashUnusedFolders, type UnusedDeps } from './unusedFolders.ts'
 import { developmentDesk, pointRegistrationAt, restoreRegistration, type Moved as DevMoved } from './development.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -5604,6 +5605,28 @@ async function answerRequest(request: Request): Promise<Response> {
           return done.ok ? json(await development.state()) : json({ error: done.why }, done.status)
         }
         return json({ error: 'A change of Kehikko development is { on } or { module, folder | release | move }.' }, 400)
+      }
+    }
+    /* "Move unused folders to the Trash": the folders Kehikot no longer uses, checked and listed (a read), and moved on a press. `unusedFolders.ts`. */
+    if (url.pathname === '/host/unused-folders') {
+      const unused: UnusedDeps = {
+        candidates: () => development.unusedCandidates(),
+        usedBy: (dir) => development.usedBy(dir),
+        git: runGit,
+        size: folderSize,
+        trash: moveToTrash,
+      }
+      if (request.method === 'GET') {
+        const folders = await inspectUnused(unused)
+        return json({ folders, freedBytes: folders.filter((one) => one.trash).reduce((sum, one) => sum + one.bytes, 0) })
+      }
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as { trash?: unknown } | null
+        if (!body || !Array.isArray(body.trash) || body.trash.length > 400 || !body.trash.every((dir) => typeof dir === 'string' && dir.length <= 1024)) return json({ error: 'Moving folders to the Trash names the folders, as { trash: [path, …] }.' }, 400)
+        const { done, freed } = await trashUnusedFolders(body.trash as string[], unused)
+        development.cleared(freed)
+        console.log(`kehikko: ${done.moved.length} unused folder${done.moved.length === 1 ? '' : 's'} moved to the Trash, ${done.kept.length} kept`)
+        return json(done)
       }
     }
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))

@@ -275,6 +275,7 @@ describe('the routes that are the page’s alone', () => {
       '/host/tracker/refresh',
       '/host/trackers',
       '/host/uninstall',
+      '/host/unused-folders',
       '/host/updates/cancel',
       '/host/updates/step-back',
       '/host/visits',
