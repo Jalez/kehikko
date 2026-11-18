@@ -101,6 +101,10 @@ export interface Refusal {
  *  - `/host/trackers` — a person's edit of the project's tracker sources, which
  *    writes a file that travels with the repository, and the "Check" before
  *    it, which spends their login's rate limit.
+ *  - `/host/tracker/refresh` — the person's press of Refresh all: in a project
+ *    whose trackers are read only on a press, the one read there is
+ *    (`Trackers.refusal`). A module asks with `tracker.refresh`, an agent with
+ *    `read_tracker`.
  *  - `/host/base-branch` — a person's choice of the project's base branch,
  *    which writes a file that travels with the repository and asks origin
  *    with their login.
@@ -167,6 +171,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/messages/say',
   '/host/messages/mute',
   '/host/trackers',
+  '/host/tracker/refresh',
   '/host/base-branch',
   '/host/mine/check',
   '/host/mine/add',

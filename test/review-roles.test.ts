@@ -327,8 +327,8 @@ describe('the reading carries my roles', () => {
   test('each row says my roles, and who I am is asked once per host', async () => {
     const run = github(ok({ login: 'jalez' }))
     const trackers = new Trackers({ run, now: () => NOW })
-    await trackers.refresh(folder, { refs: ['gh#41', 'gh#7'] })
-    await trackers.refresh(folder, { refs: ['gh#41'] })
+    await trackers.refresh(folder, { refs: ['gh#41', 'gh#7'] }, 'press')
+    await trackers.refresh(folder, { refs: ['gh#41'] }, 'press')
     const got = trackers.get(folder, { refs: ['gh#41', 'gh#7'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(trackerReadingResult.safeParse(got).success).toBe(true)
@@ -341,7 +341,7 @@ describe('the reading carries my roles', () => {
 
   test('when gh cannot say who I am: no roles, never guessed, and one sentence in the panel', async () => {
     const trackers = new Trackers({ run: github({ code: 4, out: '', err: 'To get started with GitHub CLI, please run:  gh auth login' }), now: () => NOW })
-    expect((await trackers.refresh(folder, { refs: ['gh#41'] })).outcome).toBe('read')
+    expect((await trackers.refresh(folder, { refs: ['gh#41'] }, 'press')).outcome).toBe('read')
     const got = trackers.get(folder, { refs: ['gh#41'] })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows[0]!.myRoles).toBeUndefined()

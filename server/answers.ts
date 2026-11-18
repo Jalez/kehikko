@@ -17,7 +17,7 @@ import { epicsIn, listEpics, readEpic, readLive, readParts, readStepsAnswer } fr
 import { marksOf } from './dispositions.ts'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold } from '../src/host/grants.ts'
-import type { Scope } from './trackers/reading.ts'
+import type { ReadBy, Scope } from './trackers/reading.ts'
 import type { Edit, Edited } from './trackers/edit.ts'
 import type { TrackerListing } from '../src/host/trackerSources.ts'
 import type { PickedProject, ServiceProvider, TrackerColumns, TrackerImage, TrackerReading, TrackerRefreshResult, TrafficNote, TrafficVia } from 'kehikot-module-protocol'
@@ -30,7 +30,7 @@ import type { TrafficDoor } from './traffic.ts'
  */
 export interface TrackerDoor {
   get(root: string, scope: Scope, detail: 'summary' | 'detail'): TrackerReading | { refused: string }
-  refresh(root: string, scope: Scope): Promise<TrackerRefreshResult>
+  refresh(root: string, scope: Scope, by: ReadBy): Promise<TrackerRefreshResult>
   /** `live.get`'s four bags for one epic, from the reading, or null when it holds nothing for it. */
   live(root: string, epic: string): Record<string, unknown> | null
   /** `tracker.columns`: the boards of the project's sources and their columns. Absent in a test's stand-in. */
@@ -836,6 +836,6 @@ export async function answerCall(
       why: 'This call is standing in no project, so there is nothing to read.',
     })
   }
-  const result = await trackers.refresh(root, scopeOf(parsed.data as Partial<Record<'refs' | 'epic' | 'project', unknown>>))
+  const result = await trackers.refresh(root, scopeOf(parsed.data as Partial<Record<'refs' | 'epic' | 'project', unknown>>), 'asked')
   return nothingToShow('tracker.refresh', result)
 }

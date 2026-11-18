@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { LIMITS, TRACKERS, type Tracker } from 'kehikot-module-protocol'
 
 import { readsOf, readsSaid, writtenReads, type ReadsWritten } from '../../src/host/trackerReads.ts'
+import { trackerModeSaid, type TrackerMode } from '../../src/host/trackerSources.ts'
 import { isReadOnlyRoot, makeUnderRoot, MISSING_SAID, projectRootExists, READ_ONLY_SAID, refusedSaid, sayMissing, sayReadOnly } from '../projectRoot.ts'
 import { configFile, EVERY_DEFAULT, listSources, readConfig, sourceKey, sourceOfRemote, splitRemote, type Listed } from './sources.ts'
 
@@ -39,6 +40,7 @@ export type Edit =
       reads?: ReadsWritten | null
     }
   | { kind: 'schedule'; every: number }
+  | { kind: 'mode'; mode: TrackerMode }
   | { kind: 'remotes'; on: boolean }
 
 export interface Edited {
@@ -125,7 +127,7 @@ export function nextStep(why: string, tracker: Tracker, host: string): string {
   return why
 }
 
-const ORDER = ['version', 'sources', 'remotes', 'every']
+const ORDER = ['version', 'sources', 'remotes', 'every', 'reading']
 const ENTRY_ORDER = ['tracker', 'host', 'repo', 'default', 'list', 'off', 'reads']
 
 type Json = Record<string, unknown>
@@ -300,6 +302,14 @@ export function editTrackers(
     }
     next.every = edit.every
     said = edit.every === 0 ? 'The host no longer reads on its own.' : `The host reads again every ${edit.every} minutes while somebody is looking.`
+  } else if (edit.kind === 'mode') {
+    /* The schedule is what no `reading` says, at an interval: one that was "never" goes back to the default. */
+    if (edit.mode === 'schedule') {
+      delete next.reading
+      if (read.config.every <= 0) next.every = EVERY_DEFAULT
+    } else next.reading = edit.mode
+    const every = typeof next.every === 'number' && next.every > 0 ? next.every : EVERY_DEFAULT
+    said = `The host ${trackerModeSaid(edit.mode, every)}.`
   } else {
     next.remotes = edit.on
     said = edit.on ? "This project's git remotes are read." : "This project's git remotes are not read; only the sources listed here are."

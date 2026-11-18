@@ -255,8 +255,8 @@ describe('the reading keeps what a partial read did not reach', () => {
         ]),
       },
     })
-    await trackers.refresh(folder, { project: true })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { project: true })
     if ('refused' in got) throw new Error(got.refused)
     const byNumber = new Map(got.rows.map((r) => [r.number, r]))

@@ -174,7 +174,7 @@ import { diagnostics, readLogs } from './readLogs.ts'
 import { logsDir } from './machineDirs.ts'
 import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
-import { parseListeners, ProcessSampler, runQuiet } from './trafficProcesses.ts'
+import { ListenerTable, ProcessSampler } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
 import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED } from './official.ts'
@@ -1210,6 +1210,9 @@ const tagLister = new TagLister()
 /** The version processes this host started, keyed `<module>@<tag>`. Separate from `nursery`, whose keys are module ids. */
 const versionNursery = new Nursery()
 
+/** Which process listens on which port, read once for a while and shared by the sampler and the caller lookup. */
+const portListeners = new ListenerTable()
+
 /*
  * Connections nobody reported, on this host's processes and each module's
  * process group, looked at only while a reader asks (`trafficProcesses.ts`).
@@ -1222,7 +1225,7 @@ const sampler = new ProcessSampler({
     const held = new Set(roots.map((root) => root.module))
     const unheld = [...registered.values()].filter((one) => !held.has(one.id) && one.url)
     if (unheld.length) {
-      const listening = parseListeners((await runQuiet(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])) ?? '')
+      const listening = await portListeners.read()
       for (const one of unheld) {
         const port = portOfUrl(one.url!)
         const pid = port === null ? undefined : listening.get(port)
@@ -1253,6 +1256,7 @@ function startedRoots(): Root[] {
  */
 const peers = new PeerLookup({
   port: PORT,
+  listeners: () => portListeners.read(),
   started: startedRoots,
   unstarted: () => {
     const held = new Set(startedRoots().map((root) => root.module))
@@ -4848,7 +4852,7 @@ async function answerRequest(request: Request): Promise<Response> {
       if (edit.kind === 'check') {
         const spelled = spell(edit.input, edit.tracker, edit.host)
         if (!spelled.ok) return json({ outcome: 'declined', why: spelled.why, needs: spelled.needs ?? null, said: '' })
-        const found = await trackers.check({ tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
+        const found = await trackers.check(project.path, { tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
         return json(
           found.ok
             ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issue${found.issues === 1 && !found.capped ? '' : 's'}, ${found.changes}${found.capped ? '+' : ''} change${found.changes === 1 && !found.capped ? '' : 's'} found.`, issues: found.issues, changes: found.changes, source: spelled }
@@ -4932,7 +4936,7 @@ async function answerRequest(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => null)) as { project?: unknown } | null
       const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
       if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      return json(await trackers.refresh(project.path, { project: true }))
+      return json(await trackers.refresh(project.path, { project: true }, 'press'))
     }
 
     /*

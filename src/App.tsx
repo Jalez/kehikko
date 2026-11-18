@@ -123,7 +123,7 @@ import { NO_ADDRESSES, accepted, addressOn, handed, noteReacts, opensOutside, re
 import { AddressOffer } from './canvas/AddressOffer.tsx'
 import { openExternal } from './host/releaseNotes.ts'
 import { outsideHow } from './host/goToPlace.ts'
-import { fetchAdoption, fetchAfters, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
+import { fetchAdoption, fetchAfters, forgetAdoptions, onAdoptionsForgotten, postAdopt, postUndo, postUntrack } from './host/adoptClient.ts'
 import { AdoptDialog } from './canvas/AdoptDialog.tsx'
 import { adoptWithStep } from './host/adoption.ts'
 import { openModuleList } from './host/moduleList.ts'
@@ -4314,6 +4314,20 @@ export function App() {
   useEffect(() => {
     for (const id of inboxModulesRef.current) presses.inbox(id, { kind: 'changed', rev: inbox.rev })
   }, [inbox.rev, othersRev, inbox.muted, nextEntry, presses])
+  /* What an item offers to adopt is kept (`fetchAdoption`) until the record or the modules here change. */
+  const modulesSaid = (registry?.presences ?? []).map((one) => `${one.id}@${one.module?.version ?? ''}:${one.condition}`).join(',')
+  /* A change of the record reaches the Inbox modules by the press above; anything else that changes an offer is told below. */
+  useEffect(() => forgetAdoptions({ tell: false }), [inbox.rev, othersRev])
+  useEffect(() => forgetAdoptions(), [modulesSaid])
+  /* What an item offers may differ (the modules here, the primary agent, an adoption): the Inbox modules are told, so they ask again then and never on a clock. */
+  const inboxRevRef = useRef(inbox.rev)
+  inboxRevRef.current = inbox.rev
+  useEffect(
+    () => onAdoptionsForgotten(() => {
+      for (const id of inboxModulesRef.current) presses.inbox(id, { kind: 'changed', rev: inboxRevRef.current })
+    }),
+    [presses],
+  )
   /* The last Next the host told a page: its `inbox.open` of that item is the person's press. */
   const nextToldRef = useRef<NextTold | null>(null)
   /* Go to the Inbox's container on this kehikko: lit, and the keyboard handed to it. */
@@ -4502,7 +4516,7 @@ export function App() {
         if (at === null) return 'no-agent'
         /* Never a dead end (`adoptWithStep`): the agent's dialog, the choice of agent in it, the update
            the agent module needs, or the module list to add one. */
-        const got = await fetchAdoption(at, key, at === projectId ? (open?.key ?? null) : null)
+        const got = await fetchAdoption(at, key, at === projectId ? (open?.key ?? null) : null, { fresh: true })
         /* The host's server did not answer: say so in its words, not as "no agent". */
         if (got.outcome === 'declined' && got.why) return { why: got.why }
         const step = adoptWithStep(got)

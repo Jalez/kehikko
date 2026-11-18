@@ -500,12 +500,12 @@ describe('told by the tracker reading', () => {
     }
     const landed: { rows: readonly TrackerRow[]; me: ReadonlyMap<string, string> }[] = []
     const trackers = new Trackers({ run, adapters: { github: adapter }, landed: (_root, got, me) => landed.push({ rows: got, me }), now: () => new Date(T0) })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(landed).toHaveLength(1)
     expect(landed[0]!.me.get('github|github.com')).toBe(ME)
     expect(landed[0]!.rows[0]).toMatchObject({ ref: 'gh#40', myRoles: ['author'] })
     rows = [gh(40, { reviewers: [{ login: 'mona', state: 'approved' }], myRoles: undefined })]
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     expect(landed[1]!.rows[0]!.reviewers).toEqual([{ login: 'mona', state: 'approved' }])
   })
 })
