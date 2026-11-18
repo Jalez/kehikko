@@ -7,7 +7,8 @@ import { join, relative } from 'node:path'
 
 import { developmentDesk, folderRefused, lookForCheckouts, pointRegistrationAt, readDevelopment, restoreRegistration, type Moved } from '../server/development.ts'
 import type { Official } from '../server/official.ts'
-import { drifted, pathSaid, runsSaid, showsRuns, startedOnSaid, summarySaid } from '../src/host/development.ts'
+import { drifted, pathSaid, runsSaid, showsRuns, startedOnSaid, summaryLines, summarySaid, SUMMARY_LINE_MAX } from '../src/host/development.ts'
+import { noticeEntry } from '../src/host/inbox.ts'
 
 const entry = (name: string, port: number): Official =>
   ({ id: `kehikot.${name}`, name: name[0]!.toUpperCase() + name.slice(1), repo: `Jalez/kehikko-${name}`, port, summary: `${name}.`, tags: [] }) as Official
@@ -42,7 +43,7 @@ function fingerprint(dir: string): string {
 }
 
 /** A machine: a scratch root, a frame database, registrations held in memory, and fakes for the install and the move. */
-function machine(registered: Record<string, string>, options: { list?: Official[]; copyFails?: string; moveFails?: (id: string, dir: string) => boolean } = {}) {
+function machine(registered: Record<string, string>, options: { list?: Official[]; copyFails?: string; moveFails?: (id: string, dir: string) => boolean; keeps?: string[]; running?: string[] } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-development-')))
   const installsRoot = join(root, 'installed')
   mkdirSync(installsRoot, { recursive: true })
@@ -50,20 +51,26 @@ function machine(registered: Record<string, string>, options: { list?: Official[
   const registrations = new Map(Object.entries(registered))
   const told: string[] = []
   const copied: string[] = []
-  const moved: { id: string; dir: string }[] = []
+  const moved: { id: string; dir: string; now?: boolean }[] = []
   const desk = developmentDesk({
     db,
     official: () => options.list ?? [NOTES, PAPER],
     installsRoot,
-    registrations: async () => [...registrations].map(([id, dir]) => ({ id, dir })),
+    registrations: async () => [...registrations].map(([id, dir]) => ({ id, dir, keep: options.keeps?.includes(id) === true })),
     copy: async (one) => {
       copied.push(one.id)
       if (options.copyFails === one.id) return { ok: false, why: 'the network is down' }
       mkdirSync(join(installsRoot, one.id), { recursive: true })
       return { ok: true }
     },
-    move: async (id, dir): Promise<Moved> => {
-      moved.push({ id, dir })
+    point: async (id, dir) => {
+      registrations.set(id, dir)
+      return { ok: true }
+    },
+    move: async (id, dir, how): Promise<Moved> => {
+      /* A module set to keep running that runs is not stopped for this, unless a person pressed "Move now". */
+      if (options.keeps?.includes(id) && options.running?.includes(id) && !how?.now) return { ok: false, why: `${id} keeps running.`, restored: false, later: true }
+      moved.push({ id, dir, ...(how?.now ? { now: true } : {}) })
       if (options.moveFails?.(id, dir)) return { ok: false, why: `${id} did not start from ${dir}, so it was put back.`, restored: true }
       registrations.set(id, dir)
       return { ok: true }
@@ -136,7 +143,8 @@ describe('Kehikko development: where official modules run from', () => {
     expect(state.modules.map((one) => one.folder)).toEqual([notes, paper])
     expect(state.summary).toContain('2 modules now run from Kehikot’s releases.')
     expect(state.summary).toContain('These folders are no longer used by Kehikot; you can remove them:')
-    expect(m.told.at(-1)).toBe(state.summary!)
+    /* One Inbox line each, the first to read told last. */
+    expect(m.told.slice(-summaryLines({ toRelease: 2, toFolder: 0, failed: [], freed: [notes, paper] }, m.root).length).reverse().join(' ')).toBe(state.summary!)
     expect(fingerprint(notes)).toBe(before.notes)
     expect(fingerprint(paper)).toBe(before.paper)
   })
@@ -167,7 +175,7 @@ describe('Kehikko development: where official modules run from', () => {
     expect(m.registrations.get(NOTES.id)).toBe(notes)
     const state = await m.desk.state()
     expect(state.modules[0]!.move).toEqual({ step: 'restored', why: `${NOTES.id} did not start from ${join(m.installsRoot, NOTES.id)}, so it was put back.` })
-    expect(state.summary).toBe('Notes did not move and runs from where it did; Settings › Modules says why.')
+    expect(state.summary).toBe(`1 did not move. ${NOTES.id} did not start from ${join(m.installsRoot, NOTES.id)}, so it was put back.`.replace(NOTES.id, 'Notes did not move: ' + NOTES.id))
     expect(state.summary).not.toContain('no longer used')
   })
 
@@ -237,6 +245,160 @@ describe('Kehikko development: where official modules run from', () => {
     await m.desk.setModule(NOTES.id, { move: true })
     await m.desk.idle()
     expect(m.registrations.get(NOTES.id)).toBe(join(m.installsRoot, NOTES.id))
+  })
+})
+
+describe('a module set to keep running', () => {
+  const setUp = async (options: { running?: boolean } = { running: true }) => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-dev-keep-')))
+    const notes = checkout(join(root, 'kehikko-notes'), NOTES.repo)
+    const paper = checkout(join(root, 'kehikko-paper'), PAPER.repo)
+    const m = machine({ [NOTES.id]: notes, [PAPER.id]: paper }, { keeps: [PAPER.id], running: options.running ? [PAPER.id] : [] })
+    await m.desk.boot()
+    await m.desk.setOn(false)
+    await m.desk.idle()
+    return { m, notes, paper }
+  }
+
+  test('is not stopped for the move, and the summary says so: it names it, why, and when it moves', async () => {
+    const { m, paper } = await setUp()
+    expect(m.registrations.get(PAPER.id)).toBe(paper)
+    const state = await m.desk.state()
+    expect(state.summary).toContain('1 module now runs from Kehikot’s releases. 1 did not move.')
+    expect(state.summary).toContain('Paper did not move yet: it is set to keep running')
+    expect(state.summary).toContain('Move now')
+    /* Told in the Inbox as lines of their own, each whole. */
+    expect(m.told.some((line) => line.startsWith('Paper did not move yet'))).toBe(true)
+    const row = state.modules.find((one) => one.id === PAPER.id)!
+    expect(row).toMatchObject({ keeps: true, runs: { from: 'folder' }, move: { step: 'later' } })
+  })
+
+  test('is still waiting after the host restarts: the row is derived, not remembered', async () => {
+    const { m } = await setUp()
+    const again = developmentDesk({
+      db: m.db,
+      official: () => [NOTES, PAPER],
+      installsRoot: m.installsRoot,
+      registrations: async () => [...m.registrations].map(([id, dir]) => ({ id, dir, keep: id === PAPER.id })),
+      copy: async () => ({ ok: true }),
+      move: async () => ({ ok: true }),
+      tell: () => {},
+    })
+    expect((await again.state()).modules.find((one) => one.id === PAPER.id)?.move?.step).toBe('later')
+    expect(again.owes(PAPER.id, { dir: m.registrations.get(PAPER.id), keep: true })).toBe(true)
+  })
+
+  test('moves by itself at its next restart, from its release, and says so; the folder is untouched', async () => {
+    const { m, paper } = await setUp()
+    const before = fingerprint(paper)
+    expect(m.desk.owes(PAPER.id, { dir: paper, keep: true })).toBe(true)
+    expect(m.desk.owes(NOTES.id, { dir: join(m.installsRoot, NOTES.id), keep: true })).toBe(false)
+    const settling = await m.desk.beforeStart(PAPER.id)
+    expect(settling?.dir).toBe(join(m.installsRoot, PAPER.id))
+    expect(m.registrations.get(PAPER.id)).toBe(join(m.installsRoot, PAPER.id))
+    expect(m.copied).toContain(PAPER.id)
+    await settling!.finish(true)
+    const row = (await m.desk.state()).modules.find((one) => one.id === PAPER.id)!
+    expect(row).toMatchObject({ runs: { from: 'release' }, move: { step: 'done' } })
+    expect(m.told.join(' ')).toContain('1 module now runs from Kehikot’s releases.')
+    expect(m.told.join(' ')).toContain('is no longer used by Kehikot')
+    expect(fingerprint(paper)).toBe(before)
+    /* Nothing is owed any more. */
+    expect(m.desk.owes(PAPER.id, { dir: m.registrations.get(PAPER.id), keep: true })).toBe(false)
+  })
+
+  test('a restart whose release does not answer puts the registration back and does not try again by itself', async () => {
+    const { m, paper } = await setUp()
+    const settling = await m.desk.beforeStart(PAPER.id)
+    await settling!.finish(false, 'it did not answer.')
+    expect(m.registrations.get(PAPER.id)).toBe(paper)
+    expect((await m.desk.state()).modules.find((one) => one.id === PAPER.id)?.move?.step).toBe('restored')
+    expect(m.desk.owes(PAPER.id, { dir: paper, keep: true })).toBe(false)
+    expect(await m.desk.beforeStart(PAPER.id)).toBeNull()
+    /* A person's press makes it a candidate again (it is still running, so it waits for its next restart). */
+    await m.desk.setModule(PAPER.id, { move: true })
+    await m.desk.idle()
+    expect(m.desk.owes(PAPER.id, { dir: paper, keep: true })).toBe(true)
+  })
+
+  test('"Move now" moves a running one, which the host stops only because a person pressed', async () => {
+    const { m, paper } = await setUp()
+    expect(m.moved.some((one) => one.id === PAPER.id)).toBe(false)
+    expect(await m.desk.setModule(PAPER.id, { move: true, now: true })).toEqual({ ok: true })
+    await m.desk.idle()
+    expect(m.moved.find((one) => one.id === PAPER.id)).toEqual({ id: PAPER.id, dir: join(m.installsRoot, PAPER.id), now: true })
+    expect(m.registrations.get(PAPER.id)).toBe(join(m.installsRoot, PAPER.id))
+    expect((await m.desk.state()).modules.find((one) => one.id === PAPER.id)?.move?.step).toBe('done')
+    expect(fingerprint(paper)).toBeTruthy()
+  })
+
+  test('one that is not running moves with the rest', async () => {
+    const { m } = await setUp({ running: false })
+    expect(m.registrations.get(PAPER.id)).toBe(join(m.installsRoot, PAPER.id))
+  })
+})
+
+describe('the summary lists every module that did not move', () => {
+  const long = (count: number) => Array.from({ length: count }, (_, index) => `/Users/someone/projects/kehikko-module-number-${index}`)
+
+  test('moved, failed and deferred are all in it, each line short enough for the Inbox to hold whole', () => {
+    const lines = summaryLines(
+      {
+        toRelease: 14,
+        toFolder: 0,
+        failed: [
+          { name: 'Alpha', why: 'Alpha’s release could not be put in place, so it still runs from your folder: the network is down' },
+          { name: 'Beta', why: 'x', later: true },
+          { name: 'Gamma', why: 'Gamma did not start from /x/installed/kehikot.gamma, so it was put back on /Users/someone/projects/kehikko-gamma.' },
+          { name: 'Delta', why: 'x', later: true },
+          { name: 'Epsilon', why: 'x', later: true },
+          { name: 'Zeta', why: 'x', later: true },
+        ],
+        freed: long(14),
+      },
+      '/Users/someone',
+    )
+    expect(lines[0]).toBe('14 modules now run from Kehikot’s releases. 6 did not move.')
+    for (const name of ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta']) expect(lines.filter((line) => line.startsWith(name)).length).toBe(1)
+    expect(lines.filter((line) => /did not move yet/.test(line))).toHaveLength(4)
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(SUMMARY_LINE_MAX)
+    /* Every folder is still named, in as many lines as it takes. */
+    for (const folder of long(14)) expect(lines.join(' ')).toContain(folder.replace('/Users/someone', '~'))
+    /* And what the Inbox keeps of each line is the whole line: the 120-character label, with the rest as its detail. */
+    for (const line of lines) {
+      const { entry } = noticeEntry('kehikot.host', 'Kehikot', { epic: '', message: line, level: 'done', refs: [] }, 'id', 1)
+      expect(entry.detail ?? entry.label).toBe(line)
+    }
+  })
+
+  test('with none unmoved there is no "did not move"; with nothing to move, it says so', () => {
+    expect(summaryLines({ toRelease: 2, toFolder: 0, failed: [], freed: [] }, null)).toEqual(['2 modules now run from Kehikot’s releases.'])
+    expect(summaryLines({ toRelease: 0, toFolder: 0, failed: [], freed: [] }, null)).toEqual(['Every module already ran from where it should.'])
+  })
+
+  test('a move that throws is still in it', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-dev-throws-')))
+    const notes = checkout(join(root, 'kehikko-notes'), NOTES.repo)
+    const m = machine({ [NOTES.id]: notes })
+    await m.desk.boot()
+    const original = m.desk
+    await original.setOn(true)
+    m.registrations.set(NOTES.id, notes)
+    const broken = developmentDesk({
+      db: m.db,
+      official: () => [NOTES],
+      installsRoot: m.installsRoot,
+      registrations: async () => [{ id: NOTES.id, dir: notes }],
+      copy: async () => {
+        throw new Error('disk full')
+      },
+      move: async () => ({ ok: true }),
+      tell: () => {},
+    })
+    await broken.setOn(false)
+    await broken.idle()
+    expect((await broken.state()).summary).toContain('1 did not move.')
+    expect((await broken.state()).summary).toContain('disk full')
   })
 })
 

@@ -83,7 +83,7 @@ import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
 import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
-import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
+import { aim, anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   endedTooOftenLine,
   EXIT_RESTARTS_WINDOW_MS,
@@ -855,10 +855,17 @@ const development = developmentDesk({
   db,
   official: official.current,
   installsRoot: installsDir(),
-  registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir })),
+  registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir, keep: r.keep === true })),
   nameOf: (id) => knownName(id),
   copy: (entry) => installs.copy(entry),
-  move: (id, dir) => moveModule(id, dir),
+  move: (id, dir, how) => moveModule(id, dir, how),
+  point: async (id, dir) => {
+    const found = (await readRegistrations()).registrations.find((r) => r.id === id)
+    if (!found?.file) return { ok: false, why: `${spokenName(id)} is not registered on this computer any more.` }
+    const pointed = pointRegistrationAt(found.file, dir)
+    wakes.registryChanged()
+    return pointed.ok ? { ok: true } : { ok: false, why: pointed.why }
+  },
   tell: (message) => {
     for (const project of listProjects(db)) {
       const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message, level: 'done', refs: [] }, undefined, 'normal')
@@ -883,21 +890,30 @@ void official
  * when it does not, the old registration goes back word for word and, if it was running, the old
  * one is started again. A module set to keep running is never stopped for this.
  */
-async function moveModule(id: string, dir: string): Promise<DevMoved> {
+async function moveModule(id: string, dir: string, how: { now?: boolean } = {}): Promise<DevMoved> {
   const name = spokenName(id)
   const before = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
   if (!before?.file) return { ok: false, why: `${name} is not registered on this computer any more.`, restored: false }
   const from = before.dir ?? 'where it was'
   const was = await look(before)
-  if (before.keep === true && was.reached) {
-    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from}. Stop it from its menu, then try again.`, restored: false }
+  /* Set to keep running and running: not stopped for this. It moves at its next restart (`beforeStart`), or on a person's "Move now". */
+  if (before.keep === true && was.reached && !how.now) {
+    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from} and moves at its next restart.`, restored: false, later: true }
   }
   const old = startable(before)
   const mine = !inHand.has(id)
   inHand.add(id)
+  settling.add(id)
   try {
     if (old.ok) {
-      const halted = await haltForRestart(id, before, old.run)
+      /* "Move now": the process is proven to be the module before it is stopped, as "Restart anyway" does (`anyway.ts`). */
+      let forced: { pid: number } | undefined
+      if (before.keep === true && was.reached) {
+        const aimed = await aim(id, old.run, anywayWorld)
+        if (!aimed.ok) return { ok: false, why: `${name} could not be stopped to move it: ${aimed.why}`, restored: false }
+        forced = { pid: aimed.target.pid }
+      }
+      const halted = await haltForRestart(id, before, old.run, forced)
       if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
     } else if (nursery.holds(id)) halt(id)
     const pointed = pointRegistrationAt(before.file, dir)
@@ -917,8 +933,42 @@ async function moveModule(id: string, dir: string): Promise<DevMoved> {
     console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
     return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
   } finally {
+    settling.delete(id)
     if (mine) inHand.delete(id)
     wakes.registryChanged()
+  }
+}
+
+/** Modules whose move is being made now, so the start inside it does not move them again (`bringUpSettled`). */
+const settling = new Set<string>()
+
+/**
+ * `bringUp`, after the move a module set to keep running was owed (`development.beforeStart`): the
+ * module is not running — a restart stopped it, or it had ended — and is about to be started, so this
+ * is its next restart. Its release (or folder) is put in place, its registration pointed there, and it
+ * is started from there; when it does not answer, the registration goes back and the old one starts.
+ */
+async function bringUpSettled(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
+  const was = registered.get(id) ?? null
+  if (settling.has(id) || !development.owes(id, was)) return bringUp(id, runnable, within, onInstalling, onStarted)
+  settling.add(id)
+  try {
+    const moved = await development.beforeStart(id)
+    if (!moved) return bringUp(id, runnable, within, onInstalling, onStarted)
+    const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+    const can = startable(now)
+    const came = can.ok ? await bringUp(id, can.run, within, onInstalling, onStarted) : ({ ok: false, why: can.why } as const)
+    if (came.ok && came.answered) {
+      await moved.finish(true)
+      return came
+    }
+    /* It did not answer from there: what was started stops, and the registration and the old one are back. */
+    if (nursery.holds(id)) halt(id)
+    if (can.ok) await gone(can.run.url, WELL_KNOWN)
+    await moved.finish(false, came.ok ? `it did not answer. What it printed is in ${logFile(id)}.` : came.why)
+    return bringUp(id, runnable, within, onInstalling, onStarted)
+  } finally {
+    settling.delete(id)
   }
 }
 
@@ -2004,6 +2054,11 @@ function begin(id: string, why = 'an open kehikko or project has it'): void {
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
+  /* Set to keep running and not yet moved (Kehikko development): this start is its next restart, so it is moved first. */
+  if (development.owes(id, registration)) {
+    void because('a module set to keep running moves at its next start', () => startOnce(id, registration, can.run, ANSWERS_WITHIN_UPDATE_MS)).catch(() => null)
+    return
+  }
   const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
   console.log(`kehikko: started ${id} at ${can.run.url} — ${why} (pid ${ran.child.pid})`)
@@ -3362,7 +3417,7 @@ async function restart(
       if (place) await builds.stopped({ id, name: place.name, dir: place.dir })
     }
     const target = halted.moved?.runnable ?? runnable
-    const came = await bringUp(id, target, within)
+    const came = await bringUpSettled(id, target, within)
     if (!halted.moved) return came
     return came.ok ? { ...came, moved: halted.moved } : { ...came, why: `${halted.moved.line} ${came.why}` }
   } finally {
@@ -4038,7 +4093,7 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
       phase('restarting')
       job.say('starting')
       /* The row says it is installing while that is what the wait is for. */
-      const came = await bringUp(
+      const came = await bringUpSettled(
         id,
         can.run,
         ANSWERS_WITHIN_UPDATE_MS,
@@ -5543,6 +5598,7 @@ async function answerRequest(request: Request): Promise<Response> {
             ...(body.folder === null || (typeof body.folder === 'string' && body.folder.length <= 1024) ? { folder: body.folder as string | null } : {}),
             ...(typeof body.release === 'boolean' ? { release: body.release } : {}),
             ...(body.move === true ? { move: true as const } : {}),
+            ...(body.move === true && body.now === true ? { now: true as const } : {}),
           }
           const done = await development.setModule(body.module, change)
           return done.ok ? json(await development.state()) : json({ error: done.why }, done.status)

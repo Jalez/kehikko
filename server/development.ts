@@ -7,7 +7,7 @@ import { readBundleInfo } from 'kehikot-module-protocol/bundle'
 import { isUnder } from './moduleBuilds.ts'
 import type { Official } from './official.ts'
 import { splitRemote } from './trackers/sources.ts'
-import { startedOnSaid, summarySaid, type DevModule, type Development, type MoveStep } from '../src/host/development.ts'
+import { startedOnSaid, summaryLines, summarySaid, type DevModule, type Development, type MoveStep, type Tally } from '../src/host/development.ts'
 
 /**
  * "Kehikko development": where the official modules run from — Kehikot's releases, or the person's
@@ -34,6 +34,18 @@ import { startedOnSaid, summarySaid, type DevModule, type Development, type Move
  * A person's folder is only ever READ here: its `package.json`, its git config, whether `run.sh`
  * is there. Nothing in it is written, moved or removed. Kehikot stops using it, and the summary
  * says which folders it no longer uses, for the person to remove when they want.
+ *
+ * ## A module set to keep running
+ *
+ * Kehikot never stops a module whose registration says `keep` (it holds live work), so a move that
+ * needs it stopped cannot happen under it. That is not a failure and not forever: the move is
+ * DEFERRED (`later`: the summary names the module and says so, and its row in Settings › Modules
+ * says "Moves at its next restart"), and it happens by itself the next time the module restarts for
+ * any reason — an app restart, an update, Restart (`beforeStart`, called by the host just before it
+ * starts a module). A person who does not want to wait presses "Move now" (`now`), which restarts
+ * the module through the same path as "Restart anyway" and moves it; the page warns first.
+ * What was deferred is never stored: it is a `keep` registration that runs from somewhere other
+ * than where it should, which a restart of the host finds again by itself.
  *
  * ## Where it is kept
  *
@@ -89,9 +101,12 @@ export function writeDevelopment(db: Database, store: DevStore): void {
 export interface Registered {
   id: string
   dir?: string
+  /** The registration says to keep it running: Kehikot does not stop it. */
+  keep?: boolean
 }
 
-export type Moved = { ok: true } | { ok: false; why: string; restored: boolean }
+/** `later`: not moved because it is set to keep running and runs now; it moves at its next restart. */
+export type Moved = { ok: true } | { ok: false; why: string; restored: boolean; later?: true }
 
 export interface DevelopmentDeps {
   db: Database
@@ -102,8 +117,13 @@ export interface DevelopmentDeps {
   nameOf?(id: string): string | null
   /** Put a release copy of the entry at `installed/<id>/`, when none is there. */
   copy(entry: Official): Promise<{ ok: true } | { ok: false; why: string }>
-  /** Point the registration at `dir` and start the module from there; put the old one back when it does not answer. */
-  move(id: string, dir: string): Promise<Moved>
+  /**
+   * Point the registration at `dir` and start the module from there; put the old one back when it does not answer.
+   * A module set to keep running that is running is not stopped (`later`), unless `now`: a person pressed "Move now".
+   */
+  move(id: string, dir: string, how?: { now?: boolean }): Promise<Moved>
+  /** Point the registration at `dir` and nothing else: the host is about to start the module, and starts it from there. */
+  point?(id: string, dir: string): Promise<{ ok: true } | { ok: false; why: string }>
   /** One line in every project's Inbox, by the host. */
   tell(message: string): void
   /** Something a page reads changed. */
@@ -237,7 +257,13 @@ export function developmentDesk(deps: DevelopmentDeps) {
   let moving: Promise<void> | null = null
   let summary: string | null = null
   /** What the run under way has done so far. */
-  let tally = { toRelease: 0, toFolder: 0, failed: [] as { name: string; why: string }[], freed: [] as string[] }
+  let tally: Tally = { toRelease: 0, toFolder: 0, failed: [], freed: [] }
+  /** Modules a person pressed "Move now" on, until their move is done. */
+  const nowFor = new Set<string>()
+  /** Modules whose move at a restart did not take, so the next start does not try again by itself. */
+  const tried = new Set<string>()
+  /** The setting as last read: what `owes` answers from, being asked where nothing can wait. */
+  let lastStore: DevStore | null = null
   const home = deps.home ?? null
   const log = deps.log ?? (() => {})
 
@@ -265,6 +291,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
     const registered = await officialRegistered()
     const kept = readDevelopment(deps.db)
     const store: DevStore = kept ?? { on: false, folders: {} }
+    lastStore = store
     let changed = kept === null
     store.seen ??= {}
     for (const one of registered) {
@@ -295,6 +322,9 @@ export function developmentDesk(deps: DevelopmentDeps) {
     return store.on && folder && !folder.release ? 'folder' : 'release'
   }
 
+  /** What a module set to keep running says while it has not moved. */
+  const laterWhy = 'It is set to keep running, so Kehikot did not stop it. It moves at its next restart, or press Move now.'
+
   async function state(): Promise<Development> {
     const { store, registered } = await current()
     const lacking = store.on && home ? registered.filter((one) => !store.folders[one.id]).map((one) => one.entry) : []
@@ -304,15 +334,20 @@ export function developmentDesk(deps: DevelopmentDeps) {
       .map((one) => {
         const dir = one.dir!
         const folder = store.folders[one.id] ?? null
+        const wants = wantsOf(store, one.id)
+        const target = wants === 'folder' ? folder?.dir : releaseDir(one.id)
+        /* Kept running and not where it should be: it moves at its next restart, whatever a restart of the host forgot. */
+        const owed = one.keep === true && !!target && !same(dir, target)
         return {
           id: one.id,
           name: nameOf(one.id),
           runs: fromFolder(dir) ? { from: 'folder' as const, dir } : { from: 'release' as const, version: releaseOf(dir) },
           folder: folder?.dir ?? null,
           release: folder?.release === true,
-          wants: wantsOf(store, one.id),
+          keeps: one.keep === true,
+          wants,
           found: found.get(one.id) ?? null,
-          move: moves.get(one.id) ?? null,
+          move: moves.get(one.id) ?? (owed ? { step: 'later' as const, why: laterWhy } : null),
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -346,7 +381,14 @@ export function developmentDesk(deps: DevelopmentDeps) {
       if (refused) return failed(`${name} still runs from its release: ${refused}`)
     }
     said('starting')
-    const moved = await deps.move(id, target).catch((error: unknown): Moved => ({ ok: false, why: error instanceof Error ? error.message : String(error), restored: false }))
+    const now = nowFor.delete(id)
+    const moved = await deps.move(id, target, { now }).catch((error: unknown): Moved => ({ ok: false, why: error instanceof Error ? error.message : String(error), restored: false }))
+    if (!moved.ok && moved.later) {
+      said('later', laterWhy)
+      tally.failed.push({ name, why: moved.why, later: true })
+      log(`kehikko: ${id} keeps running, so it was not moved to ${target} now; it moves at its next restart`)
+      return
+    }
     if (!moved.ok) return failed(moved.why, moved.restored ? 'restored' : 'failed')
     said('done')
     log(`kehikko: ${id} now runs from ${target} (was ${one.dir})`)
@@ -362,7 +404,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
   }
 
   /** Move these modules (all the official ones registered here when not given), one at a time. */
-  async function apply(ids?: readonly string[]): Promise<void> {
+  async function apply(ids?: readonly string[], how: { now?: boolean } = {}): Promise<void> {
     const names = ids ?? (await officialRegistered()).map((one) => one.id)
     const { store, registered } = await current()
     for (const id of names) {
@@ -371,6 +413,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
       const target = wantsOf(store, id) === 'folder' ? store.folders[id]!.dir : releaseDir(id)
       if (same(one.dir, target) || queue.includes(id)) continue
       queue.push(id)
+      if (how.now) nowFor.add(id)
       moves.set(id, { step: 'waiting', why: null })
     }
     if (moving || !queue.length) return
@@ -380,11 +423,21 @@ export function developmentDesk(deps: DevelopmentDeps) {
     }
     moving = (async () => {
       try {
-        while (queue.length) await moveOne(queue.shift()!).catch((error: unknown) => log(`kehikko: moving a module failed: ${String(error)}`))
+        while (queue.length) {
+          const id = queue.shift()!
+          await moveOne(id).catch((error: unknown) => {
+            /* Whatever went wrong, the module is in the summary: nothing that did not move goes unsaid. */
+            log(`kehikko: moving ${id} failed: ${String(error)}`)
+            const why = error instanceof Error ? error.message : String(error)
+            moves.set(id, { step: 'failed', why })
+            if (!tally.failed.some((one) => one.name === nameOf(id))) tally.failed.push({ name: nameOf(id), why })
+          })
+        }
       } finally {
         summary = summarySaid(tally, home)
         moving = null
-        deps.tell(summary)
+        /* One Inbox line each, the first the one a person reads first: the Inbox keeps a line only so long (`SUMMARY_LINE_MAX`). */
+        for (const line of summaryLines(tally, home).reverse()) deps.tell(line)
         deps.changed?.()
       }
     })()
@@ -393,14 +446,16 @@ export function developmentDesk(deps: DevelopmentDeps) {
 
   /** The switch. Turning it either way moves every official module to where it then should run from. */
   async function setOn(on: boolean): Promise<void> {
+    tried.clear()
     const { store } = await current()
     if (store.on !== on) writeDevelopment(deps.db, { ...store, on })
     await apply()
   }
 
   /** One module's development folder (null: forget it) or "use the release for this one"; moves it when that changes where it runs. */
-  async function setModule(id: string, change: { folder?: string | null; release?: boolean; move?: true }): Promise<{ ok: true } | { ok: false; why: string; status: number }> {
+  async function setModule(id: string, change: { folder?: string | null; release?: boolean; move?: true; now?: true }): Promise<{ ok: true } | { ok: false; why: string; status: number }> {
     const entry = entryOf(id)
+    tried.delete(id)
     if (!entry) return { ok: false, why: `${id} is not on the official module list.`, status: 404 }
     const { store } = await current()
     const folders = { ...store.folders }
@@ -416,8 +471,79 @@ export function developmentDesk(deps: DevelopmentDeps) {
       if (had) folders[id] = change.release ? { dir: had.dir, release: true } : { dir: had.dir }
     }
     writeDevelopment(deps.db, { ...store, folders })
-    await apply([id])
+    await apply([id], { now: change.now === true })
     return { ok: true }
+  }
+
+  /** Whether a module set to keep running owes a move: it runs from somewhere other than where it should. Sync, for the host's starts. */
+  function owes(id: string, registration: { dir?: string; keep?: boolean } | null): boolean {
+    if (!registration?.dir || registration.keep !== true || !lastStore || tried.has(id) || !entryOf(id)) return false
+    const target = wantsOf(lastStore, id) === 'folder' ? lastStore.folders[id]!.dir : releaseDir(id)
+    return !same(registration.dir, target)
+  }
+
+  /**
+   * The host is about to start a module that is not running — after an app restart, an update, Restart
+   * or the module ending — and it owes a move (`owes`): put its release in place and point its
+   * registration there, so it starts from where it should. Null when there is nothing to do or it
+   * could not be done (said). The host starts it, then tells `finish` whether it answered; when it did
+   * not, the registration goes back and the host starts the old one.
+   */
+  async function beforeStart(id: string): Promise<{ dir: string; from: string; finish(answered: boolean, why?: string): Promise<void> } | null> {
+    const { store, registered } = await current()
+    const one = registered.find((r) => r.id === id)
+    if (!one?.dir || !owes(id, one) || !deps.point) return null
+    const name = nameOf(id)
+    const from = one.dir
+    const wants = wantsOf(store, id)
+    const target = wants === 'folder' ? store.folders[id]!.dir : releaseDir(id)
+    const gave = (why: string) => {
+      tried.add(id)
+      moves.set(id, { step: 'failed', why })
+      deps.tell(`${name} did not move: ${why}`)
+      deps.changed?.()
+      log(`kehikko: ${id} was not moved at its restart to ${target}: ${why}`)
+      return null
+    }
+    moves.set(id, { step: 'installing', why: null })
+    deps.changed?.()
+    if (wants === 'release') {
+      const copied = await deps.copy(one.entry).catch((error: unknown) => ({ ok: false as const, why: error instanceof Error ? error.message : String(error) }))
+      if (!copied.ok) return gave(`${name}’s release could not be put in place, so it still runs from your folder: ${copied.why}`)
+    } else {
+      const refused = folderRefused(one.entry, target, deps.installsRoot)
+      if (refused) return gave(`${name} still runs from its release: ${refused}`)
+    }
+    const pointed = await deps.point(id, target)
+    if (!pointed.ok) return gave(pointed.why)
+    moves.set(id, { step: 'starting', why: null })
+    deps.changed?.()
+    return {
+      dir: target,
+      from,
+      async finish(answered, why) {
+        if (!answered) {
+          await deps.point?.(id, from)
+          tried.add(id)
+          const said = `${name} did not start from ${target}, so it was put back on ${from}${why ? `: ${why}` : '.'}`
+          moves.set(id, { step: 'restored', why: said })
+          deps.tell(said)
+          deps.changed?.()
+          return
+        }
+        moves.set(id, { step: 'done', why: null })
+        log(`kehikko: ${id} now runs from ${target} (was ${from}), moved at its restart`)
+        const others = (await deps.registrations()).some((r) => r.id !== id && r.dir && same(r.dir, from))
+        const lines = summaryLines(
+          wants === 'release'
+            ? { toRelease: 1, toFolder: 0, failed: [], freed: fromFolder(from) && !others ? [from] : [] }
+            : { toRelease: 0, toFolder: 1, failed: [], freed: [] },
+          home,
+        )
+        for (const line of lines.reverse()) deps.tell(line)
+        deps.changed?.()
+      },
+    }
   }
 
   /** Make the setting now, at the host's start: the first time, that is when the Inbox is told. */
@@ -430,7 +556,7 @@ export function developmentDesk(deps: DevelopmentDeps) {
     while (moving) await moving
   }
 
-  return { state, setOn, setModule, apply, boot, idle, wantsOf }
+  return { state, setOn, setModule, apply, boot, idle, wantsOf, owes, beforeStart }
 }
 
 export type DevelopmentDesk = ReturnType<typeof developmentDesk>
