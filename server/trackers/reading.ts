@@ -706,7 +706,14 @@ export class Trackers {
   async edit(root: string, edit: Edit | { kind: 'fresh' }): Promise<Edited & { listing: TrackerListing }> {
     const remotes = await remotesNamed(root, this.#run)
     const done = edit.kind === 'fresh' ? startFresh(root) : editTrackers(root, edit, remotes)
-    if (done.outcome === 'changed') this.sourcesChanged(root, remotes.map((r) => r.url))
+    if (done.outcome === 'changed') {
+      this.sourcesChanged(root, remotes.map((r) => r.url))
+      /* What the sources hold is read again as the person's mode allows: on the schedule at once (a
+         project already read; a first read has its own look), on a press or never otherwise. */
+      if (edit.kind !== 'fresh' && edit.kind !== 'mode' && edit.kind !== 'schedule' && this.#of(root).stored.at !== null) {
+        void this.refresh(root, { project: true }, 'schedule').catch(() => undefined)
+      }
+    }
     return { ...done, listing: this.listing(root, remotes) }
   }
 

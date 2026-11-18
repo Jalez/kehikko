@@ -15,7 +15,7 @@ import type { ListedSource, TrackerListing } from '../src/host/trackerSources.ts
  */
 
 const inChild = process.env.TRACKER_SETTINGS_DOM === '1'
-const TESTS = 7
+const TESTS = 10
 
 if (!inChild) {
   test('the trackers menu and Settings › Trackers, rendered in a process of their own', () => {
@@ -364,4 +364,81 @@ test('a deep link lands on each moved control: the schedule, the remotes, the ne
     expect(document.activeElement).toBe(row.querySelector(control))
   }
   expect(document.querySelector('[data-tracker-news]')!.getAttribute('data-tracker-news')).toBe('off')
+})
+
+/**
+ * The page as App holds it: the tracker state, and the door's `onListing` that keeps an edit's
+ * answer there. Settings is "closed" by taking the panel away and "reopened" by mounting it again.
+ */
+function Page({ first }: { first: TrackerState }) {
+  const [tracker, setTracker] = React.useState(first)
+  const [shown, setShown] = React.useState(true)
+  const door = {
+    tracker,
+    onRefresh() {},
+    news: null,
+    onListing: (project: number, l: TrackerListing) => setTracker((was) => ({ ...was, project, listing: l })),
+  }
+  return (
+    <>
+      <button data-close onClick={() => setShown(false)}>close</button>
+      <button data-open onClick={() => setShown(true)}>open</button>
+      {shown ? <Settings.SettingsBody answer={answer()} busy={false} section="trackers" onSection={() => {}} onChange={() => {}} trackers={door} /> : null}
+    </>
+  )
+}
+const remotesSwitch = () => document.querySelector('[data-settings-target="tracker-remotes"] [role="switch"]') as HTMLButtonElement
+
+test('a change in Settings › Trackers is still there after closing and reopening, without waiting for a read', async () => {
+  if (!inChild) return
+  /* The host answers the edit with the listing as it now stands: remotes off. */
+  answerEdits(listing({ remotes: false }))
+  await render(<Page first={tracker()} />)
+  expect(remotesSwitch().getAttribute('aria-checked')).toBe('true')
+  await act(async () => remotesSwitch().click())
+  await act(async () => {})
+  expect(posted).toEqual([{ project: 7, edit: { kind: 'remotes', on: false } }])
+  expect(remotesSwitch().getAttribute('aria-checked')).toBe('false')
+  /* It said so, in words. */
+  expect(document.querySelector('[data-tracker-sources] [role="status"]')?.textContent).toMatch(/^Saved\./)
+
+  await act(async () => (document.querySelector('[data-close]') as HTMLButtonElement).click())
+  expect(document.querySelector('[data-settings-target="tracker-remotes"]')).toBeNull()
+  await act(async () => (document.querySelector('[data-open]') as HTMLButtonElement).click())
+  await act(async () => {})
+  expect(remotesSwitch().getAttribute('aria-checked')).toBe('false')
+})
+
+test('a write that fails is said in words, and the switch stays as the host has it', async () => {
+  if (!inChild) return
+  globalThis.fetch = (async (url: string) =>
+    String(url) === '/host/trackers' ? new Response(JSON.stringify({ error: 'The project folder is read-only.' }), { status: 500 }) : new Response('{}', { status: 404 })) as typeof fetch
+  await render(<Page first={tracker()} />)
+  await act(async () => remotesSwitch().click())
+  await act(async () => {})
+  expect(remotesSwitch().getAttribute('aria-checked')).toBe('true')
+  const said = document.querySelector('[data-tracker-sources] [role="status"]')!
+  expect(said.textContent).toContain('Not saved')
+  expect(said.textContent).toContain('read-only')
+
+  /* A refusal the host words itself is shown as it came. */
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ outcome: 'declined', why: 'The project folder is read-only. Its tracker sources were not changed.', said: '', listing: listing() }), { status: 200 })) as unknown as typeof fetch
+  await act(async () => remotesSwitch().click())
+  await act(async () => {})
+  expect(document.querySelector('[data-tracker-sources] [role="status"]')!.textContent).toContain('were not changed')
+  expect(remotesSwitch().getAttribute('aria-checked')).toBe('true')
+})
+
+test('the What’s new switch goes back, and says so, when the host does not keep the change', async () => {
+  if (!inChild) return
+  globalThis.fetch = (async (url: string) =>
+    String(url) === '/host/whats-new' ? new Response('{}', { status: 500 }) : new Response('{}', { status: 404 })) as typeof fetch
+  await render(<Settings.SettingsBody answer={answer()} busy={false} section="about" onSection={() => {}} onChange={() => {}} trackers={null} />)
+  const sw = document.querySelector('[data-whats-new-setting] [role="switch"]') as HTMLButtonElement
+  const was = sw.getAttribute('aria-checked')
+  await act(async () => sw.click())
+  await settle()
+  expect(sw.getAttribute('aria-checked')).toBe(was)
+  expect(document.querySelector('[data-whats-new-trouble]')!.textContent).toContain('Not saved')
 })

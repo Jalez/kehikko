@@ -60,6 +60,14 @@ export interface TrackersDoor {
   tracker: TrackerState
   onRefresh(): void
   news: TrackerNewsSwitch | null
+  /**
+   * An edit's answer, handed to the page: the page owns the listing, so a change outlives this panel
+   * (closing Settings unmounts it) and the next opening shows what the host holds, not what was read
+   * before the change.
+   */
+  onListing?(project: number, listing: TrackerListing): void
+  /** The panel opened: have the page read the sources again, so it shows what is on disk. */
+  onOpen?(): void
 }
 
 /** A row a link can land on, lit for a moment when it does. */
@@ -83,6 +91,9 @@ export function TrackerSourcesSettings({ door }: { door: TrackersDoor }) {
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
   const reading = tracker.refreshing
+  const { onOpen, onListing } = door
+  /* Opening shows what is on disk: an agent, or another window, may have changed it since the page last read. */
+  useEffect(() => onOpen?.(), [onOpen])
 
   /** One edit, and what it answered; the listing it returns replaces this one. */
   async function send(edit: TrackerEdit): Promise<TrackerEdited | null> {
@@ -90,15 +101,21 @@ export function TrackerSourcesSettings({ door }: { door: TrackersDoor }) {
     setBusy(true)
     try {
       const done = await editTrackers(project, edit)
-      if (done.listing) setOwn(done.listing)
+      if (done.listing) {
+        setOwn(done.listing)
+        onListing?.(project, done.listing)
+      }
+      /* A change is applied the moment it is made; say so in words, or say why it was not. */
       setSaid(
         done.outcome === 'declined' || done.outcome === 'failed'
-          ? { tone: 'bad', text: done.why }
-          : { tone: done.outcome === 'read' ? 'ok' : 'plain', text: done.said },
+          ? { tone: 'bad', text: done.why || 'That could not be saved.' }
+          : done.outcome === 'changed'
+            ? { tone: 'ok', text: `Saved. ${done.said}` }
+            : { tone: done.outcome === 'read' ? 'ok' : 'plain', text: done.said },
       )
       return done
     } catch (error) {
-      setSaid({ tone: 'bad', text: `Kehikot did not answer: ${(error as Error).message}. Try again.` })
+      setSaid({ tone: 'bad', text: `Not saved: Kehikot did not answer (${(error as Error).message}). The setting is as it was. Try again.` })
       return null
     } finally {
       setBusy(false)
