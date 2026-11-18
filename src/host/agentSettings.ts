@@ -344,6 +344,7 @@ export const SETTINGS_TARGETS = {
   /* Settings › Trackers (`src/canvas/TrackerSettings.tsx`): the open project's sources and how they are read. */
   trackerSources: { section: 'trackers', target: 'tracker-sources' },
   trackerAdd: { section: 'trackers', target: 'tracker-add' },
+  trackerMode: { section: 'trackers', target: 'tracker-mode' },
   trackerSchedule: { section: 'trackers', target: 'tracker-every' },
   trackerRemotes: { section: 'trackers', target: 'tracker-remotes' },
   trackerNews: { section: 'trackers', target: 'tracker-news' },

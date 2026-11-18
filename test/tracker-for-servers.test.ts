@@ -89,17 +89,15 @@ function epicWithParts(): void {
   writeHoldings(folder, 'kehikot.journeys', 'one', { [added.result.id!]: { documents: [], refs: ['gh#2'] } })
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 60))
-
 describe('tracker.get { epic, parts: true }', () => {
   test('answers the epic’s refs and its parts’ in one answer', async () => {
     epicWithParts()
     const trackers = new Trackers({ run: remotes, adapters: { github: fake([ghRow(1), ghRow(2), ghRow(3)]) }, now: () => NOW })
     const known = () => true
-    /* Asked once with parts, the part's ref is pending and read like any ref asked for. */
+    /* Asked once with parts, the part's ref is pending and read by the next read, like any ref asked for. */
     const first = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, known, undefined, folder, undefined, trackers)
     expect(first.ok).toBe(true)
-    await settle()
+    await trackers.refresh(folder, { project: true }, 'press')
     const own = answer('kehikot.kanban', 'tracker.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
     const both = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, known, undefined, folder, undefined, trackers)
     if (!own.ok || !both.ok) throw new Error('not answered')
@@ -207,12 +205,12 @@ describe('related branches on GitLab', () => {
     ])
     const trackers = new Trackers({ run, adapters: { gitlab: gitlabAdapter(run) }, now: () => NOW })
     /* Before any whole read: nobody listed the branches, so nothing is said. */
-    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
     const before = trackers.get(folder, { refs: ['#12'] })
     if ('refused' in before) throw new Error(before.refused)
     expect('branches' in before.rows[0]!).toBe(false)
 
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const listings = run.asked.filter((argv) => argv.join(' ').includes('repository/branches'))
     expect(listings).toHaveLength(1)
     const after = trackers.get(folder, { refs: ['#12', '#13'] })
@@ -223,7 +221,7 @@ describe('related branches on GitLab', () => {
     ])
 
     /* A read by name between whole reads asks no branches, and keeps the held names. */
-    await trackers.refresh(folder, { refs: ['#12'] })
+    await trackers.refresh(folder, { refs: ['#12'] }, 'press')
     expect(run.asked.filter((argv) => argv.join(' ').includes('repository/branches'))).toHaveLength(1)
     const again = trackers.get(folder, { refs: ['#12'] })
     if ('refused' in again) throw new Error(again.refused)
@@ -317,7 +315,7 @@ describe('a module’s server asks the host: /host/server-ask', () => {
   test('through the page’s own answer: the same reading, the same refusals', async () => {
     epicWithParts()
     const trackers = new Trackers({ run: remotes, adapters: { github: fake([ghRow(1), ghRow(2)]) }, now: () => NOW })
-    await trackers.refresh(folder, { refs: ['gh#1', 'gh#2'] })
+    await trackers.refresh(folder, { refs: ['gh#1', 'gh#2'] }, 'press')
     const { route } = desk({
       answer: (module, method, params, root) => answer(module, method, params, () => true, () => {}, root, undefined, trackers, null, null, { may: () => true }),
     })

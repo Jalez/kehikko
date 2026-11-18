@@ -3,6 +3,7 @@ import { LIMITS, TRACKERS, readTrackerRef, type Tracker } from 'kehikot-module-p
 import { z } from 'zod'
 
 import { isDefaultReads, readsOf, type Reads } from '../../src/host/trackerReads.ts'
+import { TRACKER_MODES } from '../../src/host/trackerSources.ts'
 import type { Runner } from '../feedback.ts'
 import { hostPath } from '../hostData.ts'
 
@@ -93,6 +94,8 @@ const fileSchema = z.object({
   sources: z.array(entrySchema).max(LIMITS.TRACKER_SOURCES).default([]),
   remotes: z.boolean().default(true),
   every: z.number().int().min(0).max(24 * 60).default(EVERY_DEFAULT),
+  /** When the host reads (`trackerModeOf`). Absent: on the schedule. A word this host does not know reads as absent. */
+  reading: z.enum(TRACKER_MODES).optional().catch(undefined),
 })
 export type TrackerConfig = z.infer<typeof fileSchema>
 

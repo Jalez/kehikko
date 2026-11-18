@@ -132,7 +132,7 @@ async function tick(db: ReturnType<typeof open>, id: number, trackers: InstanceT
   createEpic(root, { title: 'Another epic' })
   editTrackers(root, { kind: 'remotes', on: false }, [])
   shareKehikot(db, id, true)
-  await trackers.refresh(root, { project: true })
+  await trackers.refresh(root, { project: true }, 'press')
   trackers.tick(Date.now() + 3_600_000)
   trackers.stateChanged(root)
   watch.watching([root])

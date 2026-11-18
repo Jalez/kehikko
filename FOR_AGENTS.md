@@ -8,6 +8,10 @@ A host PR that changes what an agent session sees or may do — a tool on the ke
 is held to, a guard — adds a section at the top: `## <the next number>`, then one or two bullets in
 the agent's terms. Name no module and no vendor. Nothing else here is read.
 
+## 5
+
+- The person chooses when a project's trackers are read: on a schedule, only when they press Refresh all, or off. Nothing you ask starts a read, in any mode: `read_tracker` answers from what was last read, a ref not read yet stays `pending` until the next scheduled read, the person's Refresh all or the person opening that item, and its `refresh` reads nothing and says why.
+
 ## 4
 
 - `read_logs` on the kehikko door reads Kehikot's own logs: the host's (`which: "host"`: what it printed, its errors, a start line with versions, pid and port), the canvas page's (`"page"`: its warnings and errors and its decisions — the stable-address check, which address each frame got and why, silent modules, switches, start/restart presses) and one module's output (`"module"`, with `module`). Filter with `since`, `grep`, `lines` (at most 400). Read-only; secrets are scrubbed.

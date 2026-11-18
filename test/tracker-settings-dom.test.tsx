@@ -32,6 +32,7 @@ if (!inChild) {
 
   test('the routes the moved controls write to are still the page’s alone', () => {
     expect(PAGE_ONLY).toContain('/host/trackers')
+    expect(PAGE_ONLY).toContain('/host/tracker/refresh')
     expect(PAGE_ONLY).toContain('/host/settings')
     expect(PAGE_ONLY).toContain('/host/messages/mute')
   })
@@ -272,6 +273,18 @@ test('every source control in Settings › Trackers sends the same edit as befor
     { project: 7, edit: { kind: 'schedule', every: 60 } },
     { project: 7, edit: { kind: 'remotes', on: false } },
   ])
+  posted = []
+
+  /* When the trackers are read: on a schedule, only on Refresh all, or off. */
+  const mode = document.querySelector('[data-settings-target="tracker-mode"] select') as HTMLSelectElement
+  expect(mode.value).toBe('schedule')
+  expect([...mode.options].map((o) => o.value)).toEqual(['schedule', 'manual', 'off'])
+  await act(async () => {
+    mode.value = 'manual'
+    mode.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await act(async () => {})
+  expect(posted).toEqual([{ project: 7, edit: { kind: 'mode', mode: 'manual' } }])
   posted = []
 
   /* Adding one. */

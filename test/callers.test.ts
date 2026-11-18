@@ -200,6 +200,37 @@ describe('peer port → pid → owner', () => {
     expect(ran.filter((argv) => argv[0] === 'netstat').length).toBe(before)
   })
 
+  test('a connection no listing holds is not looked for again on its every request (Jalez/kehikko#384)', async () => {
+    const { lookup, ran } = stubbed()
+    expect(await lookup.find(59999)).toBeNull()
+    expect(await lookup.find(59999)).toBeNull()
+    expect(await lookup.find(59999)).toBeNull()
+    expect(ran.filter((argv) => argv[0] === 'netstat')).toHaveLength(1)
+  })
+
+  test('a netstat that did not answer once is tried again at the next look, not traded for lsof for good (Jalez/kehikko#384)', async () => {
+    const ran: string[][] = []
+    let netstatAnswers = false
+    const lookup = new PeerLookup({
+      run: async (argv) => {
+        ran.push(argv)
+        if (argv[0] === 'netstat') return netstatAnswers ? NETSTAT : null
+        if (argv[0] === 'ps') return PS
+        if (argv[0] === 'lsof' && argv.includes('-sTCP:ESTABLISHED')) return 'p902\nn127.0.0.1:51002->127.0.0.1:4180\n'
+        return null
+      },
+      port: HOST_PORT,
+      self: SELF,
+      netstat: true,
+      started: () => [],
+      unstarted: () => [],
+    })
+    expect((await lookup.find(51002))?.exe).toBe('curl')
+    netstatAnswers = true
+    expect((await lookup.find(51004))?.exe).toBe('claude')
+    expect(ran.filter((argv) => argv[0] === 'netstat')).toHaveLength(2)
+  })
+
   test('without netstat, lsof for the host’s port', async () => {
     const { lookup, ran } = stubbed({ netstat: null, lsof: 'p902\nn127.0.0.1:51002->127.0.0.1:4180\n' })
     expect((await lookup.find(51002))?.exe).toBe('curl')

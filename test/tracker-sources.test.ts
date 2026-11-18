@@ -12,7 +12,7 @@ import { editTrackers, nextStep, spell } from '../server/trackers/edit.ts'
 import { Trackers } from '../server/trackers/reading.ts'
 import { listSources, readConfig, sourcesOf, splitRemote, type Source } from '../server/trackers/sources.ts'
 import { Wakes } from '../server/wake.ts'
-import { listingText, rolesOf, readSaid, trackerEditSchema } from '../src/host/trackerSources.ts'
+import { listingText, rolesOf, readSaid, trackerEditSchema, trackerModeOf } from '../src/host/trackerSources.ts'
 
 /**
  * A project's tracker sources, understood and edited in the app: the words,
@@ -180,6 +180,25 @@ describe('the writer', () => {
     expect(editTrackers(folder, { kind: 'schedule', every: 7.5 as number }, ORIGIN).outcome).toBe('declined')
   })
 
+  test('when the trackers are read: manual and off are written as `reading`, the schedule takes it away and an interval of never back to the default', () => {
+    expect(editTrackers(folder, { kind: 'schedule', every: 0 }, ORIGIN).outcome).toBe('changed')
+    const manualByNever = readConfig(folder)
+    if (!manualByNever.ok) throw new Error(manualByNever.why)
+    expect(trackerModeOf(manualByNever.config)).toBe('manual')
+    expect(editTrackers(folder, { kind: 'mode', mode: 'off' }, ORIGIN).outcome).toBe('changed')
+    expect(json()).toEqual({ version: 1, every: 0, reading: 'off' })
+    expect(editTrackers(folder, { kind: 'mode', mode: 'manual' }, ORIGIN).said).toBe('The host reads only when you press Refresh all, or open an item it has not read yet.')
+    expect(editTrackers(folder, { kind: 'mode', mode: 'schedule' }, ORIGIN).outcome).toBe('changed')
+    expect(json()).toEqual({ version: 1, every: 15 })
+    const read = readConfig(folder)
+    if (!read.ok) throw new Error(read.why)
+    expect(trackerModeOf(read.config)).toBe('schedule')
+    put('{"version": 1, "reading": "sometimes"}')
+    const unknown = readConfig(folder)
+    expect(unknown.ok && trackerModeOf(unknown.config)).toBe('schedule')
+    expect(trackerEditSchema.safeParse({ kind: 'mode', mode: 'never' }).success).toBe(false)
+  })
+
   test('a broken file is never written over', () => {
     put('{"version": 1, "sources": [{"tracker": "jira", "repo": "x/y"}]}')
     const before = text()
@@ -263,7 +282,7 @@ describe('through the reading and the agent’s door', () => {
   test('the listing counts what each source read, and a removed source takes its rows', async () => {
     const trackers = new Trackers({ run, adapters: { github: adapter as any }, now: () => NOW })
     await trackers.edit(folder, { kind: 'add', input: 'Jalez/other', tracker: 'github' })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const listing = await trackers.describe(folder)
     expect(listing.sources.map((x) => [x.repo, x.origin, x.remote, x.issues, x.changes])).toEqual([
       ['Jalez/kehikko', 'remote', 'origin', 2, 1],
@@ -273,7 +292,7 @@ describe('through the reading and the agent’s door', () => {
     expect(text).toContain("from this project's git remote origin")
     expect(text).toContain('2 issues, 1 change')
     await trackers.edit(folder, { kind: 'set', ...OWN, off: true })
-    await trackers.refresh(folder, { project: true })
+    await trackers.refresh(folder, { project: true }, 'press')
     const got = trackers.get(folder, { project: true })
     if ('refused' in got) throw new Error(got.refused)
     expect(new Set(got.rows.map((r) => r.repo))).toEqual(new Set(['Jalez/other']))
@@ -281,14 +300,14 @@ describe('through the reading and the agent’s door', () => {
 
   test('check reads once and stores nothing', async () => {
     const trackers = new Trackers({ run, adapters: { github: adapter as any }, now: () => NOW })
-    const found = await trackers.check({ ...OWN, default: false, listed: false })
+    const found = await trackers.check(folder, { ...OWN, default: false, listed: false })
     expect(found).toEqual({ ok: true, issues: 2, changes: 1, capped: false })
     expect(existsSync(join(folder, '.kehikot'))).toBe(false)
     const failing = new Trackers({
       run,
       adapters: { github: { ...adapter, list: async () => ({ ok: false as const, why: 'The GitHub CLI (gh) is not logged in to github.com: run `gh auth login`.' }) } as any },
     })
-    const bad = await failing.check({ ...OWN, default: false, listed: false })
+    const bad = await failing.check(folder, { ...OWN, default: false, listed: false })
     expect(bad.ok).toBe(false)
     expect(!bad.ok && bad.why).toContain('then press Check again')
   })

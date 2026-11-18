@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { forgetAdoptions } from './adoptClient.ts'
+
 /**
  * A kehikko's own settings, as the page and the server both read them: its name and skills (kept
  * where they always were) and which agent module is the PRIMARY one when more than one is placed
@@ -106,6 +108,8 @@ export async function fetchKehikkoSettings(kehikko: number, signal?: AbortSignal
 /** Choose the primary (a module id), clear it (null), or put the choice off (`later`). */
 export async function postKehikkoSettings(kehikko: number, edit: { primary: string | null } | { later: true }): Promise<KehikkoSettingsAnswer> {
   const response = await fetch('/host/kehikko-settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kehikko, ...edit }) })
+  /* The primary agent is who an Inbox item's offer names. */
+  forgetAdoptions()
   if (!response.ok) throw new Error(await reason(response))
   return kehikkoSettingsAnswerSchema.parse(await response.json())
 }

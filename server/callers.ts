@@ -1,6 +1,6 @@
 import { LIMITS, TRAFFIC_HOST_BY, type TrafficCaller } from 'kehikot-module-protocol'
 
-import { parsePs, runQuiet, type Proc } from './trafficProcesses.ts'
+import { parseListeners, parsePs, runQuiet, type Proc } from './trafficProcesses.ts'
 
 /**
  * Who sent a request this host received (protocol 2.25.0, `caller` on a row of traffic), named at
@@ -33,7 +33,8 @@ import { parsePs, runQuiet, type Proc } from './trafficProcesses.ts'
  * ## Cheap
  *
  * One `netstat` answers for every connection open at that moment, so the lookups of requests
- * arriving together share one run, and a connection kept alive is looked up once (`PEERS_MS`). The
+ * arriving together share one run, and a connection kept alive is looked up once (`PEERS_MS`); so is
+ * one no listing held, which a request after it would otherwise look for again every time. The
  * process table is kept for `PROCS_MS`. A request the page or a route already names, or that
  * carries a place token, needs no lookup at all.
  */
@@ -259,6 +260,8 @@ export interface LookupDeps {
   now?(): number
   /** Whether `netstat` is tried first; false where it gives no pids (Linux). */
   netstat?: boolean
+  /** Which pid listens on each port, where netstat cannot say: one reading shared with the sampler (`ListenerTable`). */
+  listeners?(): Promise<Map<number, number>>
 }
 
 /**
@@ -290,10 +293,10 @@ export class PeerLookup {
     return (this.#deps.run ?? runQuiet)(argv)
   }
 
-  /** Whether a connection's other end is already known (a keep-alive connection's second request). */
+  /** Whether a connection's other end was looked for lately: found (a keep-alive connection's second request), or held by no listing. */
   known(port: number): boolean {
     const had = this.#peers.get(port)
-    return had !== undefined && had.pid !== null && this.#now() - had.at < PEERS_MS
+    return had !== undefined && this.#now() - had.at < PEERS_MS
   }
 
   /** One listing of the connections, filed by the client's port; shared by every lookup that asked before it began. */
@@ -306,7 +309,8 @@ export class PeerLookup {
       return this.#next
     }
     this.#running = (async () => {
-      const rows = this.#netstat ? parseNetstat((await this.#run(['netstat', '-anv', '-p', 'tcp'])) ?? '') : []
+      const listed = this.#netstat ? await this.#run(['netstat', '-anv', '-p', 'tcp']) : null
+      const rows = parseNetstat(listed ?? '')
       const now = this.#now()
       if (rows.length) {
         this.#listeners.clear()
@@ -317,23 +321,15 @@ export class PeerLookup {
           }
         }
       } else {
-        /* No netstat, or none that says pids: lsof, for the connections to this host's port. */
-        this.#netstat = false
+        /* No netstat that says pids (Linux), for good; one that did not answer this once is asked again next time. Meanwhile lsof, for the connections to this host's port. */
+        if (listed !== null) this.#netstat = false
         for (const row of parseLsofPeers((await this.#run(['lsof', '-nP', `-iTCP:${this.#deps.port}`, '-sTCP:ESTABLISHED', '-F', 'pn'])) ?? '')) {
           if (row.remotePort === this.#deps.port && row.pid !== (this.#deps.self ?? process.pid)) this.#peers.set(row.localPort, { at: now, pid: row.pid })
         }
-        const listening = await this.#run(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])
-        if (listening) {
-          this.#listeners.clear()
-          let pid = 0
-          for (const line of listening.split('\n')) {
-            if (line.startsWith('p')) pid = Number(line.slice(1))
-            else if (line.startsWith('n') && pid) {
-              const port = Number(line.slice(line.lastIndexOf(':') + 1))
-              if (port && !this.#listeners.has(port)) this.#listeners.set(port, pid)
-            }
-          }
-        }
+        const listening = this.#deps.listeners
+          ? await this.#deps.listeners()
+          : parseListeners((await this.#run(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pn'])) ?? '')
+        if (listening.size) this.#listeners = new Map(listening)
       }
       if (this.#peers.size > PEERS_MAX) for (const [port, one] of this.#peers) if (now - one.at > PEERS_MS) this.#peers.delete(port)
     })().finally(() => {
@@ -384,7 +380,7 @@ export class PeerLookup {
     if (!this.known(port)) await this.#look()
     const pid = this.#peers.get(port)?.pid ?? null
     if (pid === null) {
-      this.#peers.set(port, { at: this.#now(), pid: null })
+      if (!this.known(port)) this.#peers.set(port, { at: this.#now(), pid: null })
       return null
     }
     /* A listing from before the connection was seen may name the pid as what it was before an `exec` (a shell that became curl). */
