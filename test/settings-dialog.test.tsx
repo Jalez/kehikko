@@ -12,7 +12,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 22
+const TESTS = 24
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -221,36 +221,74 @@ test('Skills: a kehikko-bound skill is said where it works, not as a chip to ins
   expect(document.querySelector('[data-status="skills"]')!.textContent).toBe('2 installed, 1 changed by you, 1 only on a kehikko')
 })
 
-test('Module tools: “Keep this project’s modules running”, on by default, with its memory price, sent as it is pressed', async () => {
+test('Project: “Keep this project’s modules running” is the project’s own, on by default, with its memory price, sent with the project', async () => {
   if (!inChild) return
   const saved: unknown[] = []
-  await render(
-    <Settings.SettingsDialog
-      open
-      onOpenChange={() => {}}
-      load={async () => answer({ modules: { keep: true } })}
-      save={(async (change: { modules?: { keep: boolean } }) => {
-        saved.push(change)
-        return answer({ modules: { keep: change.modules?.keep ?? true } })
-      }) as typeof Settings.postSettings}
-      section="tools"
-    />,
-  )
+  const props = {
+    answer: answer({ modules: { default: true, projects: {} } }),
+    busy: false,
+    section: 'project' as const,
+    onSection: () => {},
+    onChange: (change: unknown) => saved.push(change),
+    project: { id: 4, name: 'kollekti', git: true, home: false, missing: false },
+    baseBranch: { load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never },
+  }
+  await render(<Settings.SettingsBody {...props} />)
   const keep = switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!
   expect(keep).toBeTruthy()
   expect(on(keep)).toBe(true)
   const about = document.getElementById(keep.getAttribute('aria-describedby')!)!
   expect(about.textContent).toContain('MB of memory')
   expect(about.textContent).toContain('only the open kehikko’s modules run')
+  expect(about.textContent).toContain('Applies only to the project kollekti.')
+  expect(panelOf(keep)).toBe(panelFor('project'))
   await act(async () => keep.click())
-  expect(saved).toEqual([{ modules: { keep: false } }])
-  expect(on(switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!)).toBe(false)
+  expect(saved).toEqual([{ modules: { project: 4, keep: false } }])
 })
 
-test('Module tools: no keep-running switch from a host that does not say it', async () => {
+test('Project: another project’s value does not show here, and nothing is under This computer', async () => {
   if (!inChild) return
-  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} section="tools" />)
+  await render(
+    <Settings.SettingsBody
+      answer={answer({ modules: { default: true, projects: { '9': false } } })}
+      busy={false}
+      section="modules"
+      onSection={() => {}}
+      onChange={() => {}}
+      project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }}
+      baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }}
+    />,
+  )
+  expect(on(switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!)).toBe(true)
+  expect(panelOf(document.querySelector('[data-keep-running-setting]'))).not.toBe(panelFor('modules'))
+})
+
+test('Project: no keep-running switch from a host that does not say it', async () => {
+  if (!inChild) return
+  await render(
+    <Settings.SettingsBody answer={answer()} busy={false} section="project" onSection={() => {}} onChange={() => {}} project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }} baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }} />,
+  )
   expect(switches().some((one) => named(one) === Settings.KEEP_RUNNING.label)).toBe(false)
+})
+
+test('Trackers: the news switch says it is saved on this computer, for this project only', async () => {
+  if (!inChild) return
+  await render(
+    <Settings.SettingsBody
+      answer={answer(SCOPED)}
+      busy={false}
+      section="trackers"
+      onSection={() => {}}
+      onChange={() => {}}
+      project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }}
+      baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }}
+      trackers={{ tracker: { project: 4, at: null, running: false, sources: [], listing: null } as never, onRefresh() {}, news: { on: true, onChange() {} } }}
+    />,
+  )
+  const text = document.querySelector('[data-tracker-news]')!.textContent!
+  expect(text).toContain('Saved on this computer, for this project only.')
+  expect(text).not.toContain('kept on this computer')
+  expect(document.querySelector('[data-trackers-for]')!.textContent).toContain('saved on this computer, for this project only')
 })
 
 test('the module list is searched by name or id', async () => {
@@ -566,7 +604,7 @@ test('pressing "Change limit" opens Settings at the share control, focused and l
 
 /* ---- Settings by scope ---- */
 
-const SCOPED = { notices: DEFAULT_NOTICES, github: { share: 50 }, updates: { auto: true }, modules: { keep: false } }
+const SCOPED = { notices: DEFAULT_NOTICES, github: { share: 50 }, updates: { auto: true }, modules: { default: true, projects: { '4': false } } }
 const MODULE_REFS = [
   { id: 'kehikot.agent', name: 'Agent', settings: true },
   { id: 'kehikot.notes', name: 'Notes' },
@@ -606,13 +644,14 @@ test('each setting appears under the scope it is stored at, and each scope says 
 
   /* Machine-wide (frame.sqlite): under This computer. */
   expect(panelOf(document.querySelector('[data-auto-updates-setting]'))).toBe(panelFor('modules'))
-  expect(panelOf(document.querySelector('[data-keep-running-setting]'))).toBe(panelFor('modules'))
   expect(panelOf(document.querySelector('[data-settings-target="github-share"]'))).toBe(panelFor('notices'))
   expect(panelOf(document.querySelector('[data-notices-scope]'))).toBe(panelFor('notices'))
   /* The project's own (its .kehikot/, or keyed by its id): under the project. */
   expect(panelOf(document.querySelector('[data-trackers-project]'))).toBe(panelFor('trackers'))
   expect(panelOf(document.querySelector('[data-tracker-news]'))).toBe(panelFor('trackers'))
   expect(panelOf(document.querySelector('[data-base-branch]'))).toBe(panelFor('project'))
+  expect(panelOf(document.querySelector('[data-keep-running-setting]'))).toBe(panelFor('project'))
+  expect(document.querySelector('[data-keep-running-setting]')!.textContent).toContain('Applies only to the project kollekti.')
   /* No module's form anywhere among them. */
   expect(document.querySelector('[data-module-settings]')).toBeNull()
   expect(document.querySelector('[data-scope-lead]')!.textContent).toBe('This computer · These apply to every project on this computer.')

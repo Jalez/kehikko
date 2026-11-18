@@ -42,6 +42,8 @@ export const TRACKER_NEWS_WORDS = {
   lead: 'Tell the agent sessions in a space when somebody else reviews, comments, pushes, merges or closes one of its issues or changes, or its CI fails or recovers. Your own actions are never told.',
   on: 'Agents working in a space hear of new activity on its items, in this project.',
   off: 'Off: agents are told nothing from the trackers in this project.',
+  /** Where the switch is kept: this computer's, and only for the project it is shown under. */
+  kept: 'Saved on this computer, for this project only.',
 } as const
 
 export const NEWS_KINDS = [

@@ -260,8 +260,9 @@ export interface Wanted {
  * module on any kehikko of a project one of those is in — numbered in the
  * order of the project's kehikot (as `listCanvases` gives them) and then each
  * one's containers, so the next kehikko in the list comes first. A module on
- * both is needed, not warm. With `keep` off (the person turned "Keep this
- * project's modules running" off) nothing is warm. A kehikko in no project
+ * both is needed, not warm. With `keep` off for a project (the person turned "Keep this
+ * project's modules running" off for it) nothing of it is warm; a module on
+ * kehikot of two projects is warm while either keeps it. A kehikko in no project
  * makes only itself needed: a project of null is not a project.
  *
  * A container's scope adds to needed (`scopeOf` is the scope in use for one
@@ -272,7 +273,7 @@ export interface Wanted {
 export function wanted(
   canvases: readonly { id: number; project: number | null; placements: readonly { i: string; scope?: string | null }[] }[],
   open: ReadonlySet<number>,
-  keep: boolean,
+  keep: boolean | ((project: number) => boolean),
   scopeOf: (placement: { i: string; scope?: string | null }) => ModuleScope | null = () => null,
 ): Wanted {
   const needed = new Set<string>()
@@ -292,9 +293,10 @@ export function wanted(
     }
   }
   const warm = new Map<string, number>()
-  if (!keep || projects.size === 0) return { needed, warm }
+  const keeps = typeof keep === 'function' ? keep : () => keep
+  if (projects.size === 0) return { needed, warm }
   for (const canvas of canvases) {
-    if (open.has(canvas.id) || canvas.project === null || !projects.has(canvas.project)) continue
+    if (open.has(canvas.id) || canvas.project === null || !projects.has(canvas.project) || !keeps(canvas.project)) continue
     for (const placement of canvas.placements) {
       if (!needed.has(placement.i) && !warm.has(placement.i)) warm.set(placement.i, warm.size)
     }

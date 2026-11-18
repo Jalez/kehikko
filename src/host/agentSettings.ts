@@ -505,8 +505,8 @@ export interface SettingsAnswer {
   setup?: SetupHolder | null
   /** Tracker notices in the Inbox (`trackerNotices.ts`). Absent from an older host. */
   notices?: NoticeSettings
-  /** "Keep this project's modules running" (`server/keepRunning.ts`). Absent from an older host. */
-  modules?: { keep: boolean }
+  /** "Keep this project's modules running", per project id: a project not listed has `default` (`server/keepRunning.ts`). Absent from an older host. */
+  modules?: { default: boolean; projects: Record<string, boolean> }
   /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
   updates?: { auto: boolean }
   /** Kehikot's share of the GitHub limit, a whole percent (`server/githubShare.ts`). Absent from an older host. */
