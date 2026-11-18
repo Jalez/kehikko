@@ -8,6 +8,11 @@
  *      the module, sees it never answers, puts v1.0.0 back at the same folder, starts it, and says so
  *      in the Inbox.
  *
+ *   4. (idle) the module is stopped, v1.2.0 (also broken) is put in place by the check while nothing runs,
+ *      and the first start after it does not answer: `bringUp`'s rollback puts v1.0.0 back and says so;
+ *   5. (pinned) v1.3.0 becomes current; a container on a kehikko is pinned to v1.0.0, which runs from its
+ *      release bundle on a port of its own, beside 1.3.0, both answering at once.
+ *
  * Nothing leaves this machine: every `KEHIKOT_*` location and `HOME` is a scratch directory, every
  * `https://` request goes to the fake GitHub below (`dev/fixtures/https-shim.ts`), `git` is pointed at
  * a local repository for the module's tags, and the module list is a scratch file.
@@ -16,10 +21,10 @@
  *     CHECK=1 node dev/rollback.drive.mjs   # what `bun test` runs: fails when it did not roll back
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, readBundleInfo, sha256, unpackBundle, writeTarGz } from 'kehikot-module-protocol/bundle'
@@ -176,6 +181,73 @@ export async function rollbackDrive({ check = false } = {}) {
     expect(/put back on 1\.0\.0/.test(inbox), 'the Inbox says the new version did not start and the one before is back')
     console.log(inbox.slice(0, 600))
     if (failures.length) console.log(readFileSync(join(scratch.root, 'api.log'), 'utf8').split('\n').slice(-30).join('\n'))
+
+    /* ---- A module that is idle when it is updated, and fails at its first start ---------------------
+     * Stopped, then 1.2.0 (whose server throws) is published and found: it is put in place while the
+     * module is stopped, and nothing has started it. The press on Start is its first start: it does not
+     * answer, so the host puts 1.0.0 back, starts it, and says so in the Inbox (`bringUp`'s rollback). */
+    releases['v1.2.0'] = bundleOf('1.2.0', broken)
+    git('tag', '-a', 'v1.2.0', '-m', 'v1.2.0')
+    git('push', '-q', origin, '--tags')
+    const stopped = await post('/host/stop-module', { module: ID })
+    expect(stopped.ok, `the module is stopped (${stopped.status})`)
+    expect(Boolean(await until('it no longer answers', async () => (await manifestNow()) === null, 30_000).catch(() => false)), 'nothing answers while it is stopped')
+    const askedBefore = asked.length
+    await (await fetch(`${api}/host/updates?fetch=1`, { headers })).json()
+    const placed = await until('1.2.0 is put in place while stopped', async () => readBundleInfo(installed)?.version === '1.2.0', 60_000).catch(() => false)
+    expect(Boolean(placed), 'the check puts 1.2.0 in place while the module is stopped')
+    expect(asked.slice(askedBefore).some((url) => url.includes('/releases/download/v1.2.0/')), 'the 1.2.0 bundle was downloaded')
+    expect(await manifestNow() === null, 'and nothing has started it: it still does not answer')
+    const firstStart = await post('/host/start', { module: ID })
+    expect(Boolean(firstStart), `the first start is pressed (${firstStart.status})`)
+    const idleRolled = await until('the first start rolls back', async () => /did not answer at its first start; rolled back/.test(apiLog()), 90_000).catch(() => false)
+    expect(Boolean(idleRolled), 'the host says the first start did not answer and rolled back')
+    expect(readBundleInfo(installed)?.version === '1.0.0', 'the installed copy is the 1.0.0 bundle again')
+    expect(Boolean(await until('1.0.0 answers after the first start', async () => (await manifestNow())?.version === '1.0.0', 60_000).catch(() => false)), 'the module answers, as 1.0.0')
+    await until('the Inbox says the first start did not start', async () => /1\.2\.0 did not start, so it was put back on 1\.0\.0/.test(await inboxNow()), 30_000).catch(() => false)
+    expect(/1\.2\.0 did not start, so it was put back on 1\.0\.0/.test(await inboxNow()), 'the Inbox says 1.2.0 did not start and 1.0.0 is back')
+    if (!failures.length) console.log('the idle rollback held: an update that landed while it was stopped was put back at its first start')
+
+    /* ---- A container pinned to an older bundled version runs beside the current one ---------------------
+     * 1.3.0 is published and becomes the current version (the registered module, on its own port); a
+     * container on a kehikko is pinned to v1.0.0, which the host takes from the release's bundle (the
+     * installed copy has no git history to check out) and runs on a port of its own, beside it. */
+    releases['v1.3.0'] = bundleOf('1.3.0', working('1.3.0'))
+    git('tag', '-a', 'v1.3.0', '-m', 'v1.3.0')
+    git('push', '-q', origin, '--tags')
+    await (await fetch(`${api}/host/updates?fetch=1`, { headers })).json()
+    expect(Boolean(await until('1.3.0 is the current version', async () => (await manifestNow())?.version === '1.3.0', 90_000).catch(() => false)), 'the update to 1.3.0 is the current version, on the module’s own port')
+    const canvasesNow = (await (await fetch(`${api}/host/canvases`, { headers })).json()).canvases
+    const kehikko = canvasesNow[0]
+    const placed2 = await fetch(`${api}/host/canvases/${kehikko.id}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({ placements: [...kehikko.placements, { i: ID, x: 0, y: 56, w: 12, h: 20 }] }),
+    })
+    expect(placed2.ok, `a container of the module is on the kehikko (${placed2.status})`)
+    const pinned = await post('/host/versions', { module: ID, kehikko: kehikko.id, version: 'v1.0.0' })
+    const pinnedBody = await pinned.json()
+    expect(pinned.ok, `the container is pinned to v1.0.0 (${pinned.status} ${JSON.stringify(pinnedBody).slice(0, 200)})`)
+    const listing = async () => (await (await fetch(`${api}/host/versions?module=${ID}&kehikko=${kehikko.id}`, { headers })).json())
+    const running = await until('the pinned version runs', async () => (await listing()).versions?.find((one) => one.tag === 'v1.0.0' && one.running), 90_000).catch(() => null)
+    expect(Boolean(running), 'v1.0.0 is running for the pinned container')
+    const modulesNow = async () => (await (await fetch(`${api}/host/modules`, { headers })).json())
+    const view = await until('the pinned version is read, ready', async () => (await modulesNow()).pins?.find((one) => one.module === ID && one.version === 'v1.0.0' && one.state === 'ready'), 60_000).catch(() => null)
+    expect(Boolean(view), 'the pinned version answers, and the host has read it')
+    const pinnedAt = view?.presence?.at ?? ''
+    expect(view?.presence?.module?.version === '1.0.0', `the pinned container's module says it is 1.0.0 (${view?.presence?.module?.version})`)
+    expect(pinnedAt !== '' && pinnedAt !== `http://127.0.0.1:${port}`, `it runs on a port of its own (${pinnedAt}), not the module's (${port})`)
+    /* Beside, at the same moment: the current version still answers on its own port, and the pinned one on its. */
+    const current = await manifestNow()
+    const beside = await fetch(`${pinnedAt}${WELL_KNOWN}`).then((one) => one.json()).catch(() => null)
+    expect(current?.version === '1.3.0' && beside?.version === '1.0.0', `both answer at once: current ${current?.version}, pinned ${beside?.version}`)
+    expect(readBundleInfo(installed)?.version === '1.3.0', 'the installed copy is still the 1.3.0 bundle')
+    /* From the bundle: the version's folder is an unpacked bundle of 1.0.0, not a git checkout. */
+    const unpacked = readdirSync(join(scratch.root, 'versions'), { recursive: true }).map(String).filter((one) => one.endsWith('bundle.json'))
+    const fromBundle = unpacked.some((one) => readBundleInfo(join(scratch.root, 'versions', dirname(one)))?.version === '1.0.0')
+    expect(fromBundle, `the pinned version was unpacked from its release bundle (${unpacked.join(', ')})`)
+    expect(asked.some((url) => url.includes('/releases/download/v1.0.0/') && url.endsWith('.tar.gz')), 'its bundle was fetched from the release')
+    if (!failures.length) console.log('the pinned version ran beside the current one, from its bundle')
     github.close()
   } finally {
     stop()
