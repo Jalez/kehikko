@@ -332,7 +332,7 @@
 
 ## Kehikko development (a module from the person's own folder)
 
-- One machine-level switch, Settings › Modules › "Kehikko development", off by
+- One machine-level switch, Settings › Development › "Kehikko development", off by
   default: off, every OFFICIAL module registered here runs from its release
   (`installed/<id>/`); on, the ones with a development folder run from it, and
   the person can still say "use the release for this one". The rule and the
@@ -466,7 +466,7 @@
 - "Keep modules up to date automatically": machine-wide, `module-updates` in
   `settings` (`server/autoUpdates.ts`), on by default for new and existing
   installs; `{ updates: { auto } }` on `POST /host/settings`, shown in
-  Settings › Modules and at the top of the Updates menu. Off is exactly the
+  Settings › Modules (This computer) and at the top of the Updates menu. Off is exactly the
   behaviour before it. The rule (`decide`) and every word are
   `src/host/autoUpdates.ts`; test the table there.
 - No check of its own: `AutoUpdates.found` is handed what the existing checks
@@ -498,7 +498,8 @@
   at a time in kehikko order (`toWarm`), and are never stopped while warm; the
   ordinary idle rule (`GRACE_MS`, `keep`, only what the host started) applies
   once the project closes. Watch and tether stay on the open kehikko's.
-- Settings › Module tools › "Keep this project's modules running" (default on;
+- Settings › Modules (This computer) › "Keep this project's modules running" (default on; one
+  machine-wide row, applied to whichever project is open;
   `server/keepRunning.ts`, `{ modules: { keep } }` on `POST /host/settings`).
   Off, nothing is warm.
 - The host tells the pages the moment its wait for a module it started ends,
@@ -892,7 +893,10 @@
   a file inside that module's own folder.
 - Reached from the gear in a container's header (220 px and wider, folded or
   not; under 220 it is "Settings…" in the module's "⋯", `settingsPlaceFor`),
-  the Container menu's "Settings…" (every width) and Settings › Modules. Every
+  the Container menu's "Settings…" (every width) — the container's window — and,
+  as the same form, the module's own page of Settings (Settings › Modules ›
+  <name>, `openModuleSettings`), reached from "Settings…" on its row in Kehikko
+  modules and from "Open <name>'s settings" where its choice is shown. Every
   module on a kehikko has the gear and the Container row, settings or not: its window
   always has "Providers & Consumers" (see "Connections between modules").
 - A change is the person's only through a PASS: minted by `Passes.issue` in
@@ -1314,7 +1318,8 @@
 - The bar's Trackers menu (`src/canvas/TrackerReading.tsx`) only says what was
   read: the time, Refresh all, a line per source with Try again / Change limit,
   and "Tracker settings…". Every control — sources, reads, schedule, remotes,
-  the GitHub share, tracker news — is Settings › Trackers
+  tracker news — is Settings › Project › Trackers, and the GitHub share (one
+  per machine) is Settings › This computer › Trackers
   (`src/canvas/TrackerSettings.tsx`); a link to one is `openSettings` with a
   `SETTINGS_TARGETS.tracker*` entry. Do not put a control back in the menu.
 - An issue's linked branches (`branches`, protocol 2.19.0) come with the reads
@@ -1519,12 +1524,32 @@
   running". When it starts somewhere else, Kehikot's own entry is re-pointed.
   Its row says "Connected (not running now)" (`toolSays`).
 
+## Settings: one window, grouped by scope
+
+- Every setting sits under the scope its effect applies to, which is where it is
+  stored (`SECTION_SCOPE`, `SettingsScope` in `src/host/agentSettings.ts`):
+  This computer (machine directory, `frame.sqlite`), Project "<name>" (its
+  `.kehikot/`, or rows keyed by its id), Kehikko "<name>" (rows keyed by its
+  key, its skills folder), and Modules › <name> (the module's own settings
+  door). A scope with nothing in it is not shown; there is no Space scope
+  because nothing is kept per space yet. Each page begins with `scopeLead`.
+  A new setting goes under the scope it is STORED at; if that reads wrong to a
+  person, fix where it is stored, not where it is drawn.
+- The nav is one tab list per scope, labelled by its heading, with manual
+  activation (Tab walks the lists without changing the page; Enter, Space or a
+  press opens one), and focus starts on the page's own tab.
+- No module's form is drawn among the app's pages: a module's settings are its
+  own page (`module:<id>`, only for a module that declared settings) or its
+  container's window.
+
 ## Settings: how it is reached
 
 - The gear in the strip (`SettingsGear`, `src/canvas/Bar.tsx`), `⌘,` / `Ctrl+,`
   (`isSettingsChord`, listened for in `AgentSettingsHost`), "settings…" in the
   projects menu, a module's Tools or Skills window, and the sync's Inbox line.
-  Do not take that chord. All of them go through `openSettings(section?)`; the
+  Do not take that chord. All of them go through `openSettings(section?)`
+  (`openModuleSettings(module)` for a module's page, `openKehikkoSettings` for a
+  kehikko's pages: the gear on a kehikko menu row); the
   window event `kehikot:settings` (`OPEN_EVENT`) is also the desktop shell's way
   in for an app-menu "Settings…".
 
@@ -1774,9 +1799,10 @@
 
 ## Kehikko settings and the primary agent
 
-- One kehikko's own settings window is `src/canvas/KehikkoSettings.tsx` (General: name; Skills; Agents),
-  opened by the gear on each row of the kehikko menu or `openKehikkoSettings(section, target, kehikko)`.
-  There is no rename form or skills item in the menu any more; both live in the window.
+- One kehikko's own settings are the Kehikko "<name>" pages of Settings (`KehikkoPage` in
+  `src/canvas/KehikkoSettings.tsx`: General: name; Skills; Agents), opened by the gear on each row
+  of the kehikko menu or `openKehikkoSettings(section, target, kehikko)`, heard by `AgentSettingsHost`.
+  There is no rename form or skills item in the menu any more; both live in those pages.
 - Agent modules are the ones whose manifest declares `declares.agentSessions` (`runsAgents`); never by id.
 - The primary agent is kept in `frame.sqlite` per project id and kehikko key (`server/kehikkoSettings.ts`),
   written only by `POST /host/kehikko-settings` (`PAGE_ONLY`). No MCP tool reads or changes it.
