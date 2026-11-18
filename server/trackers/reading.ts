@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fetchTrackerImage, type ImageFetch } from './images.ts'
+import { fetchTrackerImage, shownAddress, type CliBytes, type ImageFetch } from './images.ts'
+import { spawnBytes } from '../feedback.ts'
 import {
   LIMITS,
   readTrackerRef,
@@ -9,6 +10,7 @@ import {
   trackerSourceSchema,
   type TrackerColumns,
   type TrackerImage,
+  type TrackerImageRefusal,
   type TrackerDetailFacts,
   type TrackerMissing,
   type TrackerReading,
@@ -513,6 +515,24 @@ interface Held {
   peopleNotes: Map<string, { about: 'me' | 'reviewers'; said: string }>
 }
 
+/**
+ * A GitLab API path read with the person's own `glab`, as bytes: `glab api` answers an upload's file
+ * on stdout, and it signs the request however the person signed in (config, keychain, OAuth with
+ * refresh) and trusts the CA they configured for a company GitLab, which a bare `fetch` with a token
+ * read out of the config would not.
+ */
+export async function glabBytes(host: string, path: string, limit: number): Promise<CliBytes> {
+  const ran = await spawnBytes(['glab', 'api', '--hostname', host, path], limit)
+  if (ran.missing) return { failed: 'glab is not installed' }
+  if (ran.tooBig) return { tooBig: true }
+  if (ran.timedOut) return { failed: 'glab api did not answer in time' }
+  if (ran.code !== 0) {
+    const said = (ran.err || new TextDecoder().decode(ran.bytes.slice(0, 200))).split('\n')[0]!.slice(0, 200)
+    return { failed: said || `glab api exited ${ran.code}`, ...(/\b404\b/.test(ran.err) ? { notFound: true } : {}) }
+  }
+  return { bytes: ran.bytes }
+}
+
 export interface TrackersOptions {
   run: Runner
   /** Told whenever a project's signal changes: a read started, or one landed. */
@@ -527,6 +547,8 @@ export interface TrackersOptions {
   listLimit?: number
   /** How a picture is fetched and whose token signs it; real `fetch` and the person's CLIs unless a test says. */
   images?: Partial<ImageFetch>
+  /** Where a picture that could not be given is said, with why (`host.log` through the console by default). */
+  log?: (line: string) => void
 }
 
 export class Trackers {
@@ -538,6 +560,7 @@ export class Trackers {
   #now: () => Date
   #listLimit: number
   #images: ImageFetch
+  #log: (line: string) => void
   /** Pictures already fetched, by tracker host and address, newest last; bounded by count and bytes. */
   #pictures = new Map<string, { image: TrackerImage; at: number }>()
   /** When each read for an open item started, across every project, for `LOOK_CAP`. */
@@ -558,7 +581,10 @@ export class Trackers {
     this.#images = {
       token: options.images?.token ?? ((tracker, host) => this.#token(tracker, host)),
       fetch: options.images?.fetch ?? ((url, init) => fetch(url, init)),
+      gitlabApi: options.images ? options.images.gitlabApi : glabBytes,
+      githubHtml: options.images ? options.images.githubHtml : (host, repo, number) => this.#githubHtml(host, repo, number),
     }
+    this.#log = options.log ?? ((line) => console.log(line))
   }
 
   /** The person's own token for a host, from their CLI, for one request. Never stored, never sent to a page. */
@@ -570,18 +596,45 @@ export class Trackers {
   }
 
   /**
+   * A GitHub item's description and comments as GitHub renders them (`body_html`), where a private
+   * repository's attachments carry their signed addresses. Read through the person's own `gh`, like
+   * every other GitHub read.
+   */
+  async #githubHtml(host: string, repo: string, number: number): Promise<string[] | null> {
+    const at = host !== 'github.com' ? ['--hostname', host] : []
+    const accept = ['-H', 'Accept: application/vnd.github.html+json']
+    const item = await this.#run(['gh', 'api', `repos/${repo}/issues/${number}`, ...accept, '--jq', '.body_html // ""', ...at])
+    if (item.code !== 0) return null
+    const comments = await this.#run(['gh', 'api', `repos/${repo}/issues/${number}/comments?per_page=100`, ...accept, '--jq', '[.[].body_html // ""]', ...at])
+    let more: string[] = []
+    try {
+      const parsed: unknown = comments.code === 0 ? JSON.parse(comments.out) : []
+      if (Array.isArray(parsed)) more = parsed.filter((x): x is string => typeof x === 'string')
+    } catch {
+      /* the description alone */
+    }
+    return [item.out, ...more]
+  }
+
+  /**
    * `tracker.image`: one picture from the text of a ref this project's reading holds. A ref the
    * reading does not hold is declined as `host`: it names no tracker to fetch from. Answers for ten
    * minutes from a bounded cache; only an image is cached, so a failure is tried again.
    */
   async image(root: string, ref: string, address: string): Promise<TrackerImage> {
     const row = this.rowsHeld(root).find((r) => r.ref === ref)
-    if (!row) return { outcome: 'declined', why: 'host' }
+    const declined = (why: TrackerImageRefusal, said: string): TrackerImage => {
+      this.#log(`tracker image: declined (${why}) for ${ref}: ${said}`)
+      return { outcome: 'declined', why }
+    }
+    if (!row) return declined('host', `${shownAddress(address)}: the reading of this project does not hold ${ref}, so there is no tracker to fetch it from`)
     const key = `${row.tracker}|${row.host}|${address}`
     const hit = this.#pictures.get(key)
     if (hit && this.#now().getTime() - hit.at < 10 * 60_000) return hit.image
-    if (this.#modeOf(root).mode === 'off') return { outcome: 'declined', why: 'unreadable' }
-    const image = await fetchTrackerImage(row, address, this.#images)
+    if (this.#modeOf(root).mode === 'off') return declined('unreadable', `${shownAddress(address)}: tracker reading is off for this project`)
+    const fetched = await fetchTrackerImage(row, address, this.#images)
+    const image = fetched.image
+    if (image.outcome === 'declined') return declined(image.why, fetched.said)
     if (image.outcome === 'image') {
       this.#pictures.delete(key)
       this.#pictures.set(key, { image, at: this.#now().getTime() })
