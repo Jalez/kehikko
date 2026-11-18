@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { LIMITS } from 'kehikot-module-protocol'
 
 import { answer } from '../server/answers.ts'
-import { fetchTrackerImage, imageHostsOf, sniffImage, type ImageFetch } from '../server/trackers/images.ts'
+import { fetchTrackerImage as traced, gitlabUpload, githubAttachment, imageHostsOf, shownAddress, signedAttachment, sniffImage, type CliBytes, type ImageFetch } from '../server/trackers/images.ts'
+import { Trackers } from '../server/trackers/reading.ts'
+import { GITHUB, GITLAB, PNG_START } from './fixtures/tracker-images.ts'
+
+/** The answer alone, as the module gets it. */
+const fetchTrackerImage = async (...a: Parameters<typeof traced>) => (await traced(...a)).image
 import { gitlabApprovals } from '../server/trackers/itemDetail.ts'
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -21,15 +26,15 @@ function io(respond: (url: string) => Response, token: string | null = 'sekret')
   }
 }
 const ok = (body: Uint8Array<ArrayBuffer>, type = 'image/png') => new Response(body, { headers: { 'content-type': type } })
-const gitlab = { tracker: 'gitlab', host: 'gitlab.example.org' } as const
-const github = { tracker: 'github', host: 'github.com' } as const
+const gitlab = { tracker: 'gitlab', host: 'gitlab.example.org', repo: 'o/r', number: 4 } as const
+const github = { tracker: 'github', host: 'github.com', repo: 'o/r', number: 1 } as const
 
 describe('tracker.image', () => {
   test('fetches a picture on the item\'s own host with the person\'s token, and answers its bytes', async () => {
     const f = io(() => ok(PNG))
     const got = await fetchTrackerImage(gitlab, 'https://gitlab.example.org/o/r/uploads/abc/shot.png', f)
     expect(got).toEqual({ outcome: 'image', mime: 'image/png', base64: Buffer.from(PNG).toString('base64') })
-    expect(f.seen[0]!.headers['private-token']).toBe('sekret')
+    expect(f.seen[0]!.headers.authorization).toBe('Bearer sekret')
   })
 
   test('declines an address on any other host without a request, and never an http one', async () => {
@@ -112,5 +117,170 @@ describe('approvals', () => {
     expect(gitlabApprovals({ approvals_required: 2, approvals_left: 1 })).toEqual({ approvals: { given: 1, required: 2 } })
     expect(gitlabApprovals({ approvals_required: 0, approvals_left: 0 })).toEqual({})
     expect(gitlabApprovals({})).toEqual({})
+  })
+})
+
+/* What the live trackers answer (`fixtures/tracker-images.ts`), one cause each of pictures not showing. */
+describe('real tracker shapes', () => {
+  const realPng = () => {
+    const out = new Uint8Array(new ArrayBuffer(64))
+    out.set(PNG_START)
+    return out
+  }
+  const glRow = { tracker: 'gitlab', host: GITLAB.host, repo: GITLAB.repo, number: 4387 } as const
+  const ghRow = { tracker: 'github', host: GITHUB.host, repo: GITHUB.repo, number: GITHUB.number } as const
+
+  test('a GitHub attachment redirects to GitHub\'s own bucket, which is an upload host and gets no token', async () => {
+    for (const address of [GITHUB.attachment, GITHUB.repoAsset]) {
+      const f = io((url) =>
+        url.startsWith('https://github.com/') ? new Response(null, { status: 302, headers: { location: GITHUB.attachmentAnswer.location } }) : ok(realPng(), 'image/png'),
+      )
+      const got = await traced(ghRow, address, f)
+      expect(got.image.outcome).toBe('image')
+      expect(f.seen.map((s) => new URL(s.url).hostname)).toEqual(['github.com', 'github-production-user-asset-6210df.s3.amazonaws.com'])
+      expect(f.seen[1]!.headers.authorization).toBeUndefined()
+    }
+    expect(imageHostsOf(ghRow)).not.toContain('s3.amazonaws.com')
+  })
+
+  test('a private repository\'s attachment is read from the signed address in the item\'s rendered text', async () => {
+    const f = io((url) => (url.startsWith('https://github.com/') ? new Response('Not Found', { status: 404 }) : ok(realPng())))
+    const asked: unknown[] = []
+    f.githubHtml = async (host, repo, number) => {
+      asked.push([host, repo, number])
+      return ['<p>no picture here</p>', GITHUB.bodyHtml]
+    }
+    const got = await traced(ghRow, GITHUB.attachment, f)
+    expect(got.image.outcome).toBe('image')
+    expect(asked).toEqual([['github.com', 'oven-sh/bun', 48938]])
+    const signed = f.seen[1]!
+    expect(signed.url).toContain('private-user-images.githubusercontent.com/61796351/706362396-82a87b90')
+    expect(signed.url).toContain('jwt=eyJ0eXAi.x.y&v=1')
+    expect(signed.headers.authorization).toBeUndefined()
+    expect(githubAttachment(ghRow, new URL('https://github.com/o/r/issues/1'))).toBeNull()
+    expect(signedAttachment([GITHUB.bodyHtml], '00000000-0000-0000-0000-000000000000')).toBeNull()
+  })
+
+  test('a GitHub attachment that is too big is not looked for again', async () => {
+    const big = new Uint8Array(new ArrayBuffer(LIMITS.TRACKER_IMAGE_BYTES + 1))
+    const f = io(() => ok(big))
+    let asked = 0
+    f.githubHtml = async () => {
+      asked++
+      return []
+    }
+    expect((await traced(ghRow, GITHUB.attachment, f)).image).toEqual({ outcome: 'declined', why: 'size' })
+    expect(asked).toBe(0)
+  })
+
+  test('a GitLab upload in every written form is read through the API, never the web route', async () => {
+    const cases: Array<[string, string]> = [
+      [GITLAB.atRoot, GITLAB.api],
+      [GITLAB.inProject, GITLAB.api],
+      [GITLAB.byId, GITLAB.apiById],
+      ['https://gitlab.com/-/group/9970/uploads/0123456789abcdef0123456789abcdef/a.png', 'groups/9970/uploads/0123456789abcdef0123456789abcdef/a.png'],
+      ['https://gitlab.com/a/b/c/uploads/0123456789abcdef0123456789abcdef/x%20y.png', 'projects/a%2Fb%2Fc/uploads/0123456789abcdef0123456789abcdef/x%20y.png'],
+    ]
+    for (const [address, api] of cases) {
+      const f = io(() => {
+        throw new Error('the web route was asked')
+      })
+      const paths: string[] = []
+      f.gitlabApi = async (host, path) => {
+        paths.push(`${host} ${path}`)
+        return { bytes: realPng() }
+      }
+      const got = await traced(glRow, address, f)
+      expect(got.image.outcome).toBe('image')
+      expect(paths).toEqual([`gitlab.com ${api}`])
+      expect(f.seen).toEqual([])
+    }
+    expect(gitlabUpload(glRow, new URL('https://gitlab.com/gitlab-org/cli/-/raw/main/a.png'))).toBeNull()
+    expect(gitlabUpload(glRow, new URL('https://elsewhere.example/uploads/0123456789abcdef0123456789abcdef/a.png'))).toBeNull()
+  })
+
+  test('an older GitLab without the uploads route gets the web address, a public project\'s answer', async () => {
+    const f = io(() => ok(realPng(), 'image/png'))
+    f.gitlabApi = async (): Promise<CliBytes> => ({ failed: GITLAB.glabNotFound.err, notFound: true })
+    const got = await traced(glRow, GITLAB.atRoot, f)
+    expect(got.image.outcome).toBe('image')
+    expect(f.seen.map((s) => s.url)).toEqual([GITLAB.inProject])
+  })
+
+  test('the API refusing, or too much, is said with why', async () => {
+    const f = io(() => ok(realPng()))
+    f.gitlabApi = async (): Promise<CliBytes> => ({ failed: 'glab: 401 Unauthorized (HTTP 401)' })
+    const refused = await traced(glRow, GITLAB.byId, f)
+    expect(refused.image).toEqual({ outcome: 'declined', why: 'unreadable' })
+    expect(refused.said).toContain('401 Unauthorized')
+    f.gitlabApi = async (): Promise<CliBytes> => ({ tooBig: true })
+    expect((await traced(glRow, GITLAB.byId, f)).image).toEqual({ outcome: 'declined', why: 'size' })
+    expect(f.seen).toEqual([])
+  })
+
+  test('the sign-in page a web route answers is declined as not a picture, and said so', async () => {
+    const f = io((url) =>
+      url === GITLAB.atRoot
+        ? new Response(null, { status: 302, headers: { location: GITLAB.atRootAnswer.location } })
+        : new Response('<html><body>You are being redirected', { headers: { 'content-type': 'text/html' } }),
+    )
+    const got = await traced({ ...glRow }, 'https://gitlab.com/-/raw/a.png', f)
+    expect(got.image.outcome).toBe('declined')
+    const page = await traced({ ...glRow }, GITLAB.atRoot, { ...f, gitlabApi: undefined })
+    expect(page.image).toEqual({ outcome: 'declined', why: 'type' })
+    expect(page.said).toContain('<html>')
+  })
+
+  test('the reasons say no query: a signature never reaches the log', () => {
+    expect(shownAddress(GITHUB.attachmentAnswer.location)).toBe('https://github-production-user-asset-6210df.s3.amazonaws.com/61796351/706362396-82a87b90-18b3-493d-be0e-b84b3eb83d55.png')
+  })
+
+  test('real image starts: a PNG, an Exif JPEG, an AVIF sequence', () => {
+    expect(sniffImage(PNG_START)).toBe('image/png')
+    expect(sniffImage(Uint8Array.from([0xff, 0xd8, 0xff, 0xe1, 0, 0, 0x45, 0x78, 0x69, 0x66]))).toBe('image/jpeg')
+    expect(sniffImage(new TextEncoder().encode('\0\0\0\x20ftypavis'))).toBe('image/avif')
+  })
+})
+
+describe('the log', () => {
+  test('every decline is said in host.log with its reason, and nothing with a query', async () => {
+    const lines: string[] = []
+    const row = { ref: '!4387', tracker: 'gitlab', host: GITLAB.host, repo: GITLAB.repo, number: 4387 }
+    class Held extends Trackers {
+      override rowsHeld() {
+        return [row] as never
+      }
+    }
+    const trackers = new Held({
+      run: async () => ({ code: 1, out: '', err: '' }),
+      log: (line) => lines.push(line),
+      images: {
+        token: async () => null,
+        fetch: async () => new Response('no', { status: 403 }),
+        gitlabApi: async () => ({ failed: 'glab: 403 Forbidden (HTTP 403)' }),
+      },
+    })
+    expect(await trackers.image('/nowhere', '!4387', `${GITLAB.byId}?sig=secret`)).toEqual({ outcome: 'declined', why: 'unreadable' })
+    expect(await trackers.image('/nowhere', '!4387', 'https://evil.example.com/p.png?who=me')).toEqual({ outcome: 'declined', why: 'host' })
+    expect(await new Trackers({ run: async () => ({ code: 1, out: '', err: '' }), log: (l) => lines.push(l) }).image('/nowhere', 'gh#1', 'https://github.com/a.png')).toEqual({ outcome: 'declined', why: 'host' })
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toContain('declined (unreadable) for !4387')
+    expect(lines[0]).toContain('403 Forbidden')
+    expect(lines[1]).toContain('evil.example.com/p.png is not on gitlab.com')
+    expect(lines[2]).toContain('does not hold gh#1')
+    expect(lines.join('\n')).not.toContain('secret')
+    expect(lines.join('\n')).not.toContain('who=me')
+  })
+})
+
+describe('bytes from a CLI', () => {
+  test('stdout is kept as bytes, and stopped past the limit', async () => {
+    const { spawnBytes } = await import('../server/feedback.ts')
+    const ran = await spawnBytes(['/bin/sh', '-c', 'printf "\\211PNG\\r\\n\\032\\n"'], 100)
+    expect(ran.code).toBe(0)
+    expect(sniffImage(ran.bytes)).toBe('image/png')
+    const big = await spawnBytes(['/bin/sh', '-c', 'head -c 5000 /dev/zero'], 100)
+    expect(big.tooBig).toBe(true)
+    expect(big.bytes.byteLength).toBe(0)
   })
 })

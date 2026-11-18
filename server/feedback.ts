@@ -88,6 +88,63 @@ export const spawnRunner: Runner = async (argv, { stdin, timeout = TIMEOUT_MS } 
   return { code, out: out.trim(), err: err.trim(), timedOut }
 }
 
+/** What `spawnBytes` read: stdout as bytes, or that there was more than it would take. */
+export interface RanBytes {
+  code: number | null
+  bytes: Uint8Array
+  err: string
+  missing?: boolean
+  timedOut?: boolean
+  /** stdout went past the limit; the program was stopped and `bytes` is empty. */
+  tooBig?: boolean
+}
+
+/**
+ * Runs one program by argv and keeps its stdout as BYTES, at most `limit` of them: for a CLI that
+ * answers a file (`glab api` on an upload). Same environment and no-shell rule as `spawnRunner`.
+ */
+export async function spawnBytes(argv: string[], limit: number, timeout = TIMEOUT_MS): Promise<RanBytes> {
+  let child
+  try {
+    child = Bun.spawn(argv, { env: GH_ENV, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' })
+  } catch {
+    return { code: null, bytes: new Uint8Array(), err: '', missing: true }
+  }
+  let timedOut = false
+  let tooBig = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    child.kill()
+  }, timeout)
+  const read = async (): Promise<Uint8Array> => {
+    const chunks: Uint8Array[] = []
+    let total = 0
+    const reader = (child.stdout as ReadableStream<Uint8Array>).getReader()
+    for (;;) {
+      const { done, value: chunk } = await reader.read()
+      if (done) break
+      total += chunk.byteLength
+      if (total > limit) {
+        tooBig = true
+        child.kill()
+        await reader.cancel().catch(() => {})
+        return new Uint8Array()
+      }
+      chunks.push(chunk)
+    }
+    const out = new Uint8Array(total)
+    let at = 0
+    for (const c of chunks) {
+      out.set(c, at)
+      at += c.byteLength
+    }
+    return out
+  }
+  const [bytes, err, code] = await Promise.all([read(), new Response(child.stderr).text(), child.exited])
+  clearTimeout(timer)
+  return { code, bytes, err: err.trim(), timedOut, tooBig }
+}
+
 /** `owner/repo` from a GitHub remote URL, or null for anything else. */
 export function githubRepo(remote: string): string | null {
   const url = remote.trim()
