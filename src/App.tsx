@@ -45,6 +45,7 @@ import { Absent } from './canvas/Arriving.tsx'
 import { rememberedModules, rememberModules } from './host/arriving.ts'
 import { tellStartup } from './host/startupReport.ts'
 import { decide } from './host/pageLog.ts'
+import { framesWaiting, frameUseIn, onAddressesChange, SETTLE_MS, settledLine, settleFrames } from './host/addressCheck.ts'
 import { MissingProject } from './canvas/MissingProject.tsx'
 import { Locate } from './canvas/Locate.tsx'
 import { Followed } from './canvas/Followed.tsx'
@@ -1296,6 +1297,32 @@ export function App() {
   }), [take])
 
   lookRef.current = look
+
+  /* The stable-address check passed on a later try (`host/addressCheck.ts`): frames move onto their
+     addresses, each when it is not in use — a frame on a new origin is loaded again. Settled now and
+     every `SETTLE_MS` while some wait; what moves takes effect at the reading this asks for. */
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const settle = () => {
+      timer = null
+      const view = heldReading.current
+      if (view) {
+        const result = settleFrames(
+          view.presences.flatMap((presence) => (presence.module ? [presence.module] : [])),
+          frameUseIn(document),
+        )
+        const line = settledLine(result)
+        if (line) decide('addresses', line)
+        if (result.moved.length) void look()
+      }
+      if (framesWaiting()) timer = setTimeout(settle, SETTLE_MS)
+    }
+    const stop = onAddressesChange(settle)
+    return () => {
+      stop()
+      if (timer) clearTimeout(timer)
+    }
+  }, [look])
 
   /* The first look, joined rather than queued: StrictMode runs this twice in development, and
      one answer serves both. The look after the report is `arrive`'s. */

@@ -244,7 +244,7 @@ describe('the decision lines for the stable-address check', () => {
   test('usable: the result, how long it took and its timeout', async () => {
     const said: Array<[string, string]> = []
     await checkAddresses(fake(() => Response.json({ host: 'nonce' })), (area, message) => said.push([area, message]), clock())
-    expect(said).toEqual([['addresses', 'stable addresses usable: the check address answered as this host after 37 ms (timeout 2500 ms); frames go on /m/<id>/ addresses']])
+    expect(said).toEqual([['addresses', "stable addresses usable: the check address answered as this host after 111 ms (timeout 2500 ms); the host's own address answered in 37 ms; frames go on their stable addresses (<label>.kehikot.localhost)"]])
     expect(whyFramed({ address: 'http://example.kehikot.localhost:4170' })).toBe('its stable address: the check passed')
     expect(whyFramed({})).toBe('its own port: the host gave this module no stable address')
   })
@@ -254,7 +254,8 @@ describe('the decision lines for the stable-address check', () => {
     await checkAddresses(fake(() => Promise.reject(new TypeError('Could not connect'))), (area, message) => said.push([area, message]), clock())
     expect(said).toHaveLength(1)
     expect(said[0]![0]).toBe('addresses')
-    expect(said[0]![1]).toStartWith('stable addresses not used after 37 ms (timeout 2500 ms); frames stay on their modules\' own ports: ')
+    expect(said[0]![1]).toStartWith("stable addresses not used after 111 ms (timeout 2500 ms); the host's own address answered in 37 ms; frames stay on their modules' own ports: ")
+    expect(said[0]![1]).toEndWith('; tries again in 2 s')
     expect(said[0]![1]).toContain('could not be reached')
     expect(whyFramed({ address: 'http://example.kehikot.localhost:4170' })).toContain('could not be reached')
   })

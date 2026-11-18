@@ -73,8 +73,9 @@ export const moduleAddresses = {
     const before = lastCheck
     lastCheck = { ok, why: why ? why.slice(0, 500) : null }
     if (!ok && (before?.ok !== false || before.why !== lastCheck.why)) {
-      console.log(`kehikko: module addresses: the page could not reach this host at a frame's address, so frames keep their modules' own origins: ${lastCheck.why ?? 'no reason given'}`)
+      console.log(`kehikko: module addresses: the page could not reach this host at a frame's address, so frames keep their modules' own origins for now (it tries again): ${lastCheck.why ?? 'no reason given'}`)
     }
+    if (ok && before?.ok === false) console.log("kehikko: module addresses: the page reached this host at a frame's address on a later try; frames move onto their stable addresses")
   },
   /** For tests. */
   reset(): void {
