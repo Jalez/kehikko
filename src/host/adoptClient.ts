@@ -66,9 +66,23 @@ export async function fetchAfters(project: number): Promise<Map<string, { said: 
  */
 const adoptions = new Map<string, Promise<InboxAdoptionResult>>()
 
-/** News that may change what an item offers: the record, the modules, an adoption or an untrack. */
-export function forgetAdoptions(): void {
+/** Who hears that what an item offers may have changed: the page, which tells the Inbox modules on the kehikko. */
+const forgotten = new Set<() => void>()
+
+/** Hear each `forgetAdoptions` that tells; returns the way to stop. */
+export function onAdoptionsForgotten(listener: () => void): () => void {
+  forgotten.add(listener)
+  return () => void forgotten.delete(listener)
+}
+
+/**
+ * News that may change what an item offers: the record, the modules, an adoption or an untrack, the
+ * kehikko's primary agent. Listeners are told, so an Inbox module asks again when it may differ and
+ * never on a clock; `tell: false` where the news already reaches them (a change of the record).
+ */
+export function forgetAdoptions({ tell = true }: { tell?: boolean } = {}): void {
   adoptions.clear()
+  if (tell) for (const listener of forgotten) listener()
 }
 
 /**

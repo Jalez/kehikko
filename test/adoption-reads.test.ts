@@ -66,3 +66,13 @@ test('a failed ask is not kept: the next one asks again', async () => {
   expect((await client.fetchAdoption(7, KEY, 'k1')).outcome).toBe('ok')
   expect(asked).toHaveLength(2)
 })
+
+test('news that changes an offer tells whoever listens, so an Inbox module asks again then and never on a clock; a change of the record does not tell twice', () => {
+  let told = 0
+  const stop = client.onAdoptionsForgotten(() => void (told += 1))
+  client.forgetAdoptions()
+  client.forgetAdoptions({ tell: false })
+  stop()
+  client.forgetAdoptions()
+  expect(told).toBe(1)
+})
