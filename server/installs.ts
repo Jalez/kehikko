@@ -6,6 +6,7 @@ import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { HOST_REPO, meetsProtocol, officialOf, type Official } from './official.ts'
 import type { Standing } from './officialSource.ts'
 import { buildBun, markInstalled } from './moduleBuilds.ts'
+import { INCOMING, sizeSaid, type BundleDesk } from './moduleBundles.ts'
 import { Cancelled, gitFraction, type Job, type JobSteps, type StepName } from './jobSteps.ts'
 import { splitRemote } from './trackers/sources.ts'
 import type { ReleaseFollower } from './updates.ts'
@@ -124,6 +125,13 @@ export interface Deps {
   /** One line of the host's log: the full output of an install that failed. */
   log?(line: string): void
   /**
+   * Ready-built bundles (`moduleBundles.ts`): an entry whose newest release
+   * this host can run has one is downloaded, checked and unpacked instead of
+   * cloned, installed and built. Without it, or for a release with none, the
+   * git path below.
+   */
+  bundles?: BundleDesk
+  /**
    * Where each install says how far it has got, step by step, and takes its
    * turn (`jobSteps.ts`). Without it an install still runs, unseen but for
    * `Installing.step`, and does not wait for a turn.
@@ -233,9 +241,66 @@ export function installDesk(deps: Deps) {
     }
   }
 
+  /**
+   * The ready-built bundle of the newest release this host can run, put at
+   * `dir`, when that release has one: true when it was, false when the git path
+   * should run instead (no bundle, no release, not on GitHub, or a folder
+   * already there — which the git path judges as it always has). A bundle that
+   * is there and fails a check is an install that failed, never quietly
+   * replaced by something else.
+   */
+  async function fromBundle(entry: Installable, dir: string, job: Job | null): Promise<boolean> {
+    if (!deps.bundles || hostOf(entry) !== 'github.com' || existsSync(dir)) return false
+    const source = { id: entry.id, repo: entry.repo }
+    const newest = await deps.bundles.newestFor(source)
+    if (!newest.tag) return false
+    const staged = await deps.bundles.stage(source, newest.tag, job, job?.signal)
+    if (job?.signal.aborted) {
+      deps.bundles.sweepIncoming(entry.id)
+      throw new Cancelled('cloning')
+    }
+    if (!staged.ok) {
+      if (staged.none) return false
+      throw new Error(staged.why)
+    }
+    mkdirSync(deps.root, { recursive: true })
+    renameSync(staged.dir, dir)
+    deps.log?.(`kehikko: ${entry.id}: installed ${newest.tag} from its ready-built bundle (${sizeSaid(staged.bytes)} downloaded, ${Object.keys(staged.info.files).length + 1} files)`)
+    return true
+  }
+
+  /**
+   * A git copy of `tag` made under `.incoming/`, cloned, installed and built,
+   * for an installed bundle whose next release has no bundle: swapped in like
+   * one (`Place.gitCopy`). The repository is the list entry's, by id.
+   */
+  async function gitCopy(entry: Installable, tag: string, job: Job | null, signal?: AbortSignal): Promise<{ ok: true; dir: string } | { ok: false; why: string }> {
+    const id = entry.id
+    if (!/^v\d+\.\d+\.\d+$/.test(tag)) return { ok: false, why: `${tag} is not a release.` }
+    const dir = join(deps.root, INCOMING, `${id}-${tag.slice(1)}-git-${Date.now().toString(36)}`)
+    mkdirSync(join(deps.root, INCOMING), { recursive: true })
+    job?.say('cloning', tag)
+    const cloned = await deps.run(['git', 'clone', '--quiet', '--progress', '--branch', tag, `https://${hostOf(entry)}/${entry.repo}.git`, dir], { timeoutMs: CLONE_TIMEOUT_MS, watch: job ? job.watch(gitFraction) : undefined })
+    if (!cloned.ok || signal?.aborted) return { ok: false, why: cloned.ok ? 'cancelled' : `${repoSaid(entry)} ${tag} could not be cloned: ${cloned.why}` }
+    job?.say('installing')
+    const own = (deps.bun ?? buildBun)()
+    const installed = await deps.run([own.bun, 'install', '--frozen-lockfile'], { cwd: dir, env: own.env, timeoutMs: INSTALL_TIMEOUT_MS, watch: job ? job.watch() : undefined })
+    if (!installed.ok) return { ok: false, why: `${entry.name} ${tag}'s dependencies could not be installed: ${installed.why}` }
+    markInstalled(dir)
+    if (deps.build) {
+      job?.say('building')
+      await deps.build({ id, name: entry.name, dir }).catch(() => null)
+    }
+    return { ok: true, dir }
+  }
+
   async function steps(entry: Installable, job: Job | null): Promise<void> {
     const dir = join(deps.root, entry.id)
     const step = (now: Step) => jobs.set(entry.id, { state: 'installing', step: now })
+    if (await fromBundle(entry, dir, job)) {
+      step('registering')
+      return register(entry, dir)
+    }
     /* The page's steps: each throws once Cancel was pressed, so the install stops there. */
     const to = (now: StepName, detail: string | null = null) => job?.to(now, detail)
     const watch = job ? job.watch(gitFraction) : undefined
@@ -323,6 +388,11 @@ export function installDesk(deps: Deps) {
     }
 
     step('registering')
+    await register(entry, dir)
+  }
+
+  /** Write the registration naming `dir`, unless somebody registered the module meanwhile. */
+  async function register(entry: Installable, dir: string): Promise<void> {
     const registered = await deps.registered()
     /* Registered by somebody else while this ran: theirs stands. */
     if (registered.some((one) => one.id === entry.id)) return
@@ -411,7 +481,7 @@ export function installDesk(deps: Deps) {
     return null
   }
 
-  return { list, listOf, install, begin, busy, forget, route }
+  return { list, listOf, install, begin, busy, forget, route, gitCopy }
 }
 
 export type InstallDesk = ReturnType<typeof installDesk>
@@ -426,6 +496,7 @@ const STEP_DOING: Partial<Record<StepName, string>> = {
   fetching: 'fetching it',
   cloning: 'downloading it',
   checkout: 'checking out its release',
+  unpacking: 'checking and unpacking it',
   installing: 'installing its dependencies',
   building: 'building its page',
 }

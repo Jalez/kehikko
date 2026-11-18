@@ -11,7 +11,7 @@ import { z } from 'zod'
  * Nothing is kept here that the host does not say: a reload reads the same.
  */
 
-export const STEP_NAMES = ['queued', 'fetching', 'cloning', 'checkout', 'installing', 'building', 'starting', 'waiting', 'done', 'failed'] as const
+export const STEP_NAMES = ['queued', 'fetching', 'cloning', 'checkout', 'unpacking', 'installing', 'building', 'starting', 'waiting', 'done', 'failed'] as const
 export type StepName = (typeof STEP_NAMES)[number]
 
 const stepSchema = z.enum(STEP_NAMES)
@@ -24,6 +24,7 @@ export const jobSchema = z.object({
   detail: z.string().nullable(),
   fraction: z.number().nullable(),
   bytes: z.number().nullable().optional(),
+  bundle: z.boolean().optional(),
   stepMs: z.number(),
   totalMs: z.number(),
   steps: z.array(z.object({ step: stepSchema, ms: z.number() })),
@@ -52,6 +53,8 @@ export function stepLabel(step: StepName, detail: string | null): string {
       return 'Downloading'
     case 'checkout':
       return detail ? `Checking out ${detail}` : 'Checking out the newest release'
+    case 'unpacking':
+      return detail ? `Checking and unpacking ${detail}` : 'Checking and unpacking'
     case 'installing':
       return detail ? `Installing dependencies ${detail}` : 'Installing dependencies'
     case 'building':
@@ -73,6 +76,7 @@ const DOING: Record<StepName, string> = {
   fetching: 'fetching the newest version',
   cloning: 'downloading',
   checkout: 'checking out the release',
+  unpacking: 'checking and unpacking it',
   installing: 'installing dependencies',
   building: 'building the page',
   starting: 'starting',
@@ -87,9 +91,14 @@ const SEQUENCES: Record<JobSaid['kind'], ReadonlyArray<readonly [StepName, numbe
   install: [['cloning', 3000], ['checkout', 300], ['installing', 1400], ['building', 1200], ['starting', 300], ['waiting', 500]],
 }
 
+/** The steps of an install or update from a ready-built bundle: a download with real bytes, a check, a restart. */
+const BUNDLE_SEQUENCE: ReadonlyArray<readonly [StepName, number]> = [['cloning', 1500], ['unpacking', 300], ['starting', 300], ['waiting', 500]]
+
+const sequenceOf = (job: Pick<JobSaid, 'kind' | 'bundle'>) => (job.bundle ? BUNDLE_SEQUENCE : SEQUENCES[job.kind])
+
 /** Where a job is in its steps: "step 3 of 6". Null for a step that is not one of them (queued, done, failed). */
-export function stepCounter(job: Pick<JobSaid, 'kind' | 'step'>): { at: number; of: number } | null {
-  const sequence = SEQUENCES[job.kind]
+export function stepCounter(job: Pick<JobSaid, 'kind' | 'step' | 'bundle'>): { at: number; of: number } | null {
+  const sequence = sequenceOf(job)
   const index = sequence.findIndex(([step]) => step === job.step)
   return index < 0 ? null : { at: index + 1, of: sequence.length }
 }
@@ -101,10 +110,10 @@ export function stepCounter(job: Pick<JobSaid, 'kind' | 'step'>): { at: number; 
  * since it is only a guess). Null when nothing is known — a step that is not
  * one of the job's — so the bar slides instead.
  */
-export function overallFraction(job: Pick<JobSaid, 'kind' | 'step' | 'fraction' | 'stepMs'>): number | null {
+export function overallFraction(job: Pick<JobSaid, 'kind' | 'step' | 'fraction' | 'stepMs' | 'bundle'>): number | null {
   if (job.step === 'done') return 1
   if (job.step === 'queued') return 0
-  const sequence = SEQUENCES[job.kind]
+  const sequence = sequenceOf(job)
   const index = sequence.findIndex(([step]) => step === job.step)
   if (index < 0) return null
   const total = sequence.reduce((sum, [, weight]) => sum + weight, 0)
@@ -124,6 +133,14 @@ export function bytesSaid(bytes: number): string {
 /** What the bar's tooltip says about why it is not exact bytes like the app's. */
 export const BAR_EXPLAINED =
   'Modules update in steps on this computer: fetching, installing, building. The app downloads one file, so it can show exact bytes.'
+
+/** The tooltip for a module that comes ready-built: one file, so its bytes are exact. */
+export const BAR_EXPLAINED_BUNDLE = 'This module comes ready-built: one file is downloaded and checked, then it restarts. Nothing is installed or built on this computer.'
+
+/** The bar's tooltip for this job. */
+export function barExplained(job: Pick<JobSaid, 'bundle'>): string {
+  return job.bundle ? BAR_EXPLAINED_BUNDLE : BAR_EXPLAINED
+}
 
 /** The one line a job is shown with: "Installing dependencies · step 3 of 6 · 0:12", "Waiting · 1 ahead", "Done in 0:31", or where it failed. */
 export function jobLine(job: JobSaid): string {

@@ -7,6 +7,15 @@ import type { Job } from './jobSteps.ts'
 import { streamed } from './versions.ts'
 import { because } from './traffic.ts'
 import { adoptedReadyBuilt, buildBun, markInstalled, type Built } from './moduleBuilds.ts'
+/* Types only: moduleBundles.ts reads releases through moduleReleases.ts, which reaches back here. */
+import type { BundleDesk, Swapped } from './moduleBundles.ts'
+import { readBundleInfo } from 'kehikot-module-protocol/bundle'
+
+const isBundle = (dir: string): boolean => readBundleInfo(dir) !== null
+const bundleRelease = (dir: string): string | null => {
+  const info = readBundleInfo(dir)
+  return info ? `v${info.version}` : null
+}
 import { releasesNewestFirst, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import type { WorksWith } from '../src/host/worksWith.ts'
 
@@ -111,6 +120,18 @@ export interface Place {
    * module running from source. Absent for a checkout somebody edits.
    */
   build?(place: Place): Promise<Built>
+  /**
+   * For an installed module: where its ready-built bundles come from and go
+   * (`moduleBundles.ts`). An update prefers the target release's bundle; a
+   * copy that IS a bundle is read and updated through it, with no git.
+   */
+  bundles?: BundleDesk
+  /**
+   * For an installed bundle whose target release has no bundle: a git copy of
+   * that release made beside it (cloned, installed, built), to swap in the same
+   * way. Absent: such an update says why it waits.
+   */
+  gitCopy?(place: Place, tag: string, job: Job | null, signal?: AbortSignal): Promise<{ ok: true; dir: string } | { ok: false; why: string }>
 }
 
 /** Reads an installed copy's releases over what `readCheckout` found. `releaseFollower` in `moduleReleases.ts`. */
@@ -127,8 +148,8 @@ export interface ReleaseFollower {
 }
 
 /** A place as it is said: without the follower and the builder, which are not data. */
-function said(place: Place): Omit<Place, 'releases' | 'build'> {
-  const { releases: _releases, build: _build, ...rest } = place
+function said(place: Place): Omit<Place, 'releases' | 'build' | 'bundles' | 'gitCopy'> {
+  const { releases: _releases, build: _build, bundles: _bundles, gitCopy: _gitCopy, ...rest } = place
   return rest
 }
 
@@ -195,6 +216,9 @@ async function git(dir: string, args: string[], timeout = LOCAL_TIMEOUT_MS, sign
 
 /** The newest release (`vX.Y.Z`) a checkout's HEAD is tagged with, or null. */
 export async function releaseAt(dir: string): Promise<string | null> {
+  /* A ready-built bundle is no checkout: its bundle.json says which release it is. */
+  const bundled = bundleRelease(dir)
+  if (bundled) return bundled
   const tags = await git(dir, ['tag', '--points-at', 'HEAD'])
   if (!tags.ok) return null
   return releasesNewestFirst(tags.out.split('\n').filter(Boolean))[0] ?? null
@@ -202,6 +226,8 @@ export async function releaseAt(dir: string): Promise<string | null> {
 
 /** The commit a checkout is on, in full, or null when that cannot be read. */
 export async function headOf(dir: string): Promise<string | null> {
+  const bundled = readBundleInfo(dir)
+  if (bundled) return bundled.commit
   const head = await git(dir, ['rev-parse', 'HEAD'])
   return head.ok && head.out ? head.out : null
 }
@@ -227,6 +253,11 @@ export async function topLevels(places: readonly Place[]): Promise<{ places: Pla
   for (const place of places) {
     if (!existsSync(place.dir)) {
       unreadable.push({ ...said(place), error: `${place.dir} is not there` })
+      continue
+    }
+    /* An installed bundle is read without git, at its own folder. */
+    if (place.bundles && isBundle(place.dir)) {
+      out.push(place)
       continue
     }
     const top = await git(place.dir, ['rev-parse', '--show-toplevel'])
@@ -280,6 +311,7 @@ async function remoteMoved(dir: string, upstream: string, signal?: AbortSignal):
  */
 export async function readCheckout(place: Place, fetch: boolean | 'compare', signal?: AbortSignal): Promise<Reading> {
   const { dir } = place
+  if (place.bundles && isBundle(dir)) return place.bundles.read(place, fetch)
   const head = await git(dir, ['rev-parse', '--short', 'HEAD'])
   if (!head.ok) return { ...said(place), error: head.why }
 
@@ -399,6 +431,13 @@ export interface Updated {
   lockfileReset: boolean
   /** What building the copy came to, for an installed module (`moduleBuilds.ts`); absent for anything else. */
   built?: Built['kind']
+  /**
+   * It was moved by swapping in a ready-built bundle (or, for a bundle whose
+   * next release has none, a git copy made beside it): what was swapped, so the
+   * caller rolls back when the new version does not answer, and settles it
+   * when it does (`moduleBundles.ts`).
+   */
+  swapped?: Swapped & { from: string | null; bytes: number | null }
 }
 
 export type Updating = Updated | { ok: false; why: string; status: number }
@@ -450,6 +489,11 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   const before = await readCheckout(place, false)
   if ('error' in before) return { ok: false, why: before.error, status: 409 }
   if (before.blocked) return { ok: false, why: `${place.name} was not updated: ${before.blocked}.`, status: 409 }
+
+  /* A ready-built bundle of the target release, when it has one: downloaded and
+     checked while the module keeps running, then swapped in. */
+  const swapped = await updateBySwap(place, before, signal, hooks)
+  if (swapped) return swapped
 
   const from = await git(place.dir, ['rev-parse', 'HEAD'])
   if (!from.ok) return { ok: false, why: from.why, status: 500 }
@@ -525,6 +569,57 @@ export async function update(place: Place, signal?: AbortSignal, hooks: UpdateHo
   }
 
   return { ok: true, checkout: await readCheckout(place, false), changed, installed, installFailed, lockfileReset, ...(built ? { built } : {}) }
+}
+
+/** The files a swap changes, as an update says them: enough for `restartDecision` to restart the module. */
+export const SWAP_CHANGED = ['run.sh', 'serve.ts', 'bundle.json']
+
+/**
+ * An installed copy moved by swapping its folder (`moduleBundles.ts`), or null
+ * when this update is not one: no target, no bundle desk, or a git copy whose
+ * target release has no bundle (it goes on along git, as before).
+ *
+ * Everything slow — the download, the checks, the unpacking — happens BEFORE
+ * `merged`, which is where the caller stops the module: the gap a person sees
+ * is the restart alone. A cancel up to the swap changes nothing.
+ */
+async function updateBySwap(place: Place, before: Checkout, signal: AbortSignal | undefined, hooks: UpdateHooks): Promise<Updating | null> {
+  const desk = place.bundles
+  const target = before.release && before.release.follows !== 'main' ? before.release.target : null
+  if (!desk || !target) return null
+  const source = desk.sourceOf(place.id)
+  const bundled = isBundle(place.dir)
+  if (!source) return bundled ? { ok: false, why: `${place.name} was not updated: it is on no module list, so where its releases are is not known.`, status: 409 } : null
+  let staged: { ok: true; dir: string; bytes: number | null } | { ok: false; why: string }
+  const got = await desk.stage(source, target, hooks.job ?? null, signal)
+  if (got.ok) staged = { ok: true, dir: got.dir, bytes: got.bytes }
+  else if (got.none && !bundled) return null
+  else if (got.none && place.gitCopy) {
+    const copy = await place.gitCopy(place, target, hooks.job ?? null, signal)
+    staged = copy.ok ? { ok: true, dir: copy.dir, bytes: null } : copy
+  } else staged = { ok: false, why: got.why }
+  if (!staged.ok) return { ok: false, why: `${place.name} was not updated: ${staged.why}`, status: 502 }
+  if (signal?.aborted || hooks.job?.signal.aborted) {
+    desk.sweepIncoming(place.id)
+    return { ok: false, why: `Cancelled — ${place.name} was not changed.`, status: 499 }
+  }
+  await hooks.merged?.(SWAP_CHANGED)
+  let moved: Swapped
+  try {
+    moved = desk.swap(place.id, staged.dir)
+  } catch (error) {
+    desk.sweepIncoming(place.id)
+    return { ok: false, why: `${place.name} was not updated: its new version could not be put in place: ${(error as Error).message}`, status: 500 }
+  }
+  return {
+    ok: true,
+    checkout: await readCheckout(place, false),
+    changed: SWAP_CHANGED,
+    installed: false,
+    installFailed: null,
+    lockfileReset: false,
+    swapped: { ...moved, from: before.release?.installed ?? null, bytes: staged.bytes },
+  }
 }
 
 /**

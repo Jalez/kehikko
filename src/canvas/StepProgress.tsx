@@ -3,7 +3,7 @@ import { useState, useSyncExternalStore } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { BAR_EXPLAINED, barValue, cancelSteps, jobLine, stalledSaid, stepsNow, subscribeSteps, type JobSaid } from '@/host/jobSteps.ts'
+import { barExplained, barValue, cancelSteps, jobLine, stalledSaid, stepsNow, subscribeSteps, type JobSaid } from '@/host/jobSteps.ts'
 
 /**
  * An install or update as it goes: the step it is on and for how long
@@ -37,7 +37,7 @@ export function StepProgress({ job, named = false, className = '' }: { job: JobS
         {job.step === 'done' && !failed ? <Check className="mr-1 inline size-3 align-[-2px]" aria-hidden data-testid="step-check" /> : null}
         {jobLine(job)}
       </p>
-      {failed ? null : <Progress value={barValue(job)} title={BAR_EXPLAINED} data-testid="step-bar" aria-label={`${job.name}: ${jobLine(job)}`} />}
+      {failed ? null : <Progress value={barValue(job)} title={barExplained(job)} data-testid="step-bar" aria-label={`${job.name}: ${jobLine(job)}`} />}
       {failed ? (
         <p className="text-destructive text-xs break-words" data-testid="step-failed">
           {failed.why}
