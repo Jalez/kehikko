@@ -52,19 +52,24 @@ const gl: Source = { ...GL, default: true, listed: true }
 const gh: Source = { tracker: 'github', host: 'github.com', repo: 'Jalez/kehikko', default: true, listed: true }
 
 describe('the choice, in words and in the file', () => {
-  test('only what differs from reading everything is written', () => {
+  test('only what differs from the defaults is written; the defaults read open and recent, only what changed', () => {
+    expect(READS_DEFAULT).toEqual({ kinds: ['issues', 'tasks', 'changes'], closed: 30, since: true })
     expect(isDefaultReads(READS_DEFAULT)).toBe(true)
     expect(writtenReads(READS_DEFAULT)).toBeNull()
-    expect(writtenReads({ kinds: ['changes', 'issues'], closed: 30, since: true })).toEqual({ kinds: ['changes', 'issues'], closed: 30, since: true })
-    expect(writtenReads({ kinds: ['issues', 'tasks', 'changes'], closed: false, since: false })).toEqual({ closed: false })
-    expect(readsOf({ kinds: ['changes', 'issues'] })).toEqual({ kinds: ['issues', 'changes'], closed: true, since: false })
+    expect(writtenReads({ kinds: ['changes', 'issues'], closed: 30, since: true })).toEqual({ kinds: ['changes', 'issues'] })
+    expect(writtenReads({ kinds: ['issues', 'tasks', 'changes'], closed: false, since: false })).toEqual({ closed: false, since: false })
+    /* Every state, whole every time — the old defaults — is a choice the file now keeps. */
+    expect(writtenReads({ kinds: ['issues', 'tasks', 'changes'], closed: true, since: false })).toEqual({ closed: true, since: false })
+    expect(readsOf({ kinds: ['changes', 'issues'] })).toEqual({ kinds: ['issues', 'changes'], closed: 30, since: true })
+    expect(readsOf({ closed: true, since: false })).toEqual({ kinds: ['issues', 'tasks', 'changes'], closed: true, since: false })
     expect(readsOf({ kinds: [] })).toBeNull()
     expect(readsOf({ closed: 0 })).toBeNull()
     expect(readsOf({ kinds: ['epics'] })).toBeNull()
   })
 
   test('said in the tracker’s own words', () => {
-    expect(readsSaid(null, 'gitlab')).toBe('everything, in every state')
+    expect(readsSaid(null, 'gitlab')).toBe('everything, open, and closed in the last 30 days, only what changed since the last read')
+    expect(readsSaid({ kinds: ['issues', 'changes'], closed: true, since: false }, 'github')).toBe('everything, in every state')
     expect(readsSaid({ kinds: ['changes'], closed: 30, since: true }, 'gitlab')).toBe(
       'merge requests, open, and closed in the last 30 days, only what changed since the last read',
     )
@@ -83,7 +88,10 @@ describe('the choice, in words and in the file', () => {
     expect(inScope(closed(3), { ...READS_DEFAULT, closed: 7 }, now)).toBe(true)
     expect(inScope(closed(30), { ...READS_DEFAULT, closed: 7 }, now)).toBe(false)
     expect(inScope({ kind: 'change', state: 'merged', mergedAt: new Date(now - DAY).toISOString() }, { ...READS_DEFAULT, closed: 7 }, now)).toBe(true)
-    expect(inScope(closed(300), null, now)).toBe(true)
+    expect(inScope(closed(300), { ...READS_DEFAULT, closed: true }, now)).toBe(true)
+    /* By default an old closed item is outside what a listing holds: read by name when named. */
+    expect(inScope(closed(300), null, now)).toBe(false)
+    expect(inScope(closed(3), null, now)).toBe(true)
   })
 })
 
@@ -91,21 +99,22 @@ describe('the one writer keeps it', () => {
   test('set reads writes the choice on the entry, a remote’s entry with only reads stays, null takes it away', () => {
     const done = editTrackers(folder, { kind: 'set', ...GL, reads: { kinds: ['changes'], closed: false } }, ORIGIN)
     expect(done.outcome).toBe('changed')
-    expect(done.said).toBe('group/project reads merge requests, open only.')
+    expect(done.said).toBe('group/project reads merge requests, open only, only what changed since the last read.')
     expect(json().sources).toEqual([{ ...GL, reads: { kinds: ['changes'], closed: false } }])
     expect(editTrackers(folder, { kind: 'set', ...GL, reads: { kinds: ['changes'], closed: false } }, ORIGIN).outcome).toBe('unchanged')
     /* A choice of everything is no choice: the key goes, and the bare entry with it. */
     expect(editTrackers(folder, { kind: 'set', ...GL, reads: { kinds: ['issues', 'tasks', 'changes'] } }, ORIGIN).outcome).toBe('changed')
     expect(json().sources).toEqual([])
-    editTrackers(folder, { kind: 'set', ...GL, reads: { since: true } }, ORIGIN)
+    editTrackers(folder, { kind: 'set', ...GL, reads: { since: false } }, ORIGIN)
+    expect(json().sources).toEqual([{ ...GL, reads: { since: false } }])
     expect(editTrackers(folder, { kind: 'set', ...GL, reads: null }, ORIGIN).outcome).toBe('changed')
     expect(json().sources).toEqual([])
   })
 
   test('keys it does not know stay, and an older host’s file reads as before', () => {
     put({ version: 1, sources: [{ ...GL, list: true, mine: 'kept' }], every: 5 })
-    editTrackers(folder, { kind: 'set', ...GL, reads: { closed: 30 } }, ORIGIN)
-    expect(json()).toEqual({ version: 1, sources: [{ ...GL, list: true, reads: { closed: 30 }, mine: 'kept' }], every: 5 })
+    editTrackers(folder, { kind: 'set', ...GL, reads: { closed: 7 } }, ORIGIN)
+    expect(json()).toEqual({ version: 1, sources: [{ ...GL, list: true, reads: { closed: 7 }, mine: 'kept' }], every: 5 })
   })
 
   test('a reads this host cannot make sense of is left out, never a broken file', () => {
@@ -169,9 +178,9 @@ describe('GitLab asks only for what is read', () => {
   })
 
   test('changes only asks no issues; tasks only asks only tasks, and plain issues are left out', async () => {
-    const changes = await list({ reads: { ...READS_DEFAULT, kinds: ['changes'] }, since: null })
+    const changes = await list({ reads: { ...READS_DEFAULT, closed: true, kinds: ['changes'] }, since: null })
     expect(changes.every((l) => l.includes('/merge_requests?'))).toBe(true)
-    const tasks = await list({ reads: { ...READS_DEFAULT, kinds: ['tasks'] }, since: null })
+    const tasks = await list({ reads: { ...READS_DEFAULT, closed: true, kinds: ['tasks'] }, since: null })
     expect(tasks).toHaveLength(1)
     expect(tasks[0]).toContain('/issues?state=all&issue_type=task')
 
@@ -287,19 +296,22 @@ describe('the reading reads only what changed, and keeps the rest', () => {
     }
   }
 
-  test('a whole read first, then only what changed since it, merged into what is held', async () => {
-    editTrackers(folder, { kind: 'set', ...GL, reads: { since: true } }, ORIGIN)
+  test('by default, a whole read first, then on the schedule only what changed since it, merged into what is held', async () => {
     let now = NOW
-    const adapter = recording([[row(1), row(2)], [row(2, { title: 'renamed' })]])
+    const adapter = recording([[row(1), row(2)], [row(2, { title: 'renamed' })], [row(1), row(2)]])
     const trackers = new Trackers({ run: remotes, adapters: { gitlab: adapter }, now: () => now })
-    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'schedule')
     now = new Date(NOW.getTime() + 15 * 60_000)
-    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'schedule')
     expect(adapter.hows[0]?.since).toBeNull()
     expect(adapter.hows[1]?.since).toBe(new Date(NOW.getTime() - 2 * 60_000).toISOString())
     const got = trackers.get(folder, { project: true })
     if ('refused' in got) throw new Error(got.refused)
     expect(got.rows.map((r) => [r.number, r.title]).sort()).toEqual([[1, 'issue 1'], [2, 'renamed']])
+    /* The person's Refresh all reads everything again. */
+    await trackers.refresh(folder, { project: true }, 'press')
+    expect(adapter.hows[2]?.since).toBeNull()
+    expect(adapter.hows).toHaveLength(3)
   })
 
   test('a day on, or with other kinds chosen, the read is whole again', async () => {
@@ -307,12 +319,12 @@ describe('the reading reads only what changed, and keeps the rest', () => {
     let now = NOW
     const adapter = recording([[row(1)], [row(1)], [row(1)]])
     const trackers = new Trackers({ run: remotes, adapters: { gitlab: adapter }, now: () => now })
-    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'schedule')
     now = new Date(NOW.getTime() + 25 * 60 * 60_000)
-    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'schedule')
     expect(adapter.hows[1]?.since).toBeNull()
     editTrackers(folder, { kind: 'set', ...GL, reads: { since: true, closed: false } }, ORIGIN)
-    await trackers.refresh(folder, { project: true }, 'press')
+    await trackers.refresh(folder, { project: true }, 'schedule')
     expect(adapter.hows[2]?.since).toBeNull()
   })
 
@@ -332,7 +344,7 @@ describe('the reading reads only what changed, and keeps the rest', () => {
     expect(got.rows.map((r) => r.number).sort()).toEqual([1, 3])
     const listing = trackers.listing(folder, ORIGIN)
     expect(listing.sources[0]?.reads).toEqual({ closed: false })
-    expect(listingText(listing, NOW.getTime())).toContain('Its listing reads everything, open only.')
+    expect(listingText(listing, NOW.getTime())).toContain('Its listing reads everything, open only, only what changed since the last read.')
   })
 })
 
@@ -366,12 +378,12 @@ describe('an agent sets it through set_tracker_source', () => {
       seen: async () => [],
       trackers,
     }
-    const first = await call('set_tracker_source', { kehikko: made.id, action: 'reads', source: 'gitlab.example.org/group/project', closed: 30 }, door)
+    const first = await call('set_tracker_source', { kehikko: made.id, action: 'reads', source: 'gitlab.example.org/group/project', closed: 7 }, door)
     expect(first.failed).toBe(false)
-    expect(first.text).toContain('reads everything, open, and closed in the last 30 days')
-    const second = await call('set_tracker_source', { kehikko: made.id, action: 'reads', source: 'group/project', since: true }, door)
+    expect(first.text).toContain('reads everything, open, and closed in the last 7 days')
+    const second = await call('set_tracker_source', { kehikko: made.id, action: 'reads', source: 'group/project', since: false }, door)
     expect(second.failed).toBe(false)
-    expect(json().sources[0].reads).toEqual({ closed: 30, since: true })
+    expect(json().sources[0].reads).toEqual({ closed: 7, since: false })
     const bad = await call('set_tracker_source', { kehikko: made.id, action: 'reads', source: 'group/project', kinds: [] }, door)
     expect(bad.failed).toBe(true)
     expect(bad.text).toContain('Nothing was changed')

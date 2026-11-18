@@ -1245,6 +1245,19 @@
 - A reading holds at most `TRACKER_ROWS`; the rows somebody names are kept first
   (`keptRows`). A ref read by name and then cut would be read again on every
   question (#384).
+- A scheduled read costs what changed, not the size of the project. Each source
+  is probed first (`Adapter.changed`: a conditional request for its newest
+  updated item, 304 when nothing moved, free of GitHub's limit); its ETag is kept
+  (`Probe.keep`) only once the read after it landed cleanly. Nothing moved: no
+  listing. Otherwise a listing of only what changed since the last clean one
+  (the default `reads`: open and `CLOSED_DEFAULT` days of closed, `since` on).
+  A held ref is not read again by name on the schedule unless it is an open
+  change whose CI is still running (`checking`) — a check finishing moves no
+  `updatedAt` — and an old closed item is read once. Whole reads: the first, a
+  changed `reads`, once per `WHOLE_EVERY_MS`, and the person's Refresh all
+  (`ReadBy 'press'`, which also reads every named ref). Never add a read on the
+  schedule that does not go through the probe; `test/tracker-incremental.test.ts`
+  counts the processes an idle canvas starts.
 - A project's sources are its git remotes plus `<project>/.kehikot/host/trackers.json`.
   The ONE writer of that file is `editTrackers` in `server/trackers/edit.ts`
   (one edit per call, whole file kept, no change → no write); the page reaches it

@@ -30,6 +30,9 @@ import {
   people,
   row,
   closerLink,
+  etags,
+  type Probe,
+  UNKNOWN,
   spell,
   str,
   trouble,
@@ -797,7 +800,24 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
     }
   }
 
+  const probes = etags()
+  /** One conditional GET of a project's collection, newest updated first; its ETag kept per address. */
+  const probe = (source: Source, path: string) =>
+    probes.ask((argv) => timed(argv, source.host), ['glab', 'api', '--hostname', source.host, path], `${source.host}|${path}`)
+
   return {
+    /**
+     * The project's newest updated issue and merge request, asked conditionally (two requests):
+     * 304 for both when nothing was updated since the probe kept.
+     */
+    async changed(source): Promise<Probe> {
+      const got = await Promise.all(
+        (['issues', 'merge_requests'] as const).map((what) => probe(source, `${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=1`)),
+      )
+      if (got.some((one) => one.changed === null)) return UNKNOWN
+      return { changed: got.some((one) => one.changed), keep: () => got.forEach((one) => one.keep()) }
+    },
+
     async me(host): Promise<Me> {
       const ran = await timed(['glab', 'api', '--hostname', host, 'user'], host)
       const who = ran.code === 0 ? login(parsed(ran)) : ''
@@ -876,9 +896,16 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
     },
 
     async branches(source): Promise<string[] | null> {
+      /* The first page asked conditionally: 304 when no branch moved since it was last read, and
+         then the names held stay (null) without reading any page. */
+      const first = `${project(source)}/repository/branches?per_page=100&page=1`
+      const asked = await probe(source, first)
+      if (asked.changed === false) return null
       const names: string[] = []
       for (let page = 1; page <= BRANCH_PAGES; page += 1) {
-        const ran = await glab([`${project(source)}/repository/branches?per_page=100&page=${page}`], source)
+        const ran = page === 1 && asked.changed
+          ? { code: 0, out: asked.body ?? '', err: '' }
+          : await glab([`${project(source)}/repository/branches?per_page=100&page=${page}`], source)
         if (ran.code !== 0) return page === 1 ? null : names
         const got = parsed(ran)
         if (!Array.isArray(got)) return page === 1 ? null : names
@@ -886,7 +913,11 @@ export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace:
           const name = branchOf(obj(one).name)
           if (name) names.push(name)
         }
-        if (got.length < 100) break
+        if (got.length < 100) {
+          /* Only a first page that holds every branch stands for them all: a new name on a later page leaves it as it was. */
+          if (page === 1) asked.keep()
+          break
+        }
       }
       return names
     },

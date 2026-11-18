@@ -9,7 +9,8 @@ import { hostFence, socketFence } from 'kehikot-module-protocol/run'
 
 import { Conversation } from '@/host/conversation.ts'
 import { frameOriginFor, idOfHost, isModuleHost, labelFor, machineBaseFor, routeOf } from '@/host/moduleAddress.ts'
-import { ModuleProxy, moduleSockets, type ProxyTarget, type SocketData } from '../server/moduleProxy.ts'
+import { FRAME_REASON, IDENTIFY_REASON, KEEP_MS, ModuleProxy, moduleSockets, type ProxyTarget, type SocketData } from '../server/moduleProxy.ts'
+import { reasonNow } from '../server/traffic.ts'
 import { addressesOn, moduleAddresses } from '../server/moduleAddresses.ts'
 import { own, refusal } from '../server/guard.ts'
 import { mintStartToken, Nursery, start } from '../server/launch.ts'
@@ -102,8 +103,8 @@ function aStranger(port = 0) {
 }
 
 /** The host's side, as `server.ts` wires it: `handle` first, the relay for sockets. */
-function aHost(targets: Map<string, ProxyTarget>) {
-  const deps = { port: 0, check: 'host-check-value', target: (wanted: { id: string; version?: string }) => targets.get(wanted.version ? `${wanted.id}@${wanted.version}` : wanted.id) ?? null }
+function aHost(targets: Map<string, ProxyTarget>, now?: () => number, fetchImpl?: typeof fetch) {
+  const deps = { port: 0, check: 'host-check-value', now, fetch: fetchImpl, target: (wanted: { id: string; version?: string }) => targets.get(wanted.version ? `${wanted.id}@${wanted.version}` : wanted.id) ?? null }
   const proxy = new ModuleProxy(deps)
   let ownHosts: ReadonlySet<string> = new Set<string>()
   const server = Bun.serve<SocketData>({
@@ -414,6 +415,61 @@ describe('the start token', () => {
       expect((await atFrame(host, '/app')).status).toBe(200)
     } finally {
       old.stop()
+    }
+  })
+
+  test('an answer carrying this host’s token stands for the manifest: a polling page does not have it asked each time', async () => {
+    let clock = 1_000_000
+    const timed = aHost(targets, () => clock)
+    const module = aModule({ token: TOKEN_A })
+    try {
+      targets.set(ID, { origin: module.origin, token: TOKEN_A })
+      for (let i = 0; i < 5; i += 1) {
+        expect((await atFrame(timed, '/app')).status).toBe(200)
+        clock += KEEP_MS + 1
+      }
+      expect(module.seen.filter((one) => one.path === WELL_KNOWN)).toHaveLength(1)
+    } finally {
+      module.stop()
+      timed.stop()
+    }
+  })
+
+  test('what the proxy sends is filed with a reason: the manifest it asks, and the request it forwards', async () => {
+    const said: Array<[string, string | null]> = []
+    const recording = (async (url: string | URL | Request, init?: RequestInit) => {
+      said.push([new URL(String(url)).pathname, reasonNow()])
+      return fetch(url, init)
+    }) as typeof fetch
+    const timed = aHost(targets, undefined, recording)
+    const module = aModule({ token: TOKEN_A })
+    try {
+      targets.set(ID, { origin: module.origin, token: TOKEN_A })
+      expect((await atFrame(timed, '/app')).status).toBe(200)
+      expect(said).toEqual([
+        [WELL_KNOWN, IDENTIFY_REASON],
+        ['/app', FRAME_REASON],
+      ])
+    } finally {
+      module.stop()
+      timed.stop()
+    }
+  })
+
+  test('one that says no token is asked its manifest again once KEEP_MS has passed, as before', async () => {
+    let clock = 1_000_000
+    const timed = aHost(targets, () => clock)
+    const module = aModule({ token: null })
+    try {
+      targets.set(ID, { origin: module.origin, token: TOKEN_A })
+      for (let i = 0; i < 3; i += 1) {
+        expect((await atFrame(timed, '/app')).status).toBe(200)
+        clock += KEEP_MS + 1
+      }
+      expect(module.seen.filter((one) => one.path === WELL_KNOWN)).toHaveLength(3)
+    } finally {
+      module.stop()
+      timed.stop()
     }
   })
 

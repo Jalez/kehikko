@@ -172,7 +172,7 @@ import { fromThePage } from './traffic.ts'
 import { PageLog, BODY_MAX as PAGE_LOG_BODY_MAX } from './pageLog.ts'
 import { diagnostics, readLogs } from './readLogs.ts'
 import { logsDir } from './machineDirs.ts'
-import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
+import { because, needsLookup, noteFree, noteHeld, reasonNow, receivedRow, recordThisProcess, routeReason, SWEEP_REASON, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
 import { ListenerTable, ProcessSampler } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
@@ -1111,7 +1111,9 @@ function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
   /* A sweep of what is kept may share any sweep out; any other does not share one of those. */
   if (sweeping && (kept || !sweepingKept)) return sweeping
   if (sweeping) return sweeping.catch(() => null).then(() => sweep(how))
-  const running = survey(kept).finally(() => {
+  /* A sweep is shared by whoever asks next, and is asked from callbacks with no reason of their own:
+     it says its own, unless the one that started it gave a nearer one. */
+  const running = because(reasonNow() ?? SWEEP_REASON, () => survey(kept)).finally(() => {
     if (sweeping === running) sweeping = null
     seen = running
   })

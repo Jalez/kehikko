@@ -68,6 +68,17 @@ export function untraced<T>(work: () => T): T {
 
 /** The reason the code running now was given, or null. */
 export const reasonNow = (): string | null => context.getStore()?.reason ?? null
+
+/** Why the host reads which modules are here and what their manifests declare, when whoever started it said nothing nearer. */
+export const SWEEP_REASON = 'the host reads which modules are here'
+
+/**
+ * The reason each program this host started was started for, by pid, while it runs: a connection the
+ * sampler sees on that program (`trafficProcesses.ts`) is filed under it, not as "no reason given".
+ */
+const spawned = new Map<number, string>()
+/** Why the program with this pid was started by this host, while it runs; null when it was not, or said nothing. */
+export const spawnedFor = (pid: number): string | null => spawned.get(pid) ?? null
 const quietNow = (): boolean => context.getStore()?.quiet === true
 
 /** The ring. */
@@ -206,10 +217,15 @@ export function recordingSpawn(record: TrafficRecord, inner: { spawn: Spawn; spa
   const spawn = ((...args: Parameters<Spawn>) => {
     const child = (inner.spawn as (...a: unknown[]) => ReturnType<Spawn>)(...args)
     if (quietNow()) return child
+    const reason = reasonNow()
+    if (reason !== null && typeof child.pid === 'number') {
+      spawned.set(child.pid, reason)
+      const pid = child.pid
+      void child.exited.finally(() => spawned.delete(pid)).catch(() => {})
+    }
     const said = trafficCommand(argvOf(args[0]) ?? [])
     if (!said) return child
     const at = now()
-    const reason = reasonNow()
     void child.exited
       .then((code) => record.add(hostCall({ at, ms: Math.min(3_600_000, now() - at), reason, kind: said.kind, host: said.host, path: said.path, status: code, ok: code === 0 })))
       .catch(() => {})

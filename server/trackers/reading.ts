@@ -23,7 +23,7 @@ import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic, readParts } from '../holdings.ts'
 import type { EpicPlace } from '../../src/host/trackerNews.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import { closerLink, withContributors, type Adapter, type BoardsRead, type HeldBoard, type ListHow, type Me, type Read, type Wanted } from './common.ts'
+import { closerLink, UNKNOWN, withContributors, type Adapter, type BoardsRead, type HeldBoard, type ListHow, type Me, type Probe, type Read, type Wanted } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -36,6 +36,10 @@ import { hostPath } from '../hostData.ts'
 import { inScope, READS_DEFAULT, readsKey, writtenReads } from '../../src/host/trackerReads.ts'
 import { basename } from 'node:path'
 import { because } from '../traffic.ts'
+
+/** An open change whose CI was still running when it was read: its checks finishing moves no `updatedAt`. */
+const checking = (row: TrackerRow): boolean =>
+  row.kind === 'change' && row.state === 'open' && (row.pipeline === 'running' || row.pipeline === 'pending')
 
 /** Why a tracker read is made, for the record of traffic: whose project and how much of it. */
 export function trackerReason(root: string, scope: Scope): string {
@@ -100,6 +104,22 @@ export function trackerReason(root: string, scope: Scope): string {
  *
  * A change's `stack` (2.8.0) is worked out over the whole reading on every
  * read, open changes only (`withStacks` in `stacks.ts`).
+ *
+ * ## A read costs what changed
+ *
+ * A project of two thousand items where five changed was read whole every
+ * fifteen minutes: eight pages of fifty issues and fifty pull requests and every
+ * named ref again, about 1.5 MB and nine `gh` runs each time. Now each source is
+ * probed first (`Adapter.changed`, one conditional request; a 304 costs nothing
+ * against the limit), and when nothing moved since the last clean listing there
+ * is no listing. When something did, the listing asks only what changed since
+ * (`ListHow.since`, the default `reads`). A ref somebody names is read again by
+ * name only when this read cannot vouch for it (`readAgain`): never read, an open
+ * change whose CI was still running (`checking`), or a read that is not of what
+ * changed — and not even then when it is a closed item older than the source
+ * reads. Whole reads: the first, after `reads` changed, once per
+ * `WHOLE_EVERY_MS` (deleted and moved items say nothing in a list of changes),
+ * and the person's Refresh all, which also reads every named ref.
  *
  * ## A failure blanks nothing
  *
@@ -1049,7 +1069,7 @@ export class Trackers {
       const after = held.running.then(again, again)
       return after
     }
-    const run = because(trackerReason(root, scope), () => this.#read(root, scope)).finally(() => {
+    const run = because(trackerReason(root, scope), () => this.#read(root, scope, by)).finally(() => {
       held.running = null
       held.runningScope = null
       this.#told(root, { at: held.stored.at, refreshing: false })
@@ -1060,7 +1080,7 @@ export class Trackers {
     return run
   }
 
-  async #read(root: string, scope: Scope): Promise<TrackerRefreshResult> {
+  async #read(root: string, scope: Scope, by: ReadBy): Promise<TrackerRefreshResult> {
     const held = this.#of(root)
     const now = this.#now().toISOString()
     const config = readConfig(root)
@@ -1110,17 +1130,37 @@ export class Trackers {
     }
 
     /* What each listed source's listing asks (#318): its `reads`, and, when it reads only what
-       changed and the last clean listing read the same, the instant to ask from. */
+       changed and the last clean listing read the same, the instant to ask from. The person's
+       Refresh all is always whole. */
     const storedWas = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
     const nowMs = Date.parse(now)
-    const howOf = (source: Source): ListHow | undefined => {
+    const howOf = (source: Source): ListHow => {
       const was = storedWas.get(sourceKey(source))
+      const reads = source.reads ?? READS_DEFAULT
       const same = was?.readsKey === readsKey(source.reads)
       const wholeRecently = was?.wholeAt ? nowMs - Date.parse(was.wholeAt) < WHOLE_EVERY_MS : false
-      const since = source.reads?.since && same && was?.listedAt && wholeRecently
+      const since = by !== 'press' && reads.since && same && was?.listedAt && wholeRecently
         ? new Date(Date.parse(was.listedAt) - SINCE_OVERLAP_MS).toISOString()
         : null
-      return source.reads || since ? { reads: source.reads ?? READS_DEFAULT, since } : undefined
+      return { reads, since }
+    }
+    /**
+     * Whether a ref somebody names, held from an earlier read, is read again by name on this one.
+     * Everything is on the person's Refresh all, and on a read of a few refs (the item somebody has
+     * open). On the schedule, a held row is not read again when its source said what changed since
+     * (`covered`: a clean listing of only what changed, or a probe that found nothing updated) —
+     * except an open change whose CI is still running, since a check finishing moves no item's
+     * `updatedAt` — nor when it is a closed item older than the source reads (read once, then on
+     * demand: reopening it moves `updatedAt`, which the next listing of what changed sees).
+     */
+    const heldRows = new Map(held.stored.rows.map((row) => [rowIdentity(row), row]))
+    const readAgain = (source: Source, id: string, covered: boolean): boolean => {
+      if (!('project' in scope) || by === 'press') return true
+      const row = heldRows.get(id)
+      if (!row) return true
+      if (checking(row)) return true
+      if (covered) return false
+      return inScope(row, source.reads ?? READS_DEFAULT, nowMs)
     }
     /** Per source listed cleanly: whether it asked only for what changed. */
     const listedHow = new Map<string, { since: boolean }>()
@@ -1144,27 +1184,50 @@ export class Trackers {
         let got: TrackerRow[] = []
         let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
         let partial: string | undefined
+        /* Whether this read knows everything in the source that changed since the last one. */
+        let covered = false
+        /* Asked before anything is read, so that what it keeps predates what is read after it. On
+           every whole-project read of a source with something to read, so the next one can skip. */
+        const probe: Probe = 'project' in scope && adapter.changed && (list || [...wanted.keys()].some((id) => heldRows.has(id)))
+          ? await adapter.changed(source).catch(() => UNKNOWN)
+          : UNKNOWN
         if (list) {
           const how = howOf(source)
-          const read = await adapter.list(source, this.#listLimit, now, how)
-          if (!read.ok) {
-            failedOutright.add(key)
-            return errors.set(key, read.why)
+          if (how.since && probe.changed === false) {
+            /* Nothing in the source was updated since the last listing: there is nothing to list. */
+            covered = true
+            listedHow.set(key, { since: true })
+          } else {
+            const read = await adapter.list(source, this.#listLimit, now, how)
+            if (!read.ok) {
+              failedOutright.add(key)
+              return errors.set(key, read.why)
+            }
+            got = read.rows
+            /* A listing that stopped part way did not see everything recent: the rows it did not reach
+               stay. So do a listing of only what changed: the rest did not change. */
+            if (read.partial) partial = read.partial
+            else {
+              listedHow.set(key, { since: Boolean(how.since) })
+              if (!how.since) listedNow.add(key)
+              covered = Boolean(how.since) && !read.unread
+              if (!read.unread) probe.keep()
+            }
+            unread = read.unread
+            if (read.boards) boardsRead.set(key, read.boards)
+            peopleRead.set(key, read.people?.unreadable ?? null)
           }
-          got = read.rows
-          /* A listing that stopped part way did not see everything recent: the rows it did not reach
-             stay. So do a listing of only what changed: the rest did not change. */
-          if (read.partial) partial = read.partial
-          else {
-            listedHow.set(key, { since: Boolean(how?.since) })
-            if (!how?.since) listedNow.add(key)
-          }
-          unread = read.unread
-          if (read.boards) boardsRead.set(key, read.boards)
-          peopleRead.set(key, read.people?.unreadable ?? null)
-        }
+        } else if (probe.changed === false) covered = true
         const have = new Set(got.map(rowIdentity))
-        const rest = [...wanted.entries()].filter(([id]) => !have.has(id)).map(([, w]) => w)
+        const rest = [...wanted.entries()].filter(([id]) => !have.has(id) && readAgain(source, id, covered)).map(([id, w]) => ({ ...w, id }))
+        /* And the source's open changes whose CI was still running at the last read, named or not:
+           their checks finishing is news no listing of what changed carries. Batched with the rest. */
+        if ('project' in scope) {
+          for (const [id, row] of heldRows) {
+            if (sourceKey(row) !== key || have.has(id) || wanted.has(id) || !checking(row)) continue
+            rest.push({ number: row.number, kind: source.tracker === 'github' ? null : row.kind, refs: [row.ref], id })
+          }
+        }
         if (rest.length) {
           const read: Read = await adapter.refs(source, rest, now)
           if (!read.ok) {
@@ -1179,14 +1242,18 @@ export class Trackers {
         }
         const refused = new Set((unread?.refs ?? []).map((r) => identity(source, r.kind, r.number)))
         errors.set(key, unread?.why ?? partial ?? null)
+        /* An unlisted source read cleanly by name: the probe it was asked after stands. */
+        if (!list && !unread && probe.changed) probe.keep()
         for (const id of refused) thin.add(id)
         fresh.push(...got)
         /* Asked for, answered for, and not among the rows: either the tracker
            said so, or what it said would not make a row. Either way it is not
            asked again until something names it afresh, so no question and no
-           read can chase each other. */
+           read can chase each other. Only what was asked: a held row this read
+           did not ask again is not gone. */
         const made = new Set(got.map(rowIdentity))
-        for (const [id] of wanted) if (!made.has(id) && !refused.has(id)) gone.add(id)
+        const askedNow = new Set([...have, ...rest.map((w) => w.id)])
+        for (const [id] of wanted) if (askedNow.has(id) && !made.has(id) && !refused.has(id)) gone.add(id)
       }),
     )
 
@@ -1198,7 +1265,8 @@ export class Trackers {
         sources.map(async (source) => {
           const key = sourceKey(source)
           const boards = this.#adapters[source.tracker].boards
-          if (!boards || failedOutright.has(key) || boardsRead.has(key)) return
+          /* Boards move rarely: read on a whole listing (the first, the daily one, Refresh all), not on one of what changed. */
+          if (!boards || failedOutright.has(key) || boardsRead.has(key) || listedHow.get(key)?.since) return
           const got = await boards(source).catch(() => null)
           if (got) boardsRead.set(key, got)
         }),
@@ -1262,10 +1330,10 @@ export class Trackers {
         const key = sourceKey(row)
         const source = bySource.get(key)
         const how = listedHow.get(key)
-        if (!source?.reads || !how) continue
+        if (!source || !how) continue
         const id = rowIdentity(row)
         if (wantedIds.has(id)) continue
-        if (!inScope(row, source.reads, nowAt)) {
+        if (!inScope(row, source.reads ?? READS_DEFAULT, nowAt)) {
           byId.delete(id)
           continue
         }

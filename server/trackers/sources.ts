@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { LIMITS, TRACKERS, readTrackerRef, type Tracker } from 'kehikot-module-protocol'
 import { z } from 'zod'
 
@@ -180,8 +181,57 @@ export async function remotesOf(projectPath: string, run: Runner): Promise<strin
   return (await remotesNamed(projectPath, run)).map((r) => r.url)
 }
 
+/**
+ * The file a repository's remotes are written in: `.git/config`, or for a linked worktree (`.git`
+ * a file naming its git directory) the main repository's. Null when there is none to watch.
+ */
+export function gitConfigOf(projectPath: string): string | null {
+  const dotGit = join(projectPath, '.git')
+  try {
+    if (statSync(dotGit).isDirectory()) return join(dotGit, 'config')
+    const named = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim()
+    if (!named) return null
+    const gitDir = isAbsolute(named) ? named : resolve(projectPath, named)
+    let common = gitDir
+    try {
+      common = resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim())
+    } catch {
+      common = resolve(dirname(dirname(gitDir)))
+    }
+    return join(common, 'config')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * What `git remote -v` last said per project, against when its config file was last written: every
+ * read used to start a `git` process for an answer that changes only when somebody edits a remote.
+ * Per runner, so a test's fake git is never answered from another's.
+ */
+const remotesSaid = new WeakMap<Runner, Map<string, { stamp: number; remotes: Array<{ name: string; url: string }> }>>()
+
 /** The same, with each remote's name, for saying which one a source came from. */
 export async function remotesNamed(projectPath: string, run: Runner): Promise<Array<{ name: string; url: string }>> {
+  const config = gitConfigOf(projectPath)
+  let stamp: number | null = null
+  try {
+    stamp = config ? statSync(config).mtimeMs : null
+  } catch {
+    stamp = null
+  }
+  const said = remotesSaid.get(run) ?? new Map()
+  const was = said.get(projectPath)
+  if (stamp !== null && was?.stamp === stamp) return was.remotes
+  const remotes = await askRemotes(projectPath, run)
+  if (stamp !== null) {
+    said.set(projectPath, { stamp, remotes })
+    remotesSaid.set(run, said)
+  }
+  return remotes
+}
+
+async function askRemotes(projectPath: string, run: Runner): Promise<Array<{ name: string; url: string }>> {
   const ran = await run(['git', '-C', projectPath, 'remote', '-v'], { timeout: 5_000 })
   if (ran.code !== 0) return []
   const seen = new Map<string, string>()

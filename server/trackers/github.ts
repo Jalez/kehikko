@@ -37,9 +37,12 @@ import {
   withPeople,
   type Adapter,
   type BoardsRead,
+  etags,
   type ListHow,
   type Me,
+  type Probe,
   type Read,
+  UNKNOWN,
 } from './common.ts'
 import { closedSince } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
@@ -665,6 +668,8 @@ const CURSOR = /^[A-Za-z0-9+/=:_-]{1,200}$/
  * is cut off with a 502; fifty and fifty answers in about six.
  */
 export const PAGE = 50
+/** The first page of a pass from an instant (what changed since): most such reads find a handful. */
+export const FIRST_SINCE_PAGE = 10
 
 /**
  * One page of a listing: up to `PAGE` issues and `PAGE` pull requests,
@@ -680,6 +685,8 @@ export interface ListPass {
   states?: 'open' | 'closed'
   /** Newest updated first, so a pass can stop at an instant; issues are also filtered from it (`since`). */
   updatedFrom?: string
+  /** The pass of what changed since the last read: it starts with a small page. */
+  sinceLast?: boolean
 }
 
 /** The GraphQL states for a pass's half: GitHub spells an issue's and a pull request's apart. */
@@ -765,8 +772,20 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now, pace:
 
   const boardsRead = (boards: boolean, items: readonly unknown[]): BoardsRead =>
     boards ? { boards: boardsSeen(items) } : { unreadable: NEEDS_PROJECT_SCOPE }
+  const probes = etags()
 
   return {
+    /**
+     * The repository's newest updated issue or pull request (GitHub's issues list holds both), asked
+     * conditionally: 304, free of the rate limit, when nothing was updated since the probe kept.
+     */
+    async changed(source): Promise<Probe> {
+      if (source.repo.split('/').length !== 2) return UNKNOWN
+      const path = `repos/${source.repo}/issues?state=all&sort=updated&direction=desc&per_page=1`
+      const args = ['gh', 'api', path, ...(source.host !== 'github.com' ? ['--hostname', source.host] : [])]
+      return probes.ask((argv) => timed(argv, source.host), args, `${source.host}|${path}`)
+    },
+
     async me(host): Promise<Me> {
       const args = ['gh', 'api', 'user']
       if (host !== 'github.com') args.push('--hostname', host)
@@ -799,9 +818,13 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now, pace:
           issues: want.issues ? null : false,
           pulls: want.pulls ? null : false,
         }
+        let pages = 0
         while (after.issues !== false || after.pulls !== false) {
-          /* As many a page as the host answers comfortably; a page that ran over is asked again smaller. */
-          const size = pace.size(source.host, PAGE)
+          /* As many a page as the host answers comfortably; a page that ran over is asked again smaller.
+             A pass from an instant starts small: GitHub filters pull requests by nothing but order, so a
+             full first page would bring fifty pull requests to find the two that changed. */
+          const size = Math.min(pace.size(source.host, PAGE), how.sinceLast && pages === 0 ? FIRST_SINCE_PAGE : PAGE)
+          pages += 1
           const got = await graph(source, (b, branches) => listQuery(source, after, b, size, branches, how))
           if (got.ran.timedOut && size > 1) continue
           boards &&= got.boards
@@ -839,7 +862,7 @@ export function githubAdapter(run: Runner, clock: () => number = Date.now, pace:
       /* Which passes a source's `reads` take (Jalez/kehikko#318): what changed since, in every
          state so a closing is seen; open only; open, and what closed inside the window; or all. */
       const passes: ListPass[] = how?.since
-        ? [{ updatedFrom: how.since }]
+        ? [{ updatedFrom: how.since, sinceLast: true }]
         : !reads || reads.closed === true
           ? [{}]
           : reads.closed === false
