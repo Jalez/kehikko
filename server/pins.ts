@@ -106,6 +106,12 @@ export interface PinsDeps {
   keep(project: number | null): void
   /** The tags of a GitHub repository that have a release, or null when unknown. See `releaseNotes.ts`. */
   released?(repo: string): Promise<ReadonlySet<string> | null>
+  /**
+   * The releases of a module installed as a ready-built bundle that carry a bundle, newest first,
+   * and the GitHub repository they are on; null for a module that is not installed that way (its
+   * versions are the tags of its checkout's remote). `error` says why the releases could not be read.
+   */
+  bundled?(id: string, fresh: boolean): Promise<{ repo: string; tags: string[]; error: string | null } | null>
   /** An installed module's releases, or null for a module registered from somebody's own checkout. */
   release?(id: string): Promise<ModuleRelease | null>
 }
@@ -181,6 +187,27 @@ export class Pins {
     return this.#deps.latest(id)?.name ?? id
   }
 
+  /** The picker's rows for these tags, newest first, each marked from what is known of it. */
+  #entries(module: string, name: string, tags: readonly string[], released: ReadonlySet<string> | null, recorded: number | null): VersionEntry[] {
+    const deps = this.#deps
+    const facts = deps.facts.all(module)
+    return tags.map((tag): VersionEntry => {
+      const known = Object.hasOwn(facts, tag) ? facts[tag]! : null
+      const instance = deps.runs.get(module, tag)
+      const dataVersion = known?.dataVersion ?? null
+      return {
+        tag,
+        compatible: known ? known.compatible : null,
+        incompatible: known && !known.compatible ? known.why : null,
+        dataVersion,
+        blocked: refusal(name, tag, dataVersion, recorded),
+        prepared: deps.materialiser.prepared(module, tag) !== null,
+        running: instance?.state === 'running',
+        release: released?.has(tag) ?? false,
+      }
+    })
+  }
+
   /** The tags of a module, newest first, each marked for this kehikko. */
   async list(module: string, canvasId: number, fresh = false): Promise<VersionListing | { why: string; status: number }> {
     const deps = this.#deps
@@ -226,6 +253,18 @@ export class Pins {
         hint: `${name} is registered without a directory, so this host cannot read its versions. Only the running copy is available.`,
       }
     }
+    const bundled = deps.bundled ? await deps.bundled(module, fresh).catch(() => null) : null
+    if (bundled) {
+      const released = deps.released ? await deps.released(bundled.repo).catch(() => null) : null
+      if (bundled.error && !bundled.tags.length) return { ...base, repo: bundled.repo, error: `could not read the versions from ${bundled.repo}: ${bundled.error}` }
+      if (!bundled.tags.length) {
+        return { ...base, repo: bundled.repo, hint: `${name} has no earlier ready-built release to pin to. Only the running copy is available.` }
+      }
+      const versions = this.#entries(module, name, bundled.tags, released, recorded)
+      const own = latest.version ? parseTag(latest.version) : null
+      const same = own ? bundled.tags.find((tag) => released?.has(tag) && sameVersion(parseTag(tag), own)) : undefined
+      return { ...base, repo: bundled.repo, latest: { ...latest, release: same ?? null }, versions }
+    }
     const remote = await remoteOf(registration.dir, deps.runner)
     if (!remote) {
       return { ...base, hint: `${registration.dir} has no remote to read versions from, so only its checkout is available.` }
@@ -246,22 +285,7 @@ export class Pins {
       }
     }
 
-    const facts = deps.facts.all(module)
-    const versions = got.tags.map((tag): VersionEntry => {
-      const known = Object.hasOwn(facts, tag) ? facts[tag]! : null
-      const instance = deps.runs.get(module, tag)
-      const dataVersion = known?.dataVersion ?? null
-      return {
-        tag,
-        compatible: known ? known.compatible : null,
-        incompatible: known && !known.compatible ? known.why : null,
-        dataVersion,
-        blocked: refusal(name, tag, dataVersion, recorded),
-        prepared: deps.materialiser.prepared(module, tag) !== null,
-        running: instance?.state === 'running',
-        release: released?.has(tag) ?? false,
-      }
-    })
+    const versions = this.#entries(module, name, got.tags, released, recorded)
     /* Latest has notes when what its checkout calls itself is a released tag. */
     const own = latest.version ? parseTag(latest.version) : null
     const same = own ? got.tags.find((tag) => released?.has(tag) && sameVersion(parseTag(tag), own)) : undefined

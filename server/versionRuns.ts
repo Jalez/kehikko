@@ -49,8 +49,10 @@ export interface Source {
   name: string
   /** The module's own checkout, from its registration. Read from, never written to. */
   dir: string
-  /** The repository the tags live on. */
-  remote: string
+  /** The repository the tags live on, or null for a module installed as a bundle: it has no checkout to read tags from. */
+  remote: string | null
+  /** The module was installed as a ready-built bundle, so a version is its release's bundle (`BundleMaterialiser`). */
+  bundled?: boolean
 }
 
 /** A version on disk, ready to be run. */
@@ -124,6 +126,8 @@ export class SourceMaterialiser implements Materialiser {
     const already = this.prepared(source.id, tag)
     if (already) return { ok: true, tree: already }
 
+    const remote = source.remote
+    if (!remote) return { ok: false, why: `${source.name} has no git remote and ${tag} has no ready-built copy, so there is nothing to run.` }
     const home = this.#module(source.id)
     const mirror = join(home, 'repo.git')
     const dir = this.tree(source.id, tag)
@@ -134,19 +138,19 @@ export class SourceMaterialiser implements Materialiser {
     if (!existsSync(join(mirror, 'HEAD'))) {
       rmSync(mirror, { recursive: true, force: true })
       const borrow = existsSync(source.dir) ? ['--reference-if-able', source.dir, '--dissociate'] : []
-      const cloned = await this.#run(['git', 'clone', '--bare', '--quiet', ...borrow, source.remote, mirror], {
+      const cloned = await this.#run(['git', 'clone', '--bare', '--quiet', ...borrow, remote, mirror], {
         timeoutMs: CLONE_TIMEOUT_MS,
       })
       if (!cloned.ok) {
         rmSync(mirror, { recursive: true, force: true })
-        return { ok: false, why: `could not copy ${source.remote}: ${cloned.why}` }
+        return { ok: false, why: `could not copy ${remote}: ${cloned.why}` }
       }
     }
     const fetched = await this.#run(
-      ['git', '-C', mirror, 'fetch', '--quiet', '--force', source.remote, `refs/tags/${tag}:refs/tags/${tag}`],
+      ['git', '-C', mirror, 'fetch', '--quiet', '--force', remote, `refs/tags/${tag}:refs/tags/${tag}`],
       { timeoutMs: FETCH_TIMEOUT_MS },
     )
-    if (!fetched.ok) return { ok: false, why: `could not fetch ${tag} from ${source.remote}: ${fetched.why}` }
+    if (!fetched.ok) return { ok: false, why: `could not fetch ${tag} from ${remote}: ${fetched.why}` }
 
     step('checking out')
     if (existsSync(dir)) {
@@ -240,6 +244,85 @@ export class SourceMaterialiser implements Materialiser {
       if (removed && existsSync(join(mirror, 'HEAD'))) await this.#run(['git', '-C', mirror, 'worktree', 'prune'])
     }
     return freed
+  }
+}
+
+/**
+ * What fetches a release's bundle into a folder: the bundle desk's `stage` (`moduleBundles.ts`), by
+ * module id, so this file knows no repository and no URL. `into` is the folder to unpack under.
+ */
+export type StageBundle = (id: string, tag: string, into: string) => Promise<{ ok: true; dir: string } | { ok: false; why: string; none?: boolean }>
+
+/**
+ * A version of a module installed as a bundle: the release's own ready-built bundle, downloaded,
+ * checked and unpacked as `<module>/<tag>/`, beside the running copy — no git, no `bun install`, no
+ * build. The module is the same one that runs as "latest"; only the folder is different, and it runs
+ * on a port of its own as any version does.
+ *
+ * Everything else — where a prepared version is looked for, the `.ready` mark, the run log, the
+ * pruning of versions nobody pins — is `SourceMaterialiser`'s, because the layout is the same: a
+ * bundle's `run.sh` is what a git tree's is, and removing the folder is removing it. A module that
+ * was installed from git is prepared by `SourceMaterialiser` as before. The folder is under
+ * `versionsDir()`, which the machine-directory allowlist names (`dev/storage-boundary.ts`).
+ */
+export class BundleMaterialiser implements Materialiser {
+  readonly #root: string
+  readonly #source: SourceMaterialiser
+  readonly #stage: StageBundle
+
+  constructor(root: string, source: SourceMaterialiser, stage: StageBundle) {
+    this.#root = root
+    this.#source = source
+    this.#stage = stage
+  }
+
+  log(id: string, tag: string): string {
+    return this.#source.log(id, tag)
+  }
+
+  prepared(id: string, tag: string): Tree | null {
+    return this.#source.prepared(id, tag)
+  }
+
+  prune(...args: Parameters<SourceMaterialiser['prune']>): Promise<number> {
+    return this.#source.prune(...args)
+  }
+
+  async prepare(source: Source, tag: string, step: (step: Step) => void): Promise<Prepared> {
+    if (!source.bundled) return this.#source.prepare(source, tag, step)
+    if (!safe(source.id, tag)) return { ok: false, why: `"${tag}" is not a version tag this host will run.` }
+    const already = this.#source.prepared(source.id, tag)
+    if (already) return { ok: true, tree: already }
+
+    const home = join(this.#root, source.id)
+    const dir = this.#source.tree(source.id, tag)
+    const ready = join(home, `${tag}.ready`)
+    mkdirSync(home, { recursive: true })
+
+    step('fetching')
+    const staged = await this.#stage(source.id, tag, join(home, '.incoming'))
+    if (!staged.ok) {
+      if (staged.none && source.remote) return this.#source.prepare(source, tag, step)
+      return { ok: false, why: staged.why }
+    }
+    /* A folder from an attempt that did not finish has no `.ready`: nothing runs from it. */
+    rmSync(dir, { recursive: true, force: true })
+    try {
+      renameSync(staged.dir, dir)
+    } catch (error) {
+      rmSync(staged.dir, { recursive: true, force: true })
+      return { ok: false, why: `${tag} could not be put in place: ${(error as Error).message}` }
+    }
+    rmSync(join(home, '.incoming'), { recursive: true, force: true })
+    const script = join(dir, RUN_SCRIPT)
+    if (!existsSync(script)) return { ok: false, why: `${tag} has no ${RUN_SCRIPT}, so there is nothing to run.` }
+    try {
+      accessSync(script, constants.X_OK)
+    } catch {
+      return { ok: false, why: `${RUN_SCRIPT} in ${tag} is not executable.` }
+    }
+    writeFileSync(ready, `${tag}\n`)
+    return { ok: true, tree: { dir, script } }
   }
 }
 
