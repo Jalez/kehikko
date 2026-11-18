@@ -39,7 +39,7 @@ import { startedOnSaid, summaryLines, summarySaid, type DevModule, type Developm
  *
  * Kehikot never stops a module whose registration says `keep` (it holds live work), so a move that
  * needs it stopped cannot happen under it. That is not a failure and not forever: the move is
- * DEFERRED (`later`: the summary names the module and says so, and its row in Settings › Modules
+ * DEFERRED (`later`: the summary names the module and says so, and its row in Settings › Development
  * says "Moves at its next restart"), and it happens by itself the next time the module restarts for
  * any reason — an app restart, an update, Restart (`beforeStart`, called by the host just before it
  * starts a module). A person who does not want to wait presses "Move now" (`now`), which restarts

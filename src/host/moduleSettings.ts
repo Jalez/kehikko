@@ -9,7 +9,7 @@ import type { SettingField } from 'kehikot-module-protocol'
 
 export type { SettingField }
 
-/** One module as the Settings › Modules section lists it. */
+/** One module as `/host/module-settings/list` answers it (`module_settings`). */
 export interface SettingsListed {
   id: string
   name: string

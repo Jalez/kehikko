@@ -15,7 +15,7 @@ import type { SetAnswer, SettingsAnswer, SettingsListed } from '../src/host/modu
  */
 
 const inChild = process.env.MODULE_SETTINGS_DOM === '1'
-const TESTS = 16
+const TESTS = 17
 
 if (!inChild) {
   test('the module settings, rendered in a process of their own', () => {
@@ -35,6 +35,7 @@ let React: typeof import('react')
 let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let UI: typeof import('../src/canvas/ModuleSettings.tsx')
+let Settings: typeof import('../src/canvas/Settings.tsx')
 let Box: typeof import('../src/canvas/Container.tsx')
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 
@@ -47,6 +48,7 @@ beforeAll(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   WIDTH = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth')
   UI = await import('../src/canvas/ModuleSettings.tsx')
+  Settings = await import('../src/canvas/Settings.tsx')
   Box = await import('../src/canvas/Container.tsx')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
 })
@@ -234,7 +236,7 @@ describe('open the file', () => {
   })
 })
 
-describe('the modal and Settings › Modules', () => {
+describe('the modal and a module’s page in Settings', () => {
   if (!inChild) return
 
   test('the modal is titled "<Module> settings" and holds the form', async () => {
@@ -247,17 +249,58 @@ describe('the modal and Settings › Modules', () => {
     expect(dialog.querySelectorAll('[data-setting]').length).toBe(5)
   })
 
-  test('lists every installed module with its icon: a form, "No settings", or not running', async () => {
+  const MODULES = [
+    { id: 'kehikot.factory', name: 'Factory', icon: 'lucide:factory', settings: true },
+    { id: 'kehikot.notes', name: 'Notes' },
+  ]
+  const body = (section: string, api: import('../src/canvas/ModuleSettings.tsx').SettingsApi) => (
+    <Settings.SettingsBody answer={null} busy={false} section={section as never} onSection={() => {}} onChange={() => {}} modules={MODULES} modulesApi={api} project={{ id: 7, name: 'thesis', git: true, home: false, missing: false }} />
+  )
+
+  test('a module’s settings are its own page under Modules, said to be its own, and nowhere in the app’s pages', async () => {
     const { api } = fakeApi()
-    await render(<UI.ModulesSettings api={api} project={{ id: 7, name: 'thesis' }} />)
+    await render(body('modules', api))
+    /* Every app page is drawn (forceMount); none of them holds a module's form. */
+    expect(document.querySelector('[data-setting]')).toBeNull()
+    expect(document.querySelector('[data-module-settings]')).toBeNull()
+    const modules = document.querySelector('[data-settings-scope="module"]')!
+    expect(modules.querySelector('h3')!.textContent).toBe('Modules')
+    /* Only a module that declared settings has a page. */
+    expect([...modules.querySelectorAll('[role="tab"]')].map((one) => one.textContent?.trim())).toEqual(['Factory'])
+    expect(document.querySelector('[data-modules-own]')!.textContent).toContain('1 module has settings')
+    act(() => unmount?.())
+    await render(body('module:kehikot.factory', api))
     await act(async () => {})
-    const sections = [...document.querySelectorAll<HTMLElement>('[data-settings-module]')]
-    expect(sections.map((one) => one.getAttribute('data-settings-module'))).toEqual(['kehikot.factory', 'kehikot.flows', 'kehikot.notes'])
-    expect(sections[0]!.querySelector('[data-module-icon]')).not.toBeNull()
-    expect(sections[0]!.querySelectorAll('[data-setting]').length).toBe(5)
-    expect(sections[1]!.textContent).toContain('Not running')
-    expect(sections[2]!.textContent).toContain('No settings.')
-    expect(document.querySelector('[data-settings-modules]')!.textContent).toContain('for thesis')
+    expect(document.querySelector('[data-scope-lead]')!.getAttribute('data-scope-lead')).toBe('module')
+    expect(document.querySelector('[data-scope-lead]')!.textContent).toContain('These are Factory’s own settings.')
+    const page = document.querySelector('[data-settings-module="kehikot.factory"]')!
+    expect(page.querySelector('[data-module-icon]')).not.toBeNull()
+    expect(page.querySelectorAll('[data-setting]').length).toBe(5)
+  })
+
+  test('the container’s window and the Settings page show the same fields and save the same way', async () => {
+    const one = fakeApi()
+    await render(<UI.ModuleSettingsDialog open onOpenChange={() => {}} module="kehikot.factory" name="Factory" project={{ id: 7, name: 'thesis' }} api={one.api} />)
+    await act(async () => {})
+    const fromContainer = [...document.querySelectorAll('[data-setting]')].map((el) => [el.getAttribute('data-setting'), el.getAttribute('data-control')])
+    await act(async () => field('judgeMerges')!.querySelector<HTMLElement>('[role="switch"]')!.click())
+    await act(async () => {})
+    expect(note('judgeMerges')).toBe('Saved')
+    act(() => unmount?.())
+    document.body.innerHTML = ''
+
+    const two = fakeApi()
+    await render(body('module:kehikot.factory', two.api))
+    await act(async () => {})
+    const fromSettings = [...document.querySelectorAll('[data-setting]')].map((el) => [el.getAttribute('data-setting'), el.getAttribute('data-control')])
+    expect(fromSettings).toEqual(fromContainer)
+    await act(async () => field('judgeMerges')!.querySelector<HTMLElement>('[role="switch"]')!.click())
+    await act(async () => {})
+    expect(note('judgeMerges')).toBe('Saved')
+    expect(two.sent).toEqual(one.sent)
+    expect(two.sent).toEqual([{ module: 'kehikot.factory', project: 7, key: 'judgeMerges', value: true }])
+    /* No Save button anywhere: each change applies as it is made. */
+    expect([...document.querySelectorAll('[data-settings-module] button')].some((b) => b.textContent?.trim() === 'Save')).toBe(false)
   })
 })
 

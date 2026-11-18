@@ -5813,11 +5813,26 @@ export function App() {
         />
       ) : null}
 
-      {/* The app-wide Settings for the person's agents, and the one-time
-          question while it is unanswered. Opened from the projects menu, a
-          module's Tools or Skills window, and the sync's lines in the Inbox.
-          Its Project section is the open project's own. */}
-      <AgentSettingsHost project={project} trackers={trackersDoor} modules={registry?.presences.map((p) => ({ id: p.id, name: p.name ?? p.id, ...(p.module?.events?.length ? { events: p.module.events } : {}) })) ?? []} />
+      {/* Settings, grouped by scope: this computer, the open project, a
+          kehikko (the gear on a kehikko menu row), and each module's own page
+          (its row in Kehikko modules). Opened from the projects menu, a
+          module's Tools or Skills window, and the sync's lines in the Inbox. */}
+      <AgentSettingsHost
+        project={project}
+        trackers={trackersDoor}
+        modules={
+          registry?.presences.map((p) => ({
+            id: p.id,
+            name: p.name ?? p.id,
+            ...(p.module?.icon ? { icon: p.module.icon } : {}),
+            ...(settingsOf(p.module).length > 0 ? { settings: true } : {}),
+            ...(p.module?.events?.length ? { events: p.module.events } : {}),
+          })) ?? []
+        }
+        kehikot={canvases}
+        kehikko={open}
+        onRename={onRename}
+      />
 
       {/* The introduction (once, by itself), the tour, the layout picker and
           "save as a layout". See `Onboarding.tsx`. */}
@@ -5831,10 +5846,10 @@ export function App() {
         onInstalled={() => void look(true)}
       />
 
-      {/* Kehikko settings (the gear on each row of the kehikko menu) and the
-          question of which agent is primary when a kehikko has more than one.
+      {/* The question of which agent is primary when a kehikko has more than one
+          (a kehikko's own settings are the Kehikko pages of Settings, above).
           See `KehikkoSettings.tsx`. */}
-      <KehikkoSettingsHost canvases={canvases} open={open} onRename={onRename} />
+      <KehikkoSettingsHost open={open} />
 
       {/* "What's new" after Kehikot or a module updates: it never opens by
           itself — the bar's notice (`WhatsNewNotice`) opens it. See `WhatsNew.tsx`. */}
