@@ -113,7 +113,7 @@ import {
   type Standing,
 } from './lifecycle.ts'
 import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
-import { readKeepRunning } from './keepRunning.ts'
+import { ensureKeepRunning, keepingOf } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
 import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
@@ -349,6 +349,7 @@ const personGrants = new PersonGrants(db)
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
+ensureKeepRunning(db)
 ensurePickerOrder(db)
 ensureOnboarding(db)
 ensureWhatsNew(db)
@@ -1916,7 +1917,7 @@ function neededNow(now = Date.now()): Set<string> {
  * module on both is needed, not warm. Local, like `neededNow`.
  */
 function wantedNow(now = Date.now()): Wanted {
-  return wanted(listCanvases(db), new Set(openness.every(now)), readKeepRunning(db), (placement) =>
+  return wanted(listCanvases(db), new Set(openness.every(now)), keepingOf(db), (placement) =>
     keptScope(scopeRead.get(placement.i), placement.scope),
   )
 }
@@ -3597,6 +3598,7 @@ const settingsDesk = settingsRoute({
   },
   /* On: the rest of the open project starts now. Off: it is no longer warm,
      and the reaper stops it after the grace period like anything unneeded. */
+  projectKnown: (project) => listProjects(db).some((one) => one.id === project),
   modulesChanged: () => {
     void sweep()
       .then((view) => govern(view.presences))

@@ -498,10 +498,14 @@
   at a time in kehikko order (`toWarm`), and are never stopped while warm; the
   ordinary idle rule (`GRACE_MS`, `keep`, only what the host started) applies
   once the project closes. Watch and tether stay on the open kehikko's.
-- Settings › Modules (This computer) › "Keep this project's modules running" (default on; one
-  machine-wide row, applied to whichever project is open;
-  `server/keepRunning.ts`, `{ modules: { keep } }` on `POST /host/settings`).
-  Off, nothing is warm.
+- Settings › Project › "Keep this project's modules running" (default on; one
+  row per project in `frame.sqlite`, `project_keep_running`, never in the
+  project's own `.kehikot/` because that is shared with everyone working on it
+  and this is one person's memory choice; `server/keepRunning.ts`,
+  `{ modules: { project, keep } }` on `POST /host/settings`). The old
+  machine-wide value is copied onto every known project once, then removed.
+  `wanted` takes the rule per project: a module on kehikot of two projects is
+  warm while either keeps it. Off for a project, nothing of it is warm.
 - The host tells the pages the moment its wait for a module it started ends,
   up or given up on (`untilAnswered`), with the reading; the page does not
   poll while modules start (see "Asking once").

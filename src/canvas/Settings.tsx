@@ -125,14 +125,17 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
 export const KEEP_RUNNING = {
   label: 'Keep this project’s modules running',
   description:
-    'Every module on any kehikko of the open project is started in the background and kept running, so switching kehikko shows it at once. ' +
-    'Each running module’s server takes roughly 100–300 MB of memory. Off, only the open kehikko’s modules run, and the others stop five minutes after you leave them.',
+    'Every module on any kehikko of this project is started in the background and kept running, so switching kehikko shows it at once. ' +
+    'Each running module’s server takes roughly 100–300 MB of memory. Off, only the open kehikko’s modules run for it, and the others stop five minutes after you leave them. ' +
+    'A module another project keeps running stays up for that project.',
+  /** Said under the switch: it is this project's, not the computer's. */
+  applies: (name: string) => `Applies only to the project ${name}.`,
 } as const
 
 type Change =
   | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
-  | { modules: { keep: boolean } }
+  | { modules: { project: number; keep: boolean } }
   | { updates: { auto: boolean } }
   | { github: { share: number } }
   | { appearance: AppearancePatch }
@@ -687,7 +690,12 @@ export function SettingsBody({
                 ) : key === 'trackers' ? (
                   <ProjectTrackers door={trackers} projectName={project?.name ?? null} projectId={project?.id ?? null} />
                 ) : key === 'project' ? (
-                  project ? <ProjectSettings project={project} door={baseBranch} /> : null
+                  project ? (
+                    <>
+                      <ProjectSettings project={project} door={baseBranch} />
+                      <ProjectModules project={project} answer={answer} onChange={onChange} />
+                    </>
+                  ) : null
                 ) : key === 'modules' ? (
                   <ModulesPage answer={answer} onChange={onChange} modules={modules} />
                 ) : key === 'development' ? (
@@ -723,17 +731,12 @@ function ModulesPage({ answer, onChange, modules }: { answer: SettingsAnswer | n
       <Heading id="modules" lead="How Kehikot keeps your modules on this computer. Install, update, stop or uninstall one from Kehikko modules in the bar.">
         Modules
       </Heading>
-      {answer?.updates || answer?.modules ? (
+      {answer?.updates ? (
         <Rows>
           {answer.updates ? (
             /* Machine-wide, like the rest of this scope; mirrored at the top of the Updates menu. */
             <div data-auto-updates-setting>
               <SettingRow label={AUTO_UPDATES.label} description={AUTO_UPDATES.description} checked={answer.updates.auto} onChange={(auto) => onChange({ updates: { auto } })} />
-            </div>
-          ) : null}
-          {answer.modules ? (
-            <div data-keep-running-setting>
-              <SettingRow label={KEEP_RUNNING.label} description={KEEP_RUNNING.description} checked={answer.modules.keep} onChange={(keep) => onChange({ modules: { keep } })} />
             </div>
           ) : null}
         </Rows>
@@ -1108,7 +1111,7 @@ function ProjectTrackers({ door, projectName, projectId }: { door: TrackersDoor 
         <section className="flex min-w-0 flex-col gap-4" data-trackers-project>
           <p className="text-muted-foreground text-xs" data-trackers-for>
             {projectName ? `For ${projectName}. ` : 'For the open project. '}
-            Its sources are kept in the project folder; the news switch is kept on this computer.
+            Its sources are kept in the project folder; the news switch is saved on this computer, for this project only.
           </p>
           <TrackerSourcesSettings door={door} />
           {door.news ? (
@@ -1117,7 +1120,7 @@ function ProjectTrackers({ door, projectName, projectId }: { door: TrackersDoor 
               <div {...{ [TARGET_ATTR]: SETTINGS_TARGETS.trackerNews.target }} className={cn('divide-y rounded-lg border px-4', LIT_ROW)} data-tracker-news={door.news.on ? 'on' : 'off'}>
                 <SettingRow
                   label={TRACKER_NEWS_WORDS.title}
-                  description={`${TRACKER_NEWS_WORDS.lead} ${door.news.on ? TRACKER_NEWS_WORDS.on : TRACKER_NEWS_WORDS.off}`}
+                  description={`${TRACKER_NEWS_WORDS.lead} ${door.news.on ? TRACKER_NEWS_WORDS.on : TRACKER_NEWS_WORDS.off} ${TRACKER_NEWS_WORDS.kept}`}
                   checked={door.news.on}
                   onChange={door.news.onChange}
                 />
@@ -1131,6 +1134,34 @@ function ProjectTrackers({ door, projectName, projectId }: { door: TrackersDoor 
         </p>
       )}
       {projectId !== null ? <UntrackedItems project={projectId} /> : null}
+    </>
+  )
+}
+
+/**
+ * Project › Modules: whether this project's modules are kept running. Saved on this computer for this
+ * project only (`server/keepRunning.ts`), so it is the person's memory choice for one project and
+ * never the project's own file, which everyone working on it shares.
+ */
+function ProjectModules({ project, answer, onChange }: { project: SettingsProject; answer: SettingsAnswer | null; onChange(what: Change): void }) {
+  const said = answer?.modules
+  if (!said) return null
+  const keep = said.projects[String(project.id)] ?? said.default
+  return (
+    <>
+      <Heading id="project-modules" lead="Which of this project’s modules Kehikot keeps running in the background.">
+        Running modules
+      </Heading>
+      <Rows>
+        <div data-keep-running-setting>
+          <SettingRow
+            label={KEEP_RUNNING.label}
+            description={`${KEEP_RUNNING.description} ${KEEP_RUNNING.applies(project.name)}`}
+            checked={keep}
+            onChange={(next) => onChange({ modules: { project: project.id, keep: next } })}
+          />
+        </div>
+      </Rows>
     </>
   )
 }

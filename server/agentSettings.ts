@@ -14,7 +14,7 @@ import {
 } from '../src/host/agentSettings.ts'
 import { noticesPatched } from '../src/host/trackerNotices.ts'
 import { readNotices, writeNotices } from './trackerNotices.ts'
-import { keepRunningChange, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
+import { keepRunningChange, keepRunningProjects, KEEP_RUNNING_DEFAULT, readKeepRunning, writeKeepRunning } from './keepRunning.ts'
 import { chimePatched } from '../src/host/chime.ts'
 import { readChime, writeChime } from './chime.ts'
 import { readSorts, readVisits, writeSorts } from './pickerOrder.ts'
@@ -208,8 +208,10 @@ export interface SettingsDeps {
   setup?(): SetupHolder | null
   /** The tracker notices setting changed: every project's notices again. */
   noticesChanged?(): void
-  /** "Keep this project's modules running" changed: decide again what runs. */
-  modulesChanged?(keep: boolean): void
+  /** A project's "Keep this project's modules running" changed: decide again what runs. */
+  /** Whether a project id is one this host has; a change for another is refused. */
+  projectKnown?(project: number): boolean
+  modulesChanged?(project: number, keep: boolean): void
   /** "Keep modules up to date automatically" changed (`autoUpdates.ts`). */
   updatesChanged?(auto: boolean): void
   skillsAt(): string
@@ -220,7 +222,7 @@ export interface SettingsDeps {
  * `GET /host/settings` and `POST /host/settings`.
  *
  * A POST is a change of the tracker notices (`{ notices: { on, scope, events } }`,
- * any subset), "Keep this project's modules running" (`{ modules: { keep } }`,
+ * any subset), "Keep this project's modules running" (`{ modules: { project, keep } }`,
  * `keepRunning.ts`), "Keep modules up to date automatically" (`{ updates: { auto } }`,
  * `autoUpdates.ts`), how the project, epic and kehikko pickers are ordered
  * (`{ picker: { epics: 'recent' } }`, `pickerOrder.ts`), Settings › Appearance
@@ -237,7 +239,7 @@ export function settingsRoute(deps: SettingsDeps) {
     status: deps.status(),
     hook: (deps.hook ?? (() => startHook()))(),
     notices: readNotices(deps.db),
-    modules: { keep: readKeepRunning(deps.db) },
+    modules: { default: KEEP_RUNNING_DEFAULT, projects: keepRunningProjects(deps.db) },
     updates: { auto: readAutoUpdates(deps.db) },
     github: { share: readGithubShare(deps.db) },
     chime: readChime(deps.db),
@@ -273,11 +275,12 @@ export function settingsRoute(deps: SettingsDeps) {
     }
 
     if (body.modules !== undefined) {
-      const keep = keepRunningChange(body.modules)
-      if (keep === null) return json({ ok: false, why: 'A change of the running modules is { keep: true } or { keep: false }.' }, 400)
-      if (keep !== readKeepRunning(deps.db)) {
-        writeKeepRunning(deps.db, keep)
-        deps.modulesChanged?.(keep)
+      const change = keepRunningChange(body.modules)
+      if (change === null) return json({ ok: false, why: 'A change of a project’s running modules is { project: <its id>, keep: true | false }.' }, 400)
+      if (deps.projectKnown && !deps.projectKnown(change.project)) return json({ ok: false, why: 'Kehikot does not know that project.' }, 404)
+      if (change.keep !== readKeepRunning(deps.db, change.project)) {
+        writeKeepRunning(deps.db, change.project, change.keep)
+        deps.modulesChanged?.(change.project, change.keep)
       }
       return json(answer())
     }
