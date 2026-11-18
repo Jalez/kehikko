@@ -216,7 +216,7 @@ test('a deep link opens that kehikko’s settings at that section', async () => 
     { id: 1, name: 'Writing', project: 1, placements: [] },
     { id: 2, name: 'Review', project: 1, placements: [] },
   ]
-  await mount(<UI.KehikkoSettingsHost canvases={canvases} open={canvases[0]!} onRename={() => {}} load={load} save={(async () => answer()) as never} />)
+  await mount(<UI.KehikkoSettingsHost canvases={canvases} open={canvases[0]!} onRename={async () => ({ ok: true as const })} load={load} save={(async () => answer()) as never} />)
   expect(document.querySelector('[data-kehikko-settings]')).toBeNull()
   await act(async () => links.openKehikkoSettings('agents', 'primary-agent', 2))
   await act(async () => {})
