@@ -12,7 +12,7 @@ import { DEFAULT_NOTICES } from '../src/host/trackerNotices.ts'
  */
 
 const inChild = process.env.SETTINGS_DIALOG_DOM === '1'
-const TESTS = 18
+const TESTS = 24
 
 if (!inChild) {
   test('the settings windows, rendered in a process of their own', () => {
@@ -138,9 +138,10 @@ test('Settings: a section nav, tools and skills with status in words, who holds 
     />,
   )
   const body = document.querySelector('[data-settings]')!
-  /* The nav: one tab per section, the first chosen; no Agents tab any more. */
+  /* The nav: one tab per page under its scope, the first chosen; no Agents tab any more. */
   const tabs = [...body.querySelectorAll('[role="tab"]')]
-  expect(tabs.map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Modules', 'Appearance', 'About'])
+  expect(tabs.map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Modules', 'Development', 'Appearance', 'About'])
+  expect([...body.querySelectorAll('[data-settings-scope]')].map((one) => one.getAttribute('data-settings-scope'))).toEqual(['app'])
   expect(body.querySelector('[data-section="agents"]')).toBeNull()
   expect(body.querySelector('[role="tablist"]')!.getAttribute('aria-orientation')).toBe('vertical')
   expect(tabs[0]!.getAttribute('aria-selected')).toBe('true')
@@ -220,36 +221,74 @@ test('Skills: a kehikko-bound skill is said where it works, not as a chip to ins
   expect(document.querySelector('[data-status="skills"]')!.textContent).toBe('2 installed, 1 changed by you, 1 only on a kehikko')
 })
 
-test('Module tools: “Keep this project’s modules running”, on by default, with its memory price, sent as it is pressed', async () => {
+test('Project: “Keep this project’s modules running” is the project’s own, on by default, with its memory price, sent with the project', async () => {
   if (!inChild) return
   const saved: unknown[] = []
-  await render(
-    <Settings.SettingsDialog
-      open
-      onOpenChange={() => {}}
-      load={async () => answer({ modules: { keep: true } })}
-      save={(async (change: { modules?: { keep: boolean } }) => {
-        saved.push(change)
-        return answer({ modules: { keep: change.modules?.keep ?? true } })
-      }) as typeof Settings.postSettings}
-      section="tools"
-    />,
-  )
+  const props = {
+    answer: answer({ modules: { default: true, projects: {} } }),
+    busy: false,
+    section: 'project' as const,
+    onSection: () => {},
+    onChange: (change: unknown) => saved.push(change),
+    project: { id: 4, name: 'kollekti', git: true, home: false, missing: false },
+    baseBranch: { load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never },
+  }
+  await render(<Settings.SettingsBody {...props} />)
   const keep = switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!
   expect(keep).toBeTruthy()
   expect(on(keep)).toBe(true)
   const about = document.getElementById(keep.getAttribute('aria-describedby')!)!
   expect(about.textContent).toContain('MB of memory')
   expect(about.textContent).toContain('only the open kehikko’s modules run')
+  expect(about.textContent).toContain('Applies only to the project kollekti.')
+  expect(panelOf(keep)).toBe(panelFor('project'))
   await act(async () => keep.click())
-  expect(saved).toEqual([{ modules: { keep: false } }])
-  expect(on(switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!)).toBe(false)
+  expect(saved).toEqual([{ modules: { project: 4, keep: false } }])
 })
 
-test('Module tools: no keep-running switch from a host that does not say it', async () => {
+test('Project: another project’s value does not show here, and nothing is under This computer', async () => {
   if (!inChild) return
-  await render(<Settings.SettingsDialog open onOpenChange={() => {}} load={async () => answer()} section="tools" />)
+  await render(
+    <Settings.SettingsBody
+      answer={answer({ modules: { default: true, projects: { '9': false } } })}
+      busy={false}
+      section="modules"
+      onSection={() => {}}
+      onChange={() => {}}
+      project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }}
+      baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }}
+    />,
+  )
+  expect(on(switches().find((one) => named(one) === Settings.KEEP_RUNNING.label)!)).toBe(true)
+  expect(panelOf(document.querySelector('[data-keep-running-setting]'))).not.toBe(panelFor('modules'))
+})
+
+test('Project: no keep-running switch from a host that does not say it', async () => {
+  if (!inChild) return
+  await render(
+    <Settings.SettingsBody answer={answer()} busy={false} section="project" onSection={() => {}} onChange={() => {}} project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }} baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }} />,
+  )
   expect(switches().some((one) => named(one) === Settings.KEEP_RUNNING.label)).toBe(false)
+})
+
+test('Trackers: the news switch says it is saved on this computer, for this project only', async () => {
+  if (!inChild) return
+  await render(
+    <Settings.SettingsBody
+      answer={answer(SCOPED)}
+      busy={false}
+      section="trackers"
+      onSection={() => {}}
+      onChange={() => {}}
+      project={{ id: 4, name: 'kollekti', git: true, home: false, missing: false }}
+      baseBranch={{ load: (() => new Promise(() => {})) as never, save: (() => new Promise(() => {})) as never }}
+      trackers={{ tracker: { project: 4, at: null, running: false, sources: [], listing: null } as never, onRefresh() {}, news: { on: true, onChange() {} } }}
+    />,
+  )
+  const text = document.querySelector('[data-tracker-news]')!.textContent!
+  expect(text).toContain('Saved on this computer, for this project only.')
+  expect(text).not.toContain('kept on this computer')
+  expect(document.querySelector('[data-trackers-for]')!.textContent).toContain('saved on this computer, for this project only')
 })
 
 test('the module list is searched by name or id', async () => {
@@ -292,7 +331,8 @@ test('Tracker notices: on, which items, and each event, every one a labelled nat
   expect([...body.querySelectorAll('h3')].map((one) => one.textContent)).toContain('Tracker notices')
   expect(body.querySelector('[data-notices-scope="roles"]')).not.toBeNull()
   expect(body.textContent).toContain('Only where I have a role')
-  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toContain('Tracker notices')
+  /* This computer's: under App, as Trackers. */
+  expect([...body.querySelectorAll('[data-settings-scope="app"] [role="tab"]')].map((one) => one.textContent)).toContain('Trackers')
   const told = Object.values(DEFAULT_NOTICES.events).filter(Boolean).length
   expect(body.querySelector('[data-status="notices"]')!.textContent).toBe(`On · only where you have a role · ${told} of ${Object.keys(DEFAULT_NOTICES.events).length} events`)
   const approved = body.querySelector<HTMLButtonElement>('[data-notice-event="approved"] [role="switch"]')!
@@ -450,7 +490,9 @@ test('Project: the open project’s base branch, origin’s default until set, c
     />,
   )
   const body = document.querySelector('[data-settings]')!
-  expect([...body.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Project', 'Modules', 'Appearance', 'About'])
+  expect([...body.querySelectorAll('[data-settings-scope="app"] [role="tab"]')].map((one) => one.textContent)).toEqual(['Module tools1 left alone', 'Skills', 'Conversations', 'Modules', 'Development', 'Appearance', 'About'])
+  expect(body.querySelector('[data-settings-scope="project"] h3')!.textContent).toBe('Project “kollekti”')
+  expect([...body.querySelectorAll('[data-settings-scope="project"] [role="tab"]')].map((one) => one.textContent)).toEqual(['Base branch'])
   const form = body.querySelector('[data-base-branch]')!
   expect(form.getAttribute('data-base-branch')).toBe('default')
   expect(form.textContent).toContain('The branch agents start their work from and updates are pulled from.')
@@ -558,4 +600,144 @@ test('pressing "Change limit" opens Settings at the share control, focused and l
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
   })
   expect(saved).toEqual([{ github: { share: 30 } }])
+})
+
+/* ---- Settings by scope ---- */
+
+const SCOPED = { notices: DEFAULT_NOTICES, github: { share: 50 }, updates: { auto: true }, modules: { default: true, projects: { '4': false } } }
+const MODULE_REFS = [
+  { id: 'kehikot.agent', name: 'Agent', settings: true },
+  { id: 'kehikot.notes', name: 'Notes' },
+]
+const KEHIKKO = { id: 3, name: 'Writing', project: 4 }
+const PROJECT = { id: 4, name: 'kollekti', git: true, home: false, missing: false }
+const never = (() => new Promise(() => {})) as never
+const panelOf = (el: Element | null) => el?.closest('[role="tabpanel"]')?.id ?? null
+const panelFor = (page: string) => document.querySelector(`[data-section="${page}"]`)!.getAttribute('aria-controls')
+
+test('each setting appears under the scope it is stored at, and each scope says what it affects', async () => {
+  if (!inChild) return
+  await render(
+    <Settings.SettingsBody
+      answer={answer(SCOPED)}
+      busy={false}
+      section="tools"
+      onSection={() => {}}
+      onChange={() => {}}
+      project={PROJECT}
+      baseBranch={{ load: never, save: never }}
+      modules={MODULE_REFS}
+      kehikko={KEHIKKO}
+      trackers={{ tracker: { project: 4, at: null, running: false, sources: [], listing: null } as never, onRefresh() {}, news: { on: true, onChange() {} } }}
+    />,
+  )
+  const scopes = [...document.querySelectorAll('[data-settings-scope]')]
+  expect(scopes.map((one) => one.getAttribute('data-settings-scope'))).toEqual(['app', 'project', 'kehikko', 'module'])
+  expect(scopes.map((one) => one.querySelector('h3')!.textContent)).toEqual(['This computer', 'Project “kollekti”', 'Kehikko “Writing”', 'Modules'])
+  /* Every tab list is named by its scope's heading. */
+  for (const scope of scopes) expect(scope.querySelector('[role="tablist"]')!.getAttribute('aria-labelledby')).toBe(scope.querySelector('h3')!.id)
+  const tabsOf = (scope: string) => [...document.querySelectorAll(`[data-settings-scope="${scope}"] [role="tab"]`)].map((one) => one.getAttribute('data-section'))
+  expect(tabsOf('app')).toEqual(['tools', 'skills', 'hook', 'notices', 'modules', 'development', 'appearance', 'about'])
+  expect(tabsOf('project')).toEqual(['project', 'trackers'])
+  expect(tabsOf('kehikko')).toEqual(['kehikko-general', 'kehikko-skills', 'kehikko-agents'])
+  expect(tabsOf('module')).toEqual(['module:kehikot.agent'])
+
+  /* Machine-wide (frame.sqlite): under This computer. */
+  expect(panelOf(document.querySelector('[data-auto-updates-setting]'))).toBe(panelFor('modules'))
+  expect(panelOf(document.querySelector('[data-settings-target="github-share"]'))).toBe(panelFor('notices'))
+  expect(panelOf(document.querySelector('[data-notices-scope]'))).toBe(panelFor('notices'))
+  /* The project's own (its .kehikot/, or keyed by its id): under the project. */
+  expect(panelOf(document.querySelector('[data-trackers-project]'))).toBe(panelFor('trackers'))
+  expect(panelOf(document.querySelector('[data-tracker-news]'))).toBe(panelFor('trackers'))
+  expect(panelOf(document.querySelector('[data-base-branch]'))).toBe(panelFor('project'))
+  expect(panelOf(document.querySelector('[data-keep-running-setting]'))).toBe(panelFor('project'))
+  expect(document.querySelector('[data-keep-running-setting]')!.textContent).toContain('Applies only to the project kollekti.')
+  /* No module's form anywhere among them. */
+  expect(document.querySelector('[data-module-settings]')).toBeNull()
+  expect(document.querySelector('[data-scope-lead]')!.textContent).toBe('This computer · These apply to every project on this computer.')
+})
+
+test('the scope sentence follows the page: project, kehikko, module', async () => {
+  if (!inChild) return
+  const lead = async (section: string) => {
+    await render(
+      <Settings.SettingsBody answer={answer(SCOPED)} busy={false} section={section as never} onSection={() => {}} onChange={() => {}} project={PROJECT} baseBranch={{ load: never, save: never }} modules={MODULE_REFS} kehikko={KEHIKKO} modulesApi={{ list: never, read: never, set: never, file: never }} />,
+    )
+    const said = document.querySelector('[data-scope-lead]')!.textContent
+    act(() => unmount?.())
+    document.body.innerHTML = ''
+    return said
+  }
+  expect(await lead('project')).toBe('Project “kollekti” · These apply only to the project kollekti.')
+  expect(await lead('kehikko-general')).toBe('Kehikko “Writing” · These apply only to the kehikko Writing.')
+  expect(await lead('module:kehikot.agent')).toContain('These are Agent’s own settings.')
+})
+
+test('entry points land on the right scope, the page’s tab focused; Escape closes', async () => {
+  if (!inChild) return
+  const held = { module: 'kehikot.agent', name: 'Agent', program: 'Agent CLI' }
+  await render(
+    <Settings.AgentSettingsHost
+      load={async () => answer({ ...SCOPED, setup: held })}
+      project={PROJECT}
+      modules={MODULE_REFS}
+      kehikko={KEHIKKO}
+      kehikot={[KEHIKKO, { id: 5, name: 'Review', project: 4 }]}
+      trackers={{ tracker: { project: 4, at: null, running: false, sources: [], listing: null } as never, onRefresh() {}, news: null }}
+    />,
+  )
+  const active = () => document.querySelector('[role="tab"][data-state="active"]')
+  const lead = () => document.querySelector('[data-scope-lead]')?.getAttribute('data-scope-lead')
+  const escape = async () => {
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+    await act(async () => {})
+    expect(document.querySelector('[data-settings]')).toBeNull()
+  }
+
+  /* A module's row in Kehikko modules: its own page. */
+  await act(async () => AgentSettings.openModuleSettings('kehikot.agent'))
+  await act(async () => {})
+  expect(active()!.getAttribute('data-section')).toBe('module:kehikot.agent')
+  expect(lead()).toBe('module')
+  expect(document.activeElement).toBe(active())
+  await escape()
+
+  /* The tracker notice's "Change sources": the project's Trackers. */
+  await act(async () => AgentSettings.openSettings(AgentSettings.SETTINGS_TARGETS.trackerSources.section, AgentSettings.SETTINGS_TARGETS.trackerSources.target))
+  await act(async () => {})
+  expect(active()!.getAttribute('data-section')).toBe('trackers')
+  expect(lead()).toBe('project')
+  await escape()
+
+  /* The kehikko menu's gear on another kehikko's row: that kehikko's pages. */
+  await act(async () => (await import('../src/host/kehikkoSettings.ts')).openKehikkoSettings('general', undefined, 5))
+  await act(async () => {})
+  expect(active()!.getAttribute('data-section')).toBe('kehikko-general')
+  expect(document.querySelector('[data-settings-scope="kehikko"] h3')!.textContent).toBe('Kehikko “Review”')
+  await escape()
+
+  /* The share link: This computer › Trackers. */
+  await act(async () => AgentSettings.openSettings(AgentSettings.SETTINGS_TARGETS.githubShare.section, AgentSettings.SETTINGS_TARGETS.githubShare.target))
+  await act(async () => {})
+  expect(active()!.getAttribute('data-section')).toBe('notices')
+  expect(lead()).toBe('app')
+
+  /* "Open Agent's settings" where the agent setup is shown: the module's page. */
+  await act(async () => pressTab(document.querySelector('[data-section="tools"]')!))
+  await act(async () => button('Open Agent’s settings').click())
+  await act(async () => {})
+  expect(active()!.getAttribute('data-section')).toBe('module:kehikot.agent')
+  await escape()
+})
+
+test('moving focus to another scope’s tab does not change the page; Enter opens it', async () => {
+  if (!inChild) return
+  const opened: string[] = []
+  await render(<Settings.SettingsBody answer={answer(SCOPED)} busy={false} section="appearance" onSection={(page) => void opened.push(page)} onChange={() => {}} project={PROJECT} baseBranch={{ load: never, save: never }} modules={MODULE_REFS} />)
+  const other = document.querySelector<HTMLElement>('[data-section="project"]')!
+  await act(async () => other.focus())
+  expect(opened).toEqual([])
+  expect(document.querySelector('[role="tab"][data-state="active"]')!.getAttribute('data-section')).toBe('appearance')
+  await act(async () => other.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  expect(opened).toEqual(['project'])
 })

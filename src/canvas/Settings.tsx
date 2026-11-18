@@ -18,7 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { AGENT_SETUP_KEYS, PACKAGE_VERSION } from 'kehikot-module-protocol'
-import { useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
 import { Badge } from '@/components/ui/badge.tsx'
@@ -38,10 +38,15 @@ import {
   chordSaid,
   heldSays,
   isSettingsChord,
-  moduleSettingsTarget,
+  moduleOfPage,
+  modulePage,
   onMac,
   onOpenSettings,
+  openModuleSettings,
   openSettings,
+  scopeHeading,
+  scopeLead,
+  scopeOfPage,
   SKILL_STATE_SAYS,
   skillsSaid,
   START_HOOK_WHERE,
@@ -49,8 +54,9 @@ import {
   toolsSaid,
   type SettingsAnswer,
   type SetupHolder,
+  type SettingsPage,
+  type SettingsScope,
   type SettingsSection,
-  SETTINGS_SECTIONS,
   SETTINGS_TARGETS,
   type SkillState,
   type ToolState,
@@ -77,16 +83,22 @@ import { KehikkoMark } from './Mark.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { GITHUB_SHARE, GITHUB_SHARE_TARGET, SHARE_PERCENT, shareFromInput } from '@/host/githubShare.ts'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
-import { ModulesSettings, type SettingsApi } from './ModuleSettings.tsx'
+import { ModuleSettingsForm, type SettingsApi } from './ModuleSettings.tsx'
+import { KEHIKKO_SECTION_SAID, KehikkoPage, kehikkoSectionsOf, type KehikkoRef, type RenameResult } from './KehikkoSettings.tsx'
+import { onOpenKehikkoSettings, type KehikkoSection } from '@/host/kehikkoSettings.ts'
+import { onOpenKehikkoSkills } from '@/host/kehikkoSkills.ts'
 import { AppearanceSettings } from './AppearanceSettings.tsx'
 import type { Appearance, AppearancePatch } from '@/host/appearance.ts'
 import { adoptAppearance } from '@/host/appearanceStore.ts'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
 
 /**
- * Settings: this computer's settings and the open project's (`host/agentSettings.ts`
- * has the shape and the words of the agent setup, `server/agentSync.ts` what is
- * done with it). Whether the person's agent uses every module's tools and skills
+ * Settings: every setting, grouped by where its effect applies (`SettingsScope` in
+ * `host/agentSettings.ts`): this computer, the project on screen, one kehikko, and
+ * one module's own settings. A setting sits under the scope it is stored at, and
+ * each page begins with one sentence of what it affects (`scopeLead`).
+ * (`host/agentSettings.ts` has the shape and the words of the agent setup,
+ * `server/agentSync.ts` what is done with it.) Whether the person's agent uses every module's tools and skills
  * outside Kehikot is the agent module's own setting (protocol 2.91.0,
  * `agent.setup`): the Module tools and Skills sections show what is set up, and
  * say where it is chosen.
@@ -96,12 +108,13 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
  *  - `AgentSettingsHost`, mounted once by the page: opens the dialog when anything
  *    calls `openSettings()` — the gear in the strip, ⌘, (Ctrl+, off a Mac), the
  *    projects menu, a module's Tools or Skills window, the sync's line in the
- *    Inbox, and the desktop shell's own event.
- *  - `SettingsDialog` and its body: a section nav on the left (Module tools,
- *    Skills, Tracker notices, Conversations, Project, About) and one section at a
- *    time on the right — a summary card, then each setting as a row with its
- *    switch. A change is sent as it is made and said "Saved"; there is no Save
- *    button for a switch.
+ *    Inbox, and the desktop shell's own event — at a module's page for
+ *    `openModuleSettings` (its row in the modules menu), and at a kehikko's pages
+ *    for `openKehikkoSettings` (the gear on a row of the kehikko menu).
+ *  - `SettingsDialog` and its body: the nav on the left, one tab list per scope
+ *    under that scope's heading, and one page at a time on the right — a summary
+ *    card, then each setting as a row with its switch. A change is sent as it is
+ *    made and said "Saved"; there is no Save button for a switch.
  *  - `KeptBySettings`: the line a module's Tools or Skills window shows.
  *
  * Every state is a word, never a colour alone; every switch has its label, the
@@ -112,14 +125,17 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
 export const KEEP_RUNNING = {
   label: 'Keep this project’s modules running',
   description:
-    'Every module on any kehikko of the open project is started in the background and kept running, so switching kehikko shows it at once. ' +
-    'Each running module’s server takes roughly 100–300 MB of memory. Off, only the open kehikko’s modules run, and the others stop five minutes after you leave them.',
+    'Every module on any kehikko of this project is started in the background and kept running, so switching kehikko shows it at once. ' +
+    'Each running module’s server takes roughly 100–300 MB of memory. Off, only the open kehikko’s modules run for it, and the others stop five minutes after you leave them. ' +
+    'A module another project keeps running stays up for that project.',
+  /** Said under the switch: it is this project's, not the computer's. */
+  applies: (name: string) => `Applies only to the project ${name}.`,
 } as const
 
 type Change =
   | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
   | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
-  | { modules: { keep: boolean } }
+  | { modules: { project: number; keep: boolean } }
   | { updates: { auto: boolean } }
   | { github: { share: number } }
   | { appearance: AppearancePatch }
@@ -255,28 +271,55 @@ export function AgentSettingsHost({
   project = null,
   modules = [],
   trackers = null,
+  kehikot = [],
+  kehikko = null,
+  onRename = async () => ({ ok: false, why: 'Kehikot cannot rename a kehikko here.' }),
+  kehikkoApi,
 }: {
+  kehikkoApi?: KehikkoApi
   load?: typeof fetchSettings
   save?: typeof postSettings
   project?: SettingsProject | null
   modules?: readonly ModuleRef[]
   /** The open project's tracker reading, for Settings › Trackers; null with no project open. */
   trackers?: TrackersDoor | null
+  /** Every kehikko the page knows, for a link that names one (the gear on a kehikko menu row). */
+  kehikot?: readonly KehikkoRef[]
+  /** The kehikko on screen: the Kehikko pages are its own unless a link named another. */
+  kehikko?: KehikkoRef | null
+  onRename?(id: number, name: string): Promise<RenameResult>
 } = {}) {
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState<SettingsSection>('tools')
+  const [page, setPage] = useState<SettingsPage>('tools')
+  /* Which kehikko a link named; null is the one on screen. */
+  const [named, setNamed] = useState<number | null>(null)
   /* The control a link named, until it has been shown. */
   const [target, setTarget] = useState<string | null>(null)
 
-  useEffect(
-    () =>
-      onOpenSettings((at, to) => {
-        if (at) setSection(at)
+  useEffect(() => {
+    const off = [
+      onOpenSettings((at, to, link) => {
+        if (link.module) setPage(modulePage(link.module))
+        else if (at) setPage(at)
+        setNamed(null)
         setTarget(to)
         setOpen(true)
       }),
-    [],
-  )
+      onOpenKehikkoSettings((link) => {
+        setNamed(link.kehikko)
+        setPage(`kehikko-${link.section ?? 'general'}`)
+        setTarget(link.target)
+        setOpen(true)
+      }),
+      onOpenKehikkoSkills(() => {
+        setNamed(null)
+        setPage('kehikko-skills')
+        setTarget(null)
+        setOpen(true)
+      }),
+    ]
+    return () => off.forEach((one) => one())
+  }, [])
 
   /* ⌘, on a Mac, Ctrl+, elsewhere — in a text field too, where it types nothing. */
   useEffect(() => {
@@ -284,15 +327,36 @@ export function AgentSettingsHost({
     const onKey = (event: KeyboardEvent) => {
       if (!isSettingsChord(event, mac)) return
       event.preventDefault()
+      setNamed(null)
       setOpen(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const shownKehikko = (named !== null ? kehikot.find((one) => one.id === named) : null) ?? kehikko
+
   return (
     <>
-      <SettingsDialog open={open} onOpenChange={setOpen} load={load} save={save} section={section} onSection={setSection} project={project} modules={modules} trackers={trackers} target={target} onTargetShown={() => setTarget(null)} />
+      <SettingsDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) setTarget(null)
+        }}
+        load={load}
+        save={save}
+        section={page}
+        onSection={setPage}
+        project={project}
+        modules={modules}
+        trackers={trackers}
+        kehikko={shownKehikko}
+        onRename={onRename}
+        kehikkoApi={kehikkoApi}
+        target={target}
+        onTargetShown={() => setTarget(null)}
+      />
     </>
   )
 }
@@ -305,19 +369,73 @@ function KehikotMark({ className }: { className?: string }) {
   return <KehikkoMark working={false} className={className} />
 }
 
-/** A registered module as Settings lists it. */
-export type ModuleRef = { id: string; name: string; events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[] }
+/**
+ * A registered module as Settings lists it. `settings`: it declared settings of its own, so it has
+ * a page under Modules.
+ */
+export type ModuleRef = {
+  id: string
+  name: string
+  icon?: string | null
+  settings?: boolean
+  events?: readonly { id: string; says: string; state: 'working' | 'attention' | 'done'; sound?: string }[]
+}
 
-const SECTION_SAID: Record<SettingsSection, { title: string; icon: IconLike }> = {
+const SECTION_SAID: Record<Exclude<SettingsSection, `kehikko-${string}`>, { title: string; icon: IconLike }> = {
   tools: { title: 'Module tools', icon: Plug },
   skills: { title: 'Skills', icon: Sparkles },
-  trackers: { title: 'Trackers', icon: CircleDot },
-  notices: { title: 'Tracker notices', icon: Bell },
   hook: { title: 'Conversations', icon: MessagesSquare },
-  project: { title: 'Project', icon: FolderGit2 },
+  notices: { title: 'Trackers', icon: Bell },
   modules: { title: 'Modules', icon: Blocks },
+  development: { title: 'Development', icon: Hammer },
   appearance: { title: 'Appearance', icon: Palette },
   about: { title: 'About', icon: KehikotMark },
+  project: { title: 'Base branch', icon: FolderGit2 },
+  trackers: { title: 'Trackers', icon: CircleDot },
+}
+
+/** A page's title and icon in the nav. */
+function pageSaid(page: SettingsPage, modules: readonly ModuleRef[]): { title: string; icon: IconLike; module?: ModuleRef } {
+  const module = moduleOfPage(page)
+  if (module !== null) {
+    const ref = modules.find((one) => one.id === module) ?? { id: module, name: module }
+    const icon: ComponentType<{ className?: string }> = ({ className }) => <ModuleIcon id={ref.id} icon={ref.icon ?? undefined} name={ref.name} className={className} />
+    return { title: ref.name, icon, module: ref }
+  }
+  if (page.startsWith('kehikko-')) {
+    const { title, icon } = KEHIKKO_SECTION_SAID[page.slice('kehikko-'.length) as KehikkoSection]
+    return { title, icon }
+  }
+  return SECTION_SAID[page as keyof typeof SECTION_SAID]
+}
+
+/** The pages under each scope, as the nav lists them: a scope with none is not shown. */
+export function pagesOf({
+  answer,
+  project,
+  trackers,
+  kehikko,
+  modules,
+}: {
+  answer: SettingsAnswer | null
+  project: SettingsProject | null
+  trackers: TrackersDoor | null
+  kehikko: KehikkoRef | null
+  modules: readonly ModuleRef[]
+}): { scope: SettingsScope; name: string | null; pages: SettingsPage[] }[] {
+  const app: SettingsPage[] = ['tools', 'skills', 'hook', ...(answer?.notices || answer?.github ? (['notices'] as const) : []), 'modules', 'development', 'appearance', 'about']
+  const inProject: SettingsPage[] = [...(project ? (['project'] as const) : []), ...(trackers ? (['trackers'] as const) : [])]
+  const inKehikko: SettingsPage[] = kehikko ? kehikkoSectionsOf(kehikko).map((one) => `kehikko-${one}` as const) : []
+  const ofModules: SettingsPage[] = modules
+    .filter((one) => one.settings)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((one) => modulePage(one.id))
+  return [
+    { scope: 'app' as const, name: null, pages: app },
+    { scope: 'project' as const, name: project?.name ?? null, pages: inProject },
+    { scope: 'kehikko' as const, name: kehikko?.name ?? null, pages: inKehikko },
+    { scope: 'module' as const, name: null, pages: ofModules },
+  ].filter((group) => group.pages.length > 0)
 }
 
 export function SettingsDialog({
@@ -333,36 +451,61 @@ export function SettingsDialog({
   target = null,
   onTargetShown,
   trackers = null,
+  kehikko = null,
+  onRename,
+  modulesApi,
+  kehikkoApi,
 }: {
+  kehikkoApi?: KehikkoApi
   /** The open project's tracker reading, for Settings › Trackers. */
   trackers?: TrackersDoor | null
   open: boolean
   onOpenChange(open: boolean): void
-  /** A control to scroll to, focus and light once its section shows (`openSettings(section, target)`). */
+  /** A control to scroll to, focus and light once its page shows (`openSettings(section, target)`). */
   target?: string | null
   onTargetShown?(): void
   load?: typeof fetchSettings
   save?: typeof postSettings
-  /** Which section is shown; the dialog keeps its own when not given. */
-  section?: SettingsSection
-  onSection?(section: SettingsSection): void
-  /** The open project; the Project section is shown only with one. */
+  /** Which page is shown; the dialog keeps its own when not given. */
+  section?: SettingsPage
+  onSection?(section: SettingsPage): void
+  /** The open project; the Project scope is shown only with one. */
   project?: SettingsProject | null
   baseBranch?: BaseBranchDoor
   modules?: readonly ModuleRef[]
+  /** The kehikko the Kehikko scope is for; none, no Kehikko scope. */
+  kehikko?: KehikkoRef | null
+  onRename?(id: number, name: string): Promise<RenameResult>
+  /** How a module's page asks the host; for tests. */
+  modulesApi?: SettingsApi
 }) {
   const { answer, trouble, busy, saved, read, change } = useAgentSettings(open, load, save)
-  const [own, setOwn] = useState<SettingsSection>('tools')
+  const [own, setOwn] = useState<SettingsPage>('tools')
   const section = given ?? own
   const setSection = setGiven ?? setOwn
 
-  /* A link named a control: show it as soon as it is on the page (the answer may still be loading). */
+  /*
+   * A link named a control: show it as soon as it is on the page. What draws it may still be reading
+   * (the answer, a module's form, a kehikko's agents), so it is looked for again for a while.
+   */
   useEffect(() => {
-    if (!open || !target || !answer) return
+    if (!open || !target) return
+    let tries = 0
+    let every: ReturnType<typeof setInterval> | undefined
+    const look = () => {
+      if (revealTarget(document, target)) {
+        clearInterval(every)
+        onTargetShown?.()
+      } else if (++tries > 60) clearInterval(every)
+    }
     const frame = requestAnimationFrame(() => {
-      if (revealTarget(document, target)) onTargetShown?.()
+      look()
+      if (tries > 0) every = setInterval(look, 100)
     })
-    return () => cancelAnimationFrame(frame)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearInterval(every)
+    }
   }, [open, target, answer, section, onTargetShown])
 
   /* What the sync finds lands a moment after a change; read again while the window is open. */
@@ -374,11 +517,21 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <ModalContent className="h-[min(720px,calc(100dvh-2rem))] sm:max-w-4xl" data-settings>
+      <ModalContent
+        className="h-[min(720px,calc(100dvh-2rem))] sm:max-w-4xl"
+        data-settings=""
+        onOpenAutoFocus={(event) => {
+          /* Focus starts on the page's own tab, so a link's page is where the keyboard is. */
+          const tab = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+          if (!tab) return
+          event.preventDefault()
+          tab.focus()
+        }}
+      >
         <ModalHeader
           icon={<KehikkoMark working={false} className="text-muted-foreground size-4" />}
           title="Settings"
-          description="What your agent uses outside Kehikot, what the Inbox tells you and how Kehikot looks, on this computer, and the open project’s own settings."
+          description="Grouped by what they apply to: this computer, the open project, this kehikko, and each module’s own."
           descriptionClassName="max-sm:sr-only"
         />
         <ModalBody scroll={false}>
@@ -395,6 +548,11 @@ export function SettingsDialog({
           baseBranch={baseBranch}
           modules={modules}
           trackers={trackers}
+          kehikko={kehikko}
+          onRename={onRename}
+          modulesApi={modulesApi}
+          kehikkoApi={kehikkoApi}
+          open={open}
         />
         </ModalBody>
       </ModalContent>
@@ -402,7 +560,7 @@ export function SettingsDialog({
   )
 }
 
-/** The dialog's inside: the section nav and the sections, drawn from one answer. Exported for tests. */
+/** The dialog's inside: the nav, one tab list per scope, and the pages, drawn from one answer. Exported for tests. */
 export function SettingsBody({
   answer,
   trouble = null,
@@ -417,7 +575,12 @@ export function SettingsBody({
   modulesApi,
   modules = [],
   trackers = null,
+  kehikko = null,
+  onRename = async () => ({ ok: false, why: 'Kehikot cannot rename a kehikko here.' }),
+  open = true,
+  kehikkoApi,
 }: {
+  kehikkoApi?: KehikkoApi
   /** The open project's tracker reading, for Settings › Trackers; null with no project open. */
   trackers?: TrackersDoor | null
   answer: SettingsAnswer | null
@@ -425,57 +588,74 @@ export function SettingsBody({
   busy: boolean
   /** How many changes were taken; each new one says "Saved" for a moment. */
   saved?: number
-  section: SettingsSection
-  onSection(section: SettingsSection): void
+  section: SettingsPage
+  onSection(section: SettingsPage): void
   onChange(what: Change): void
   onClose?(): void
   project?: SettingsProject | null
   baseBranch?: BaseBranchDoor
-  /** How Settings › Modules asks the host; for tests. */
+  /** How a module's page asks the host; for tests. */
   modulesApi?: SettingsApi
-  /** The modules the host knows, for a sound of one module's own. */
+  /** The modules the host knows: a page for each that declared settings, and a sound of one module's own. */
   modules?: readonly ModuleRef[]
+  kehikko?: KehikkoRef | null
+  onRename?(id: number, name: string): Promise<RenameResult>
+  /** Whether the dialog is open: a module's form and a kehikko's skills read only then. */
+  open?: boolean
 }) {
-  const sections = SETTINGS_SECTIONS.filter(
-    (one) => (one !== 'notices' || answer?.notices) && (one !== 'project' || project) && (one !== 'trackers' || trackers || answer?.github),
-  )
-  const shown = sections.includes(section) ? section : 'tools'
+  const groups = pagesOf({ answer, project, trackers, kehikko, modules })
+  const every = groups.flatMap((group) => group.pages)
+  const shown: SettingsPage = every.includes(section) ? section : moduleOfPage(section) !== null ? 'modules' : 'tools'
+  const scope = scopeOfPage(shown)
+  const said = pageSaid(shown, modules)
+  const scopeName = scope === 'project' ? (project?.name ?? null) : scope === 'kehikko' ? (kehikko?.name ?? null) : scope === 'module' ? said.title : null
   const problems = answer?.status.problems.length ?? 0
+  const shownModule = moduleOfPage(shown)
 
   return (
     <Tabs
       value={shown}
-      onValueChange={(value) => onSection(value as SettingsSection)}
+      onValueChange={(value) => onSection(value as SettingsPage)}
+      /* One tab list per scope: Tab walks from list to list without changing the page; the arrows move
+         within one, and Enter, Space or a click opens the page. */
+      activationMode="manual"
       orientation="vertical"
       className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
     >
-      <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:border-r sm:border-b-0">
-        <TabsList
-          aria-label="Settings sections"
-          className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent px-2 py-2 sm:flex-col sm:items-stretch sm:overflow-visible"
-        >
-          {sections.map((key) => {
-            const { title, icon: Icon } = SECTION_SAID[key]
-            return (
-              <TabsTrigger
-                key={key}
-                value={key}
-                data-section={key}
-                className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
-              >
-                <Icon className="size-4" aria-hidden />
-                {title}
-                {key === 'tools' && problems > 0 ? (
-                  <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
-                    {problems}
-                    <span className="sr-only"> left alone</span>
-                  </span>
-                ) : null}
-              </TabsTrigger>
-            )
-          })}
-        </TabsList>
-        <p className="text-muted-foreground mt-auto hidden px-4 pb-4 text-[11px] sm:block">
+      <aside className="bg-muted/40 flex max-h-40 shrink-0 flex-col overflow-y-auto border-b sm:max-h-none sm:min-h-0 sm:w-56 sm:border-r sm:border-b-0" data-settings-nav>
+        {groups.map((group) => {
+          const heading = `settings-scope-${group.scope}`
+          return (
+            <div key={group.scope} className="px-2 pt-2 last:pb-2" data-settings-scope={group.scope}>
+              <h3 id={heading} className="text-muted-foreground truncate px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-wide uppercase" title={scopeHeading(group.scope, group.name)}>
+                {scopeHeading(group.scope, group.name)}
+              </h3>
+              <TabsList aria-labelledby={heading} className="h-auto w-full flex-wrap justify-start gap-0.5 rounded-none bg-transparent p-0 sm:flex-col sm:flex-nowrap sm:items-stretch">
+                {group.pages.map((key) => {
+                  const { title, icon: Icon } = pageSaid(key, modules)
+                  return (
+                    <TabsTrigger
+                      key={key}
+                      value={key}
+                      data-section={key}
+                      className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 min-w-0 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden />
+                      <span className="truncate">{title}</span>
+                      {key === 'tools' && problems > 0 ? (
+                        <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
+                          {problems}
+                          <span className="sr-only"> left alone</span>
+                        </span>
+                      ) : null}
+                    </TabsTrigger>
+                  )
+                })}
+              </TabsList>
+            </div>
+          )
+        })}
+        <p className="text-muted-foreground mt-auto hidden px-4 pt-3 pb-4 text-[11px] sm:block">
           Open Settings with <kbd className="bg-background rounded border px-1 font-sans">{chordSaid(onMac())}</kbd>
         </p>
       </aside>
@@ -484,43 +664,45 @@ export function SettingsBody({
         <SavedNote saved={saved} />
         <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
           <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
-            {trouble ? <Trouble>{trouble}</Trouble> : null}
-            {sections.map((key) => (
+            {/* What the page shown applies to, in one sentence, above everything on it. */}
+            <p className="text-muted-foreground -mb-1 pr-16 text-xs" data-scope-lead={scope}>
+              <span className="text-foreground font-medium">{scopeHeading(scope, scope === 'module' ? null : scopeName)}</span>
+              {' · '}
+              {scopeLead(scope, scopeName)}
+            </p>
+            {trouble && scope === 'app' ? <Trouble>{trouble}</Trouble> : null}
+            {every.map((key) => (
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
-                {key === 'about' ? (
+                {moduleOfPage(key) !== null ? (
+                  /* Only while it is shown: its form asks the module. */
+                  shownModule === moduleOfPage(key) ? (
+                    <ModulePage module={said.module ?? { id: shownModule!, name: shownModule! }} project={project} api={modulesApi} open={open} onOpened={onClose} />
+                  ) : null
+                ) : key.startsWith('kehikko-') ? (
+                  shown === key && kehikko ? (
+                    <KehikkoPage kehikko={kehikko} section={key.slice('kehikko-'.length) as KehikkoSection} active={open} onRename={onRename} {...kehikkoApi} />
+                  ) : null
+                ) : key === 'about' ? (
                   <About onClose={onClose} />
                 ) : key === 'appearance' ? (
                   /* Only while it is shown, like Modules: its controls are nobody else's to find. */
                   shown === 'appearance' ? <AppearanceSettings onChange={onChange} modules={modules} /> : null
                 ) : key === 'trackers' ? (
-                  <TrackersSection
-                    door={trackers}
-                    projectName={project?.name ?? null}
-                    share={answer?.github?.share ?? null}
-                    onShare={(share) => onChange({ github: { share } })}
-                  />
+                  <ProjectTrackers door={trackers} projectName={project?.name ?? null} projectId={project?.id ?? null} />
                 ) : key === 'project' ? (
-                  project ? <ProjectSettings project={project} door={baseBranch} /> : null
+                  project ? (
+                    <>
+                      <ProjectSettings project={project} door={baseBranch} />
+                      <ProjectModules project={project} answer={answer} onChange={onChange} />
+                    </>
+                  ) : null
                 ) : key === 'modules' ? (
-                  <>
-                    {answer?.updates ? (
-                      /* Machine-wide, like the rest of this window; mirrored at the top of the Updates menu. */
-                      <div data-auto-updates-setting className="divide-y rounded-lg border px-4">
-                        <SettingRow
-                          label={AUTO_UPDATES.label}
-                          description={AUTO_UPDATES.description}
-                          checked={answer.updates.auto}
-                          onChange={(auto) => onChange({ updates: { auto } })}
-                        />
-                      </div>
-                    ) : null}
-                    {/* Where the official modules run from: Kehikot's releases, or your own folders. Machine-wide. */}
-                    {shown === 'modules' ? <DevelopmentSetting /> : null}
-                    {/* Only while it is shown: listing asks every module, and each form asks its own. */}
-                    {shown === 'modules' ? <ModulesSettings api={modulesApi} project={project ? { id: project.id, name: project.name } : null} /> : null}
-                  </>
+                  <ModulesPage answer={answer} onChange={onChange} modules={modules} />
+                ) : key === 'development' ? (
+                  /* Where the official modules run from: Kehikot's releases, or your own folders. Machine-wide. */
+                  shown === 'development' ? <DevelopmentPage /> : null
                 ) : answer ? (
-                  <Section which={key} answer={answer} onChange={onChange} projectId={project?.id ?? null} />
+                  <Section which={key as SectionKey} answer={answer} onChange={onChange} />
                 ) : !trouble ? (
                   <Loading className="text-sm" label="Reading the settings…" />
                 ) : null}
@@ -530,6 +712,74 @@ export function SettingsBody({
         </ScrollArea>
       </div>
     </Tabs>
+  )
+}
+
+type SectionKey = 'tools' | 'skills' | 'hook' | 'notices'
+
+/** How the Kehikko pages read and write; for tests. */
+export type KehikkoApi = Pick<ComponentProps<typeof KehikkoPage>, 'load' | 'save' | 'skills'>
+
+/**
+ * App › Modules: how modules are kept on this computer — updated by themselves, and kept running —
+ * and where each module's own settings are.
+ */
+function ModulesPage({ answer, onChange, modules }: { answer: SettingsAnswer | null; onChange(what: Change): void; modules: readonly ModuleRef[] }) {
+  const own = modules.filter((one) => one.settings).length
+  return (
+    <>
+      <Heading id="modules" lead="How Kehikot keeps your modules on this computer. Install, update, stop or uninstall one from Kehikko modules in the bar.">
+        Modules
+      </Heading>
+      {answer?.updates ? (
+        <Rows>
+          {answer.updates ? (
+            /* Machine-wide, like the rest of this scope; mirrored at the top of the Updates menu. */
+            <div data-auto-updates-setting>
+              <SettingRow label={AUTO_UPDATES.label} description={AUTO_UPDATES.description} checked={answer.updates.auto} onChange={(auto) => onChange({ updates: { auto } })} />
+            </div>
+          ) : null}
+        </Rows>
+      ) : !answer ? (
+        <Loading className="text-sm" label="Reading the settings…" />
+      ) : null}
+      <p className="text-muted-foreground text-xs leading-relaxed" data-modules-own>
+        {own
+          ? `A module’s own settings are on its page under Modules (${own} module${own === 1 ? ' has' : 's have'} settings), behind the gear on its container, and behind “Settings…” on its row in Kehikko modules.`
+          : 'No module here has settings of its own. A module that has them gets a page under Modules, a gear on its container and “Settings…” on its row in Kehikko modules.'}
+      </p>
+    </>
+  )
+}
+
+/** App › Development: where the official modules run from. */
+function DevelopmentPage() {
+  return (
+    <>
+      <Heading id="development" lead="Whether modules run from Kehikot’s releases or from your own folders, and where each one runs from now.">
+        Development
+      </Heading>
+      <DevelopmentSetting />
+    </>
+  )
+}
+
+/** Modules › <name>: one module's own settings, for the open project, saved by the module. */
+function ModulePage({ module, project, api, open, onOpened }: { module: ModuleRef; project: SettingsProject | null; api?: SettingsApi; open: boolean; onOpened(): void }) {
+  return (
+    <section className="flex min-w-0 flex-col gap-4" aria-labelledby={`settings-module-${module.id}`} data-settings-module={module.id}>
+      <header className="min-w-0 space-y-1 pr-16">
+        <h3 id={`settings-module-${module.id}`} className="flex items-center gap-2 text-base font-semibold">
+          <ModuleIcon id={module.id} icon={module.icon ?? undefined} name={module.name} className="text-muted-foreground size-4" />
+          {module.name}
+        </h3>
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          {project ? `For ${project.name}, where a setting is the project’s; a setting marked “for this computer” is the same everywhere. ` : ''}
+          Each change is saved by {module.name} as you make it.
+        </p>
+      </header>
+      {open ? <ModuleSettingsForm module={module.id} name={module.name} project={project?.id ?? null} api={api} onOpened={onOpened} /> : null}
+    </section>
   )
 }
 
@@ -562,17 +812,7 @@ function SavedNote({ saved }: { saved: number }) {
   )
 }
 
-function Section({
-  which,
-  answer,
-  onChange,
-  projectId = null,
-}: {
-  which: Exclude<SettingsSection, 'about' | 'project' | 'appearance' | 'trackers'>
-  answer: SettingsAnswer
-  onChange(what: Change): void
-  projectId?: number | null
-}) {
+function Section({ which, answer, onChange }: { which: SectionKey; answer: SettingsAnswer; onChange(what: Change): void }) {
   const { settings, status, hook } = answer
 
   if (which === 'tools') {
@@ -620,16 +860,6 @@ function Section({
             disabled={!active(settings, 'tools')}
             onOut={(module, out) => onChange({ except: { kind: 'tools', module, out } })}
           />
-        ) : null}
-        {answer.modules ? (
-          <Rows>
-            <SettingRow
-              label={KEEP_RUNNING.label}
-              description={KEEP_RUNNING.description}
-              checked={answer.modules.keep}
-              onChange={(keep) => onChange({ modules: { keep } })}
-            />
-          </Rows>
         ) : null}
       </>
     )
@@ -685,12 +915,20 @@ function Section({
   }
 
   if (which === 'notices') {
-    return answer.notices ? (
+    /* Trackers, as this computer keeps them: what the Inbox tells you, and Kehikot's share of the GitHub limit. */
+    return (
       <>
-        <TrackerNotices notices={answer.notices} onChange={(notices) => onChange({ notices })} />
-        {projectId !== null ? <UntrackedItems project={projectId} /> : null}
+        {answer.notices ? <TrackerNotices notices={answer.notices} onChange={(notices) => onChange({ notices })} /> : null}
+        {answer.github ? (
+          <section className="min-w-0 space-y-2" data-trackers-machine>
+            <h4 className="text-sm font-medium">GitHub limit</h4>
+            <div className="divide-y rounded-lg border px-4">
+              <GithubShareRow percent={answer.github.share} onChange={(share) => onChange({ github: { share } })} />
+            </div>
+          </section>
+        ) : null}
       </>
-    ) : null
+    )
   }
 
   return (
@@ -725,7 +963,7 @@ function Section({
 
 /**
  * Where the agent setup is chosen: the agent module that holds it (protocol 2.91.0, `agent.setup`),
- * with a press that opens its form in Settings › Modules. Its name and program are data from it.
+ * with a press that opens its page under Settings › Modules. Its name and program are data from it.
  */
 function HeldBy({ holder, on, what }: { holder: SetupHolder | null | undefined; on: boolean; what: string }) {
   return (
@@ -739,7 +977,7 @@ function HeldBy({ holder, on, what }: { holder: SetupHolder | null | undefined; 
           size="sm"
           className="mt-2 h-7"
           data-press="setup-settings"
-          onClick={() => openSettings('modules', moduleSettingsTarget(holder.module))}
+          onClick={() => openModuleSettings(holder.module)}
         >
           Open {holder.name}’s settings
         </Button>
@@ -858,22 +1096,12 @@ function TrackerNotices({
 }
 
 /**
- * Trackers: everything a person can change about where issues and changes are read from. The open
- * project's part — its sources, how they are read, the news to agents — says which project it is
- * for; Kehikot's share of the GitHub limit is the same for every project. The bar's Trackers menu
- * only says what was read and links here (`TrackerReading.tsx`).
+ * Project › Trackers: where the open project's issues and changes are read from — its sources, how
+ * they are read, the news to agents — and the items the person said not to track in it. Kehikot's
+ * share of the GitHub limit and the Inbox's tracker notices are this computer's (App › Trackers).
+ * The bar's Trackers menu only says what was read and links here (`TrackerReading.tsx`).
  */
-function TrackersSection({
-  door,
-  projectName,
-  share,
-  onShare,
-}: {
-  door: TrackersDoor | null
-  projectName: string | null
-  share: number | null
-  onShare(share: number): void
-}) {
+function ProjectTrackers({ door, projectName, projectId }: { door: TrackersDoor | null; projectName: string | null; projectId: number | null }) {
   return (
     <>
       <Heading id="trackers" lead={TRACKERS_ARE_FOR}>
@@ -883,7 +1111,7 @@ function TrackersSection({
         <section className="flex min-w-0 flex-col gap-4" data-trackers-project>
           <p className="text-muted-foreground text-xs" data-trackers-for>
             {projectName ? `For ${projectName}. ` : 'For the open project. '}
-            Its sources are kept in the project folder; the news switch is kept on this computer.
+            Its sources are kept in the project folder; the news switch is saved on this computer, for this project only.
           </p>
           <TrackerSourcesSettings door={door} />
           {door.news ? (
@@ -892,7 +1120,7 @@ function TrackersSection({
               <div {...{ [TARGET_ATTR]: SETTINGS_TARGETS.trackerNews.target }} className={cn('divide-y rounded-lg border px-4', LIT_ROW)} data-tracker-news={door.news.on ? 'on' : 'off'}>
                 <SettingRow
                   label={TRACKER_NEWS_WORDS.title}
-                  description={`${TRACKER_NEWS_WORDS.lead} ${door.news.on ? TRACKER_NEWS_WORDS.on : TRACKER_NEWS_WORDS.off}`}
+                  description={`${TRACKER_NEWS_WORDS.lead} ${door.news.on ? TRACKER_NEWS_WORDS.on : TRACKER_NEWS_WORDS.off} ${TRACKER_NEWS_WORDS.kept}`}
                   checked={door.news.on}
                   onChange={door.news.onChange}
                 />
@@ -905,14 +1133,35 @@ function TrackersSection({
           No project is open. Open one to see and change its sources.
         </p>
       )}
-      {share !== null ? (
-        <section className="min-w-0 space-y-2" data-trackers-machine>
-          <h4 className="text-sm font-medium">On this computer</h4>
-          <div className="divide-y rounded-lg border px-4">
-            <GithubShareRow percent={share} onChange={onShare} />
-          </div>
-        </section>
-      ) : null}
+      {projectId !== null ? <UntrackedItems project={projectId} /> : null}
+    </>
+  )
+}
+
+/**
+ * Project › Modules: whether this project's modules are kept running. Saved on this computer for this
+ * project only (`server/keepRunning.ts`), so it is the person's memory choice for one project and
+ * never the project's own file, which everyone working on it shares.
+ */
+function ProjectModules({ project, answer, onChange }: { project: SettingsProject; answer: SettingsAnswer | null; onChange(what: Change): void }) {
+  const said = answer?.modules
+  if (!said) return null
+  const keep = said.projects[String(project.id)] ?? said.default
+  return (
+    <>
+      <Heading id="project-modules" lead="Which of this project’s modules Kehikot keeps running in the background.">
+        Running modules
+      </Heading>
+      <Rows>
+        <div data-keep-running-setting>
+          <SettingRow
+            label={KEEP_RUNNING.label}
+            description={`${KEEP_RUNNING.description} ${KEEP_RUNNING.applies(project.name)}`}
+            checked={keep}
+            onChange={(next) => onChange({ modules: { project: project.id, keep: next } })}
+          />
+        </div>
+      </Rows>
     </>
   )
 }
@@ -988,8 +1237,8 @@ function ProjectSettings({ project, door }: { project: SettingsProject; door: Ba
 
   return (
     <>
-      <Heading id="project" lead={`Settings for ${project.name}, kept in the project folder so everyone working on it shares them.`}>
-        Project
+      <Heading id="project" lead={`Kept in ${project.name}’s folder, so everyone working on it shares it.`}>
+        Base branch
       </Heading>
       {unavailable ? (
         <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-3 text-xs" data-base-branch="unavailable">

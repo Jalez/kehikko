@@ -16,7 +16,7 @@ import type { Presence, RegistryView } from '../src/host/registry.ts'
  */
 
 const inChild = process.env.MODULE_MENU_ROWS_DOM === '1'
-const TESTS = 11
+const TESTS = 12
 
 const LONG = 'Your standing lists for every change, kept per epic. Agents answer each line as they work, and you see what is owed.'
 
@@ -355,5 +355,26 @@ describe('a row', () => {
     document.body.innerHTML = ''
     await render()
     expect(toggle('me.beta').getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('a module’s own settings', () => {
+  if (!inChild) return
+
+  test('an open row of a module with settings has "Settings…", which opens Settings at its page; one without has none', async () => {
+    const field = { key: 'mode', label: 'Mode', type: 'boolean', default: false }
+    setRegistry([framed('me.alpha', 'Alpha', { declares: { protocol: '>=2', uses: [], storage: false, settings: [field] } as never }), BETA])
+    await render()
+    await act(async () => toggle('me.alpha').click())
+    await act(async () => toggle('me.beta').click())
+    expect(row('me.beta').querySelector('[data-row-settings]')).toBeNull()
+    const press = row('me.alpha').querySelector<HTMLButtonElement>('[data-row-settings]')!
+    expect(press.textContent).toBe('Settings…')
+    const heard: unknown[] = []
+    const { onOpenSettings } = await import('../src/host/agentSettings.ts')
+    const off = onOpenSettings((_, __, link) => void heard.push(link))
+    await act(async () => press.click())
+    off()
+    expect(heard).toEqual([{ section: null, target: null, module: 'me.alpha' }])
   })
 })

@@ -99,6 +99,8 @@ function fingerprint(dir) {
       const info = statSync(path)
       /* A folder by its mode alone: its time moves when a file inside appears and goes again (git's own lock while
          something reads the repository), and every file in it is compared by itself. */
+      /* Installed dependencies are the start of a checkout by `run.sh`, not the person's files. */
+      if (name === 'node_modules' && at === dir) continue
       if (info.isDirectory()) out.set(relative(dir, path), `${info.mode}`)
       else out.set(relative(dir, path), `${info.mode}:${info.mtimeMs}:${info.size}:${createHash('sha256').update(readFileSync(path)).digest('hex')}`)
       if (info.isDirectory()) walk(path)
@@ -218,7 +220,7 @@ export async function developmentDrive({ check = false } = {}) {
         writeFileSync(join(root, 'modules', `${sample.id}.json`), JSON.stringify({ url: `http://127.0.0.1:${ports.sample}`, dir: sampleFolder }))
         writeFileSync(join(root, 'modules', `${brokenOne.id}.json`), JSON.stringify({ url: `http://127.0.0.1:${ports.broken}`, dir: brokenFolder }))
         if (claudeFolder) {
-          writeFileSync(join(root, 'modules', 'kehikot.claude.json'), JSON.stringify({ url: `http://127.0.0.1:${ports.claude}`, dir: claudeFolder }))
+          writeFileSync(join(root, 'modules', 'kehikot.claude.json'), JSON.stringify({ url: `http://127.0.0.1:${ports.claude}`, dir: claudeFolder, keep: true }))
           /* The hook a press of "Report sessions started outside Kehikot" wrote while Claude ran from the clone: the module's own command, from there. */
           const command = execFileSync(process.env.BUN ?? 'bun', ['-e', `import { hookCommand } from ${JSON.stringify(join(claudeSource, 'hook.ts'))}; console.log(hookCommand(${JSON.stringify(claudeFolder)}, ${JSON.stringify(join(root, 'modules'))}))`], { cwd: claudeSource, encoding: 'utf8' }).trim()
           writeFileSync(join(root, 'claude', 'settings.json'), JSON.stringify({ model: 'opus', hooks: { SessionStart: [{ hooks: [{ type: 'command', command, timeout: 5 }] }] } }, null, 2))
@@ -269,6 +271,13 @@ export async function developmentDrive({ check = false } = {}) {
     expect((await until('Sample answers from the folder', async () => (await versionAt(ports.sample)) === '0.0.0-dev')) === true, 'Sample answers as the folder’s version')
     expect((await until('Broken answers from the folder', async () => (await versionAt(ports.broken)) === '0.0.0-dev')) === true, 'Broken answers as the folder’s version')
 
+    /* Claude, set to keep running, runs from the clone: Kehikot must not stop it to move it. */
+    if (withClaude) {
+      const started = await post('/host/start', { module: 'kehikot.claude' })
+      expect(started.ok, `Claude (set to keep running) starts from the clone (${started.status})`)
+      expect(Boolean(await until('Claude answers from the clone', async () => (await versionAt(ports.claude)) !== null, 240_000).catch(() => false)), 'and answers')
+    }
+
     /* The folders as the person has them, with their modules running from them: what the switches below must leave exactly so. */
     const before = { sample: fingerprint(sampleFolder), broken: fingerprint(brokenFolder), ...(claudeFolder ? { claude: fingerprint(claudeFolder) } : {}) }
 
@@ -287,20 +296,46 @@ export async function developmentDrive({ check = false } = {}) {
     expect(row(off, brokenOne.id)?.move?.step === 'restored', `its line says it was put back (${row(off, brokenOne.id)?.move?.why})`)
     expect((await until('Broken answers from the folder again', async () => (await versionAt(ports.broken)) === '0.0.0-dev').catch(() => false)) === true, 'Broken runs from the folder again')
     expect(/Your folder .*kehikko-sample is no longer used by Kehikot|kehikko-sample/.test(off.summary ?? '') && !/kehikko-broken[,.]/.test((off.summary ?? '').split('no longer used')[1] ?? ''), `the summary names the folder no longer used (${off.summary})`)
-    expect(/Broken( and Claude)? did not move/.test(off.summary ?? ''), 'and the one that did not move')
+    expect(/Broken did not start from/.test(off.summary ?? '') || /Broken[^.]*did not move/.test(off.summary ?? ''), 'and the one that did not move')
+    if (withClaude) {
+      expect(/Claude did not move yet: it is set to keep running/.test(off.summary ?? '') && /Move now/.test(off.summary ?? ''), `and Claude, which keeps running: why, and when it moves (${off.summary})`)
+      expect(/ 2 did not move\./.test(` ${off.summary ?? ''}`), 'with both counted')
+    }
     await until('the Inbox has the summary', async () => /now runs? from Kehikot’s releases/.test(await inboxNow()), 30_000).catch(() => false)
     expect(/now runs? from Kehikot’s releases/.test(await inboxNow()), 'the summary is in the Inbox')
+    if (withClaude) {
+      const told = await inboxNow()
+      expect(/Claude did not move yet/.test(told) && /Move now/.test(told), 'and so is the line about Claude, whole (the Inbox once cut the end of the summary off)')
+      expect(/Broken/.test(told) && /did not move/.test(told), 'and the line about Broken')
+    }
 
-    /* ---- 4. The real Claude module: its hook follows it to the installed copy -------------------- */
+    /* The folders Kehikot no longer uses are listed, each checked: Sample's has work not committed, so it is kept. Nothing is moved. */
+    const unusedNow = await (await fetch(`${api}/host/unused-folders`, { headers })).json()
+    const sampleListed = unusedNow.folders?.find((one) => one.dir === sampleFolder)
+    expect(sampleListed?.trash === false && /uncommitted changes/.test(sampleListed?.why ?? ''), `the unused-folders list keeps Sample's folder, which has work not committed (${JSON.stringify(sampleListed)})`)
+    expect(existsSync(sampleFolder), 'and moved nothing')
+    const refusedTrash = await fetch(`${api}/host/unused-folders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trash: [sampleFolder] }) })
+    expect(refusedTrash.status === 403 || refusedTrash.status === 400 || refusedTrash.status === 409, `a request that is not the page's is refused (${refusedTrash.status})`)
+
+    /* ---- 4. The real Claude module, set to keep running: deferred, then "Move now", and its hook follows it --- */
     if (withClaude) {
       const claudeRow = row(off, 'kehikot.claude')
-      expect(registration('kehikot.claude').dir === installed('kehikot.claude'), `Claude's registration names its installed copy (${registration('kehikot.claude').dir}; ${claudeRow?.move?.why ?? ''})`)
-      expect(readBundleInfo(installed('kehikot.claude'))?.version === claudeVersion, `the installed copy is Claude's ${claudeVersion} bundle`)
-      expect((await until('Claude answers as its release', async () => (await versionAt(ports.claude)) === claudeVersion, 90_000).catch(() => false)) === true, `Claude answers as ${claudeVersion}, from its bundle`)
+      expect(registration('kehikot.claude').dir === claudeFolder && registration('kehikot.claude').keep === true, `Claude, running and set to keep running, is not moved under itself (${registration('kehikot.claude').dir})`)
+      expect(claudeRow?.move?.step === 'later' && claudeRow?.keeps === true, `its row says it moves at its next restart (${claudeRow?.move?.step}: ${claudeRow?.move?.why})`)
+      expect((await versionAt(ports.claude)) !== null, 'and it is still running')
       const settings = join(scratch.root, 'claude', 'settings.json')
       const hookNow = () => JSON.parse(readFileSync(settings, 'utf8')).hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? ''
-      const followed = await until('the hook names the installed copy', async () => hookNow().includes(join(installed('kehikot.claude'), 'started.sh')), 30_000).catch(() => false)
-      expect(Boolean(followed), `the session hook in Claude Code's settings runs the installed copy: ${hookNow()}`)
+      expect(hookNow().includes(join(claudeFolder, 'started.sh')) || hookNow().includes(claudeFolder), 'its session hook still names the clone, which still runs')
+      /* The person presses "Move now" (the page asks first). */
+      const pressed = await post('/host/development', { module: 'kehikot.claude', move: true, now: true })
+      expect(pressed.ok, `Move now on Claude (${pressed.status})`)
+      const after4 = await settled()
+      expect(registration('kehikot.claude').dir === installed('kehikot.claude') && registration('kehikot.claude').keep === true, `Claude's registration names its installed copy, and still says keep (${registration('kehikot.claude').dir}; ${row(after4, 'kehikot.claude')?.move?.why ?? ''})`)
+      expect(row(after4, 'kehikot.claude')?.move?.step === 'done' && row(after4, 'kehikot.claude')?.runs?.from === 'release', 'its row says it moved, and runs from its release')
+      expect(readBundleInfo(installed('kehikot.claude'))?.version === claudeVersion, `the installed copy is Claude's ${claudeVersion} bundle`)
+      expect((await until('Claude answers as its release', async () => (await versionAt(ports.claude)) === claudeVersion, 90_000).catch(() => false)) === true, `Claude answers as ${claudeVersion}, from its bundle`)
+      const followed = await until('the hook names the installed copy', async () => hookNow().includes(join(installed('kehikot.claude'), 'started.sh')), 60_000).catch(() => false)
+      expect(Boolean(followed), `the session hook in Claude Code's settings is repaired, and runs the installed copy: ${hookNow()}`)
       expect(JSON.parse(readFileSync(settings, 'utf8')).model === 'opus', 'and the rest of the settings is as it was')
       const left = naming(join(scratch.root, 'claude'), claudeFolder)
       expect(left.length === 0, `nothing in the Claude Code config names the clone any more${left.length ? ` (${left.join(', ')})` : ''}`)
@@ -320,6 +355,27 @@ export async function developmentDrive({ check = false } = {}) {
     const after = await settled()
     expect(registration(sample.id).dir === installed(sample.id) && row(after, sample.id)?.release === true, 'Sample runs from its release while development stays on')
     expect((await until('Sample answers as its release again', async () => (await versionAt(ports.sample)) === '1.0.0').catch(() => false)) === true, 'and answers as 1.0.0')
+
+    /* ---- 5. A module set to keep running moves by itself at its next restart --------------------- */
+    const toFolder = await post('/host/development', { module: sample.id, release: false })
+    expect(toFolder.ok, 'Sample is put back on the person’s folder')
+    await settled()
+    expect((await until('Sample answers from the folder', async () => (await versionAt(ports.sample)) === '0.0.0-dev').catch(() => false)) === true, 'and runs from it')
+    const sampleReg = registration(sample.id)
+    writeFileSync(join(scratch.root, 'modules', `${sample.id}.json`), JSON.stringify({ ...sampleReg, keep: true }))
+    await post('/host/development', { module: sample.id, release: true })
+    const waiting = await settled()
+    expect(registration(sample.id).dir === sampleFolder && row(waiting, sample.id)?.move?.step === 'later', `Sample, set to keep running, is not moved while it runs (${registration(sample.id).dir}; ${row(waiting, sample.id)?.move?.step})`)
+    const listener = execFileSync('lsof', ['-ti', `tcp:${ports.sample}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim().split('\n')[0]
+    process.kill(Number(listener), 'SIGTERM')
+    expect((await until('Sample ends', async () => (await versionAt(ports.sample)) === null, 30_000).catch(() => false)) === true, 'it ends (a restart, an update or a crash: the next start is its next restart)')
+    const startedAgain = await post('/host/start', { module: sample.id })
+    expect(startedAgain.ok, `Sample starts again (${startedAgain.status})`)
+    await settled()
+    expect(registration(sample.id).dir === installed(sample.id) && registration(sample.id).keep === true, `at that start it moved by itself, and still says keep (${registration(sample.id).dir})`)
+    expect((await until('Sample answers as its release', async () => (await versionAt(ports.sample)) === '1.0.0', 60_000).catch(() => false)) === true, 'and answers as its release, 1.0.0')
+    expect(row(await state(), sample.id)?.move?.step === 'done', 'its row says it moved')
+    expect(/Sample now runs|1 module now runs from Kehikot’s releases/.test(await inboxNow()), 'and the Inbox says so')
 
     const sampleChanged = changedIn(before.sample, fingerprint(sampleFolder))
     expect(!sampleChanged.length, `Sample’s folder is exactly as it was: every file, mode and time${sampleChanged.length ? ` (changed: ${sampleChanged.join(', ')})` : ''}`)

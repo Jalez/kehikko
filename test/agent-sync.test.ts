@@ -598,31 +598,36 @@ describe('the settings', () => {
     expect(readSettings(db)).toEqual(DEFAULT_SETTINGS)
   })
 
-  test('“Keep this project’s modules running”: on by default, changed with { modules: { keep } }, told once per change', async () => {
+  test('“Keep this project’s modules running”: on by default, changed per project with { modules: { project, keep } }, told once per change', async () => {
     const db = new Database(':memory:')
     ensureSettings(db)
-    const told: boolean[] = []
+    const told: [number, boolean][] = []
     const route = settingsRoute({
       db,
       status: () => ({ at: null, running: false, modules: [], problems: [] }),
-     
-      modulesChanged: (keep) => told.push(keep),
+      projectKnown: (project) => project === 4 || project === 5,
+      modulesChanged: (project, keep) => told.push([project, keep]),
       skillsAt: () => '/s',
       hook: () => ({ file: '/x', on: false }),
     })
     const at = new URL('http://127.0.0.1/host/settings')
     const post = (body: unknown) => route(new Request(at, { method: 'POST', body: JSON.stringify(body) }), at)
-    expect((await (await route(new Request(at), at))!.json()).modules).toEqual({ keep: true })
-    expect(readKeepRunning(db)).toBe(true)
-    const off = await (await post({ modules: { keep: false } }))!.json()
-    expect(off.modules).toEqual({ keep: false })
-    expect(readKeepRunning(db)).toBe(false)
+    expect((await (await route(new Request(at), at))!.json()).modules).toEqual({ default: true, projects: {} })
+    expect(readKeepRunning(db, 4)).toBe(true)
+    const off = await (await post({ modules: { project: 4, keep: false } }))!.json()
+    expect(off.modules).toEqual({ default: true, projects: { 4: false } })
+    expect(readKeepRunning(db, 4)).toBe(false)
+    /* Another project is untouched. */
+    expect(readKeepRunning(db, 5)).toBe(true)
     /* The same again is no change and tells nobody. */
-    await post({ modules: { keep: false } })
-    expect(told).toEqual([false])
-    expect((await post({ modules: { keep: 'yes' } }))!.status).toBe(400)
-    await post({ modules: { keep: true } })
-    expect(told).toEqual([false, true])
+    await post({ modules: { project: 4, keep: false } })
+    expect(told).toEqual([[4, false]])
+    expect((await post({ modules: { project: 4, keep: 'yes' } }))!.status).toBe(400)
+    /* The old, project-less shape and an unknown project are refused. */
+    expect((await post({ modules: { keep: false } }))!.status).toBe(400)
+    expect((await post({ modules: { project: 99, keep: false } }))!.status).toBe(404)
+    await post({ modules: { project: 4, keep: true } })
+    expect(told).toEqual([[4, false], [4, true]])
     expect(readSettings(db)).toEqual(DEFAULT_SETTINGS)
   })
 

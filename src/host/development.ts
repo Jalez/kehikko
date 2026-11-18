@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /**
  * "Kehikko development": the one switch that says where the official modules run from, and the words
- * a person reads about it. Shared by the page (Settings › Modules, the modules list) and the server
+ * a person reads about it. Shared by the page (Settings › Development, the modules list) and the server
  * (`server/development.ts`, which holds the rule and does the moving).
  *
  * ## From the person's side
@@ -26,7 +26,7 @@ export const runsSchema = z.discriminatedUnion('from', [
 export type Runs = z.infer<typeof runsSchema>
 
 /** How a module's move is going, while a switch runs and after. */
-export const moveStepSchema = z.enum(['waiting', 'installing', 'starting', 'done', 'failed', 'restored'])
+export const moveStepSchema = z.enum(['waiting', 'installing', 'starting', 'done', 'failed', 'restored', 'later'])
 export type MoveStep = z.infer<typeof moveStepSchema>
 
 export const devModuleSchema = z.object({
@@ -37,6 +37,10 @@ export const devModuleSchema = z.object({
   folder: z.string().nullable(),
   /** "Use the release for this one", while development is on. */
   release: z.boolean(),
+  /** The module's own choice: follow the switch, always its folder (an exemption), or always its release. */
+  mode: z.enum(['follow', 'folder', 'release']).default('follow'),
+  /** Whether the module is set to keep running: Kehikot does not stop it, so it moves at its next restart or on "Move now". */
+  keeps: z.boolean(),
   /** Where it should run from, by the switch and its own choice. */
   wants: z.enum(['release', 'folder']),
   /** A folder on this computer that looks like this module's checkout: offered, never assumed. */
@@ -54,10 +58,12 @@ export const developmentSchema = z.object({
   moving: z.boolean(),
   /** What the last switch came to, in a sentence or two; null before any. */
   summary: z.string().nullable(),
+  /** How many folders Kehikot no longer uses and the person has not cleared (`unusedFolders.ts`). */
+  unused: z.number().default(0),
 })
 export type Development = z.infer<typeof developmentSchema>
 
-/** The switch, as Settings › Modules says it. */
+/** The switch, as Settings › Development says it. */
 export const DEVELOPMENT = {
   label: 'Kehikko development',
   description: 'Off: every module runs from Kehikot’s releases. On: modules you develop run from your own folders.',
@@ -75,6 +81,15 @@ export function runsSaid(runs: Runs, home: string | null): string {
   return `Your folder ${pathSaid(runs.dir, home)}`
 }
 
+/** How many modules run from where, at the top of the list: "28 from releases · 2 from your folders". */
+export function runsCounted(modules: readonly Pick<DevModule, 'runs'>[]): string {
+  const folders = modules.filter((one) => one.runs.from === 'folder').length
+  const releases = modules.length - folders
+  const parts = [`${releases} from ${releases === 1 ? 'its release' : 'releases'}`]
+  if (folders) parts.push(`${folders} from your folder${folders === 1 ? '' : 's'}`)
+  return parts.join(' · ')
+}
+
 /** Whether a module runs from somewhere other than where it should: a folder while it wants its release, or the reverse. */
 export function drifted(one: Pick<DevModule, 'runs' | 'wants'>): boolean {
   return one.runs.from !== one.wants
@@ -85,28 +100,88 @@ export function showsRuns(on: boolean, one: Pick<DevModule, 'runs' | 'wants'>): 
   return on || one.runs.from === 'folder'
 }
 
+/** The three choices of a module, as its row says them. */
+export const MODES: ReadonlyArray<{ mode: 'follow' | 'folder' | 'release'; label: string }> = [
+  { mode: 'follow', label: 'Follow the switch' },
+  { mode: 'folder', label: 'Always my folder' },
+  { mode: 'release', label: 'Always the release' },
+]
+
 /** The one Inbox line a machine with modules on the person's folders starts with. */
 export function startedOnSaid(count: number): string {
-  return `Kehikko development is on because ${count} module${count === 1 ? '' : 's'} run${count === 1 ? 's' : ''} from your own folders. Turn it off in Settings › Modules to run them all from Kehikot’s releases.`
+  return `Kehikko development is on because ${count} module${count === 1 ? '' : 's'} run${count === 1 ? 's' : ''} from your own folders. Turn it off in Settings › Development to run them all from Kehikot’s releases.`
 }
 
-/** What a finished switch came to: how many moved where, what did not, and which folders are no longer used. */
-export function summarySaid(done: { toRelease: number; toFolder: number; failed: { name: string }[]; freed: string[] }, home: string | null): string {
-  const parts: string[] = []
-  if (done.toRelease) parts.push(`${done.toRelease} module${done.toRelease === 1 ? '' : 's'} now run${done.toRelease === 1 ? 's' : ''} from Kehikot’s releases.`)
-  if (done.toFolder) parts.push(`${done.toFolder} module${done.toFolder === 1 ? '' : 's'} now run${done.toFolder === 1 ? 's' : ''} from your own folder${done.toFolder === 1 ? '' : 's'}.`)
-  if (done.freed.length === 1) parts.push(`Your folder ${pathSaid(done.freed[0]!, home)} is no longer used by Kehikot; you can remove it.`)
-  else if (done.freed.length > 1) parts.push(`These folders are no longer used by Kehikot; you can remove them: ${done.freed.map((dir) => pathSaid(dir, home)).join(', ')}.`)
-  if (done.failed.length) {
-    const names = done.failed.map((one) => one.name)
-    const said = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
-    parts.push(`${said} did not move and ${names.length === 1 ? 'runs' : 'run'} from where ${names.length === 1 ? 'it' : 'they'} did; Settings › Modules says why.`)
+/** What did not move, and why: `later` is a module set to keep running, which Kehikot does not stop for this. */
+export interface Unmoved {
+  name: string
+  why: string
+  later?: boolean
+}
+
+/** What a finished switch came to. */
+export interface Tally {
+  toRelease: number
+  toFolder: number
+  failed: Unmoved[]
+  freed: string[]
+  /** Modules exempt from the switch: kept on their own folders. */
+  kept?: string[]
+}
+
+/** The most one line of the summary says: what the Inbox keeps of a notice (`DETAIL_MAX` in `inbox.ts`), so none of it is cut off. */
+export const SUMMARY_LINE_MAX = 400
+
+/** The words for a module set to keep running: it is moved at its next restart, or by a press. */
+export const MOVES_LATER = 'it is set to keep running, so Kehikot did not stop it. It moves by itself the next time it restarts, or press Move now in Settings › Development.'
+
+/** What a module that did not move says, in words: its name first. */
+export function unmovedSaid(one: Unmoved): string {
+  if (one.later) return `${one.name} did not move yet: ${MOVES_LATER}`
+  return one.why.startsWith(one.name) ? one.why : `${one.name} did not move: ${one.why}`
+}
+
+const clip = (line: string) => (line.length > SUMMARY_LINE_MAX ? `${line.slice(0, SUMMARY_LINE_MAX - 1)}…` : line)
+
+/**
+ * What a finished switch came to, as lines the Inbox can hold whole: how many moved where; EVERY module that
+ * did not move, one line each with its reason; and which folders are no longer used. The Inbox keeps
+ * `SUMMARY_LINE_MAX` characters of a line, so the folders go in lines of their own after what did not
+ * move — one long line used to push that out of sight.
+ */
+export function summaryLines(done: Tally, home: string | null): string[] {
+  const lines: string[] = []
+  const heads: string[] = []
+  if (done.toRelease) heads.push(`${done.toRelease} module${done.toRelease === 1 ? '' : 's'} now run${done.toRelease === 1 ? 's' : ''} from Kehikot’s releases.`)
+  if (done.toFolder) heads.push(`${done.toFolder} module${done.toFolder === 1 ? '' : 's'} now run${done.toFolder === 1 ? 's' : ''} from your own folder${done.toFolder === 1 ? '' : 's'}.`)
+  if (done.failed.length) heads.push(`${done.failed.length} did not move.`)
+  if (heads.length) lines.push(heads.join(' '))
+  for (const one of done.failed) lines.push(unmovedSaid(one))
+  const folders = done.freed.map((dir) => pathSaid(dir, home))
+  if (folders.length === 1) lines.push(`Your folder ${folders[0]} is no longer used by Kehikot; you can remove it.`)
+  else if (folders.length > 1) {
+    let line = 'These folders are no longer used by Kehikot; you can remove them:'
+    for (const folder of folders) {
+      const next = `${line}${line.endsWith(':') ? ' ' : ', '}${folder}`
+      if (next.length > SUMMARY_LINE_MAX - 20 && !line.endsWith(':')) {
+        lines.push(`${line}.`)
+        line = `More folders no longer used by Kehikot: ${folder}`
+      } else line = next
+    }
+    lines.push(`${line}.`)
   }
-  return parts.join(' ') || 'Every module already ran from where it should.'
+  if (done.kept?.length) lines.push(`Kept in development: ${done.kept.join(', ')}.`)
+  if (done.freed.length) lines.push(`Press Move unused folders to the Trash in Settings › Development to clear ${done.freed.length === 1 ? 'it' : 'them'}; each is checked first.`)
+  return lines.length ? lines.map(clip) : ['Every module already ran from where it should.']
+}
+
+/** The summary as one piece, for Settings › Development. */
+export function summarySaid(done: Tally, home: string | null): string {
+  return summaryLines(done, home).join(' ')
 }
 
 /** What the page sends: the switch, or one module's folder or choice. */
-export type DevelopmentChange = { on: boolean } | { module: string; folder?: string | null; release?: boolean } | { module: string; move: true }
+export type DevelopmentChange = { on: boolean } | { module: string; folder?: string | null; release?: boolean; mode?: 'follow' | 'folder' | 'release' } | { module: string; move: true; now?: true }
 
 async function said(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as { error?: unknown } | null
@@ -127,7 +202,12 @@ export async function changeDevelopment(change: DevelopmentChange): Promise<Deve
   return developmentSchema.parse(await response.json())
 }
 
+/** What a person is told before "Move now" on a module set to keep running: it is stopped and started again, and what it holds goes on without it. */
+export function moveNowWarning(name: string): string {
+  return `Move now restarts ${name}, which ends whatever it is doing at this moment. Agent sessions it started keep running on their own. It then runs from its release.`
+}
+
 /** A module's move, in a word or two for its row. */
 export function moveSaid(step: MoveStep): string {
-  return { waiting: 'Waiting…', installing: 'Getting its release…', starting: 'Starting…', done: 'Moved', failed: 'Not moved', restored: 'Put back' }[step]
+  return { waiting: 'Waiting…', installing: 'Getting its release…', starting: 'Starting…', done: 'Moved', failed: 'Not moved', restored: 'Put back', later: 'Moves at its next restart' }[step]
 }

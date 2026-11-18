@@ -84,7 +84,7 @@ import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
 import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
-import { anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
+import { aim, anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   endedTooOftenLine,
   EXIT_RESTARTS_WINDOW_MS,
@@ -114,7 +114,7 @@ import {
   type Standing,
 } from './lifecycle.ts'
 import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
-import { readKeepRunning } from './keepRunning.ts'
+import { ensureKeepRunning, keepingOf } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
 import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
@@ -183,6 +183,7 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
+import { folderSize, inspect as inspectUnused, moveToTrash, runGit, trashUnused as trashUnusedFolders, type UnusedDeps } from './unusedFolders.ts'
 import { developmentDesk, pointRegistrationAt, restoreRegistration, type Moved as DevMoved } from './development.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -350,6 +351,7 @@ const personGrants = new PersonGrants(db)
 const trackerNotices = new TrackerNotices(db, inbox)
 /* The app-wide agent settings and the entries Kehikot made in the agent's MCP list. `agentSettings.ts`. */
 ensureSettings(db)
+ensureKeepRunning(db)
 ensurePickerOrder(db)
 ensureOnboarding(db)
 ensureWhatsNew(db)
@@ -858,10 +860,17 @@ const development = developmentDesk({
   db,
   official: official.current,
   installsRoot: installsDir(),
-  registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir })),
+  registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir, keep: r.keep === true })),
   nameOf: (id) => knownName(id),
   copy: (entry) => installs.copy(entry),
-  move: (id, dir) => moveModule(id, dir),
+  move: (id, dir, how) => moveModule(id, dir, how),
+  point: async (id, dir) => {
+    const found = (await readRegistrations()).registrations.find((r) => r.id === id)
+    if (!found?.file) return { ok: false, why: `${spokenName(id)} is not registered on this computer any more.` }
+    const pointed = pointRegistrationAt(found.file, dir)
+    wakes.registryChanged()
+    return pointed.ok ? { ok: true } : { ok: false, why: pointed.why }
+  },
   tell: (message) => {
     for (const project of listProjects(db)) {
       const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message, level: 'done', refs: [] }, undefined, 'normal')
@@ -886,21 +895,30 @@ void official
  * when it does not, the old registration goes back word for word and, if it was running, the old
  * one is started again. A module set to keep running is never stopped for this.
  */
-async function moveModule(id: string, dir: string): Promise<DevMoved> {
+async function moveModule(id: string, dir: string, how: { now?: boolean } = {}): Promise<DevMoved> {
   const name = spokenName(id)
   const before = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
   if (!before?.file) return { ok: false, why: `${name} is not registered on this computer any more.`, restored: false }
   const from = before.dir ?? 'where it was'
   const was = await look(before)
-  if (before.keep === true && was.reached) {
-    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from}. Stop it from its menu, then try again.`, restored: false }
+  /* Set to keep running and running: not stopped for this. It moves at its next restart (`beforeStart`), or on a person's "Move now". */
+  if (before.keep === true && was.reached && !how.now) {
+    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from} and moves at its next restart.`, restored: false, later: true }
   }
   const old = startable(before)
   const mine = !inHand.has(id)
   inHand.add(id)
+  settling.add(id)
   try {
     if (old.ok) {
-      const halted = await haltForRestart(id, before, old.run)
+      /* "Move now": the process is proven to be the module before it is stopped, as "Restart anyway" does (`anyway.ts`). */
+      let forced: { pid: number } | undefined
+      if (before.keep === true && was.reached) {
+        const aimed = await aim(id, old.run, anywayWorld)
+        if (!aimed.ok) return { ok: false, why: `${name} could not be stopped to move it: ${aimed.why}`, restored: false }
+        forced = { pid: aimed.target.pid }
+      }
+      const halted = await haltForRestart(id, before, old.run, forced)
       if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
     } else if (nursery.holds(id)) halt(id)
     const pointed = pointRegistrationAt(before.file, dir)
@@ -920,8 +938,42 @@ async function moveModule(id: string, dir: string): Promise<DevMoved> {
     console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
     return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
   } finally {
+    settling.delete(id)
     if (mine) inHand.delete(id)
     wakes.registryChanged()
+  }
+}
+
+/** Modules whose move is being made now, so the start inside it does not move them again (`bringUpSettled`). */
+const settling = new Set<string>()
+
+/**
+ * `bringUp`, after the move a module set to keep running was owed (`development.beforeStart`): the
+ * module is not running — a restart stopped it, or it had ended — and is about to be started, so this
+ * is its next restart. Its release (or folder) is put in place, its registration pointed there, and it
+ * is started from there; when it does not answer, the registration goes back and the old one starts.
+ */
+async function bringUpSettled(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
+  const was = registered.get(id) ?? null
+  if (settling.has(id) || !development.owes(id, was)) return bringUp(id, runnable, within, onInstalling, onStarted)
+  settling.add(id)
+  try {
+    const moved = await development.beforeStart(id)
+    if (!moved) return bringUp(id, runnable, within, onInstalling, onStarted)
+    const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+    const can = startable(now)
+    const came = can.ok ? await bringUp(id, can.run, within, onInstalling, onStarted) : ({ ok: false, why: can.why } as const)
+    if (came.ok && came.answered) {
+      await moved.finish(true)
+      return came
+    }
+    /* It did not answer from there: what was started stops, and the registration and the old one are back. */
+    if (nursery.holds(id)) halt(id)
+    if (can.ok) await gone(can.run.url, WELL_KNOWN)
+    await moved.finish(false, came.ok ? `it did not answer. What it printed is in ${logFile(id)}.` : came.why)
+    return bringUp(id, runnable, within, onInstalling, onStarted)
+  } finally {
+    settling.delete(id)
   }
 }
 
@@ -1747,7 +1799,7 @@ const settingsModuleOf = (presence: Presence | undefined): SettingsModule | null
   presence?.condition === 'ready' && presence.module
     ? { id: presence.id, name: presence.module.name, origin: presence.at, fields: presence.module.declares.settings ?? [] }
     : null
-/** Every registered module, and the settings it declared when it is running: Settings › Modules and `module_settings`. */
+/** Every registered module, and the settings it declared when it is running: each module’s page in Settings (Settings › Modules › <name>) and `module_settings`. */
 async function settingsListed() {
   return (await sweep()).presences.map((presence) => ({
     id: presence.id,
@@ -1875,7 +1927,7 @@ function neededNow(now = Date.now()): Set<string> {
  * module on both is needed, not warm. Local, like `neededNow`.
  */
 function wantedNow(now = Date.now()): Wanted {
-  return wanted(listCanvases(db), new Set(openness.every(now)), readKeepRunning(db), (placement) =>
+  return wanted(listCanvases(db), new Set(openness.every(now)), keepingOf(db), (placement) =>
     keptScope(scopeRead.get(placement.i), placement.scope),
   )
 }
@@ -2013,6 +2065,11 @@ function begin(id: string, why = 'an open kehikko or project has it'): void {
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
+  /* Set to keep running and not yet moved (Kehikko development): this start is its next restart, so it is moved first. */
+  if (development.owes(id, registration)) {
+    void because('a module set to keep running moves at its next start', () => startOnce(id, registration, can.run, ANSWERS_WITHIN_UPDATE_MS)).catch(() => null)
+    return
+  }
   const ran = run(id, can.run)
   if (!ran.ok || !ran.child) return
   console.log(`kehikko: started ${id} at ${can.run.url} — ${why} (pid ${ran.child.pid})`)
@@ -3372,7 +3429,7 @@ async function restart(
       if (place) await builds.stopped({ id, name: place.name, dir: place.dir })
     }
     const target = halted.moved?.runnable ?? runnable
-    const came = await bringUp(id, target, within)
+    const came = await bringUpSettled(id, target, within)
     if (!halted.moved) return came
     return came.ok ? { ...came, moved: halted.moved } : { ...came, why: `${halted.moved.line} ${came.why}` }
   } finally {
@@ -3561,6 +3618,7 @@ const settingsDesk = settingsRoute({
   },
   /* On: the rest of the open project starts now. Off: it is no longer warm,
      and the reaper stops it after the grace period like anything unneeded. */
+  projectKnown: (project) => listProjects(db).some((one) => one.id === project),
   modulesChanged: () => {
     void sweep()
       .then((view) => govern(view.presences))
@@ -4119,7 +4177,7 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
       phase('restarting')
       job.say('starting')
       /* The row says it is installing while that is what the wait is for. */
-      const came = await bringUp(
+      const came = await bringUpSettled(
         id,
         can.run,
         ANSWERS_WITHIN_UPDATE_MS,
@@ -5631,11 +5689,34 @@ async function answerRequest(request: Request): Promise<Response> {
             ...(body.folder === null || (typeof body.folder === 'string' && body.folder.length <= 1024) ? { folder: body.folder as string | null } : {}),
             ...(typeof body.release === 'boolean' ? { release: body.release } : {}),
             ...(body.move === true ? { move: true as const } : {}),
+            ...(body.move === true && body.now === true ? { now: true as const } : {}),
           }
           const done = await development.setModule(body.module, change)
           return done.ok ? json(await development.state()) : json({ error: done.why }, done.status)
         }
         return json({ error: 'A change of Kehikko development is { on } or { module, folder | release | move }.' }, 400)
+      }
+    }
+    /* "Move unused folders to the Trash": the folders Kehikot no longer uses, checked and listed (a read), and moved on a press. `unusedFolders.ts`. */
+    if (url.pathname === '/host/unused-folders') {
+      const unused: UnusedDeps = {
+        candidates: () => development.unusedCandidates(),
+        usedBy: (dir) => development.usedBy(dir),
+        git: runGit,
+        size: folderSize,
+        trash: moveToTrash,
+      }
+      if (request.method === 'GET') {
+        const folders = await inspectUnused(unused)
+        return json({ folders, freedBytes: folders.filter((one) => one.trash).reduce((sum, one) => sum + one.bytes, 0) })
+      }
+      if (request.method === 'POST') {
+        const body = (await request.json().catch(() => null)) as { trash?: unknown } | null
+        if (!body || !Array.isArray(body.trash) || body.trash.length > 400 || !body.trash.every((dir) => typeof dir === 'string' && dir.length <= 1024)) return json({ error: 'Moving folders to the Trash names the folders, as { trash: [path, …] }.' }, 400)
+        const { done, freed } = await trashUnusedFolders(body.trash as string[], unused)
+        development.cleared(freed)
+        console.log(`kehikko: ${done.moved.length} unused folder${done.moved.length === 1 ? '' : 's'} moved to the Trash, ${done.kept.length} kept`)
+        return json(done)
       }
     }
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))

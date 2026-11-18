@@ -14,7 +14,7 @@ import { APPEARANCE_TARGET, type AppearanceAnswer } from './appearance.ts'
  * ## Who owns the choice
  *
  * The agent module whose program it sets up (protocol 2.91.0, `agent.setup`): it is that module's own
- * machine setting, shown in its settings (and in Settings › Modules). The host never asks for it. It
+ * machine setting, shown in its settings (its page under Settings › Modules, and its container's window). The host never asks for it. It
  * reads the choice at the module's settings door and keeps a copy here (`AgentSettings`, one row of
  * `frame.sqlite`), which the sync acts on while the module sleeps (`server/agentSetup.ts`).
  *
@@ -158,11 +158,6 @@ export interface SetupHolder {
   module: string
   name: string
   program: string
-}
-
-/** Where a module's form is in Settings › Modules, for a link to it (`SETTINGS_TARGETS`' rule). */
-export function moduleSettingsTarget(module: string): string {
-  return `module-${module.toLowerCase().replace(/[^a-z0-9-]+/g, '-')}`.slice(0, 64).replace(/-+$/, '')
 }
 
 /** What the Tools and Skills sections say about who holds the choice. */
@@ -320,9 +315,93 @@ export function chordSaid(mac: boolean): string {
   return mac ? '⌘,' : 'Ctrl+,'
 }
 
-/** The sections of the Settings dialog, in the order its nav lists them. */
-export const SETTINGS_SECTIONS = ['tools', 'skills', 'trackers', 'notices', 'hook', 'project', 'modules', 'appearance', 'about'] as const
+/**
+ * The fixed pages of the Settings dialog, in the order its nav lists them. Each belongs to one scope
+ * (`SECTION_SCOPE`), the place its effect applies — which is where it is stored — and the nav groups
+ * them under that scope's heading. A module's own page is not fixed: it is `module:<id>`
+ * (`modulePage`), one per module that declared settings.
+ */
+export const SETTINGS_SECTIONS = [
+  'tools',
+  'skills',
+  'hook',
+  'notices',
+  'modules',
+  'development',
+  'appearance',
+  'about',
+  'project',
+  'trackers',
+  'kehikko-general',
+  'kehikko-skills',
+  'kehikko-agents',
+] as const
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
+
+/**
+ * Where a setting's effect applies, and so where it is kept:
+ * - `app`: this computer, every project (the machine directory and `frame.sqlite`);
+ * - `project`: the project on screen (its `.kehikot/`, or a row keyed by its id);
+ * - `kehikko`: one kehikko (rows keyed by its key, its skills folder);
+ * - `module`: one module's own settings, kept by the module through its settings door.
+ * There is no space scope: no setting is kept per space yet, and the nav shows a scope only when it
+ * has something in it.
+ */
+export type SettingsScope = 'app' | 'project' | 'kehikko' | 'module'
+export const SETTINGS_SCOPES: readonly SettingsScope[] = ['app', 'project', 'kehikko', 'module']
+
+export const SECTION_SCOPE: Record<SettingsSection, Exclude<SettingsScope, 'module'>> = {
+  tools: 'app',
+  skills: 'app',
+  hook: 'app',
+  notices: 'app',
+  modules: 'app',
+  development: 'app',
+  appearance: 'app',
+  about: 'app',
+  project: 'project',
+  trackers: 'project',
+  'kehikko-general': 'kehikko',
+  'kehikko-skills': 'kehikko',
+  'kehikko-agents': 'kehikko',
+}
+
+/** One page of Settings: a fixed section, or one module's own page. */
+export type SettingsPage = SettingsSection | `module:${string}`
+
+export const modulePage = (module: string): SettingsPage => `module:${module}`
+/** The module a page is the page of, or null for a fixed section. */
+export function moduleOfPage(page: string): string | null {
+  return page.startsWith('module:') && page.length > 'module:'.length ? page.slice('module:'.length) : null
+}
+export function scopeOfPage(page: SettingsPage): SettingsScope {
+  return moduleOfPage(page) !== null ? 'module' : SECTION_SCOPE[page as SettingsSection]
+}
+
+/**
+ * Each scope as the nav heads it and as its pages begin: one sentence of what it affects, naming the
+ * project, kehikko or module it is for. `name` is the person's own name for it (data, said as text).
+ */
+export function scopeHeading(scope: SettingsScope, name: string | null): string {
+  if (scope === 'app') return 'This computer'
+  if (scope === 'module') return 'Modules'
+  const kind = scope === 'project' ? 'Project' : 'Kehikko'
+  return name ? `${kind} “${name}”` : kind
+}
+export function scopeLead(scope: SettingsScope, name: string | null): string {
+  switch (scope) {
+    case 'app':
+      return 'These apply to every project on this computer.'
+    case 'project':
+      return name ? `These apply only to the project ${name}.` : 'These apply only to the open project.'
+    case 'kehikko':
+      return name ? `These apply only to the kehikko ${name}.` : 'These apply only to this kehikko.'
+    case 'module':
+      return name
+        ? `These are ${name}’s own settings. ${name} keeps them and saves each change itself; Kehikot never writes them.`
+        : 'This module’s own settings, kept by the module.'
+  }
+}
 
 const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIONS as readonly unknown[]).includes(value)
 
@@ -332,15 +411,19 @@ const isSection = (value: unknown): value is SettingsSection => (SETTINGS_SECTIO
  * deep link: any button opens Settings at a control with `openSettings(section, target)`,
  * and `SettingsDialog` scrolls it into view, focuses it and lights it for a moment
  * (`src/host/settingsTarget.ts`). Controls a link may name are listed in `SETTINGS_TARGETS`.
+ * `module` opens one module's page instead (`openModuleSettings`). The Kehikko pages are opened with
+ * `openKehikkoSettings` (`host/kehikkoSettings.ts`), which names the kehikko.
  */
 export interface SettingsLink {
   section: SettingsSection | null
   target: string | null
+  module?: string
 }
 
 /** The controls a button elsewhere can open Settings at. */
 export const SETTINGS_TARGETS = {
-  githubShare: { section: 'trackers', target: GITHUB_SHARE_TARGET },
+  /* Kehikot's share of the GitHub limit is the same for every project: App › Trackers. */
+  githubShare: { section: 'notices', target: GITHUB_SHARE_TARGET },
   /* Settings › Trackers (`src/canvas/TrackerSettings.tsx`): the open project's sources and how they are read. */
   trackerSources: { section: 'trackers', target: 'tracker-sources' },
   trackerAdd: { section: 'trackers', target: 'tracker-add' },
@@ -352,15 +435,17 @@ export const SETTINGS_TARGETS = {
 } as const satisfies Record<string, { section: SettingsSection; target: string }>
 
 const TARGET_ID = /^[a-z0-9][a-z0-9-]{0,63}$/
+const MODULE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
 /** What an `openSettings` event carries, read strictly: a section name (older callers), or `{ section, target }`. */
 export function settingsLinkOf(detail: unknown): SettingsLink {
   if (isSection(detail)) return { section: detail, target: null }
   if (detail && typeof detail === 'object') {
-    const { section, target } = detail as { section?: unknown; target?: unknown }
+    const { section, target, module } = detail as { section?: unknown; target?: unknown; module?: unknown }
     return {
       section: isSection(section) ? section : null,
       target: typeof target === 'string' && TARGET_ID.test(target) ? target : null,
+      ...(typeof module === 'string' && MODULE_ID.test(module) ? { module } : {}),
     }
   }
   return { section: null, target: null }
@@ -373,12 +458,21 @@ export function openSettings(section?: SettingsSection, target?: string): void {
   window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail }))
 }
 
+/**
+ * Open Settings at one module's own page (Settings › Modules › <name>): from its row in the modules
+ * menu, and from a line that says a choice is that module's. At one of its settings when `target` is.
+ */
+export function openModuleSettings(module: string, target?: string): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, { detail: { section: null, target: target ?? null, module } }))
+}
+
 /** Listen for `openSettings` (and the shell's bare event, which names no section). Returns the unlisten. */
-export function onOpenSettings(then: (section: SettingsSection | null, target: string | null) => void): () => void {
+export function onOpenSettings(then: (section: SettingsSection | null, target: string | null, link: SettingsLink) => void): () => void {
   if (typeof window === 'undefined') return () => {}
   const heard = (event: Event) => {
     const link = settingsLinkOf((event as CustomEvent<unknown>).detail)
-    then(link.section, link.target)
+    then(link.section, link.target, link)
   }
   window.addEventListener(OPEN_EVENT, heard)
   return () => window.removeEventListener(OPEN_EVENT, heard)
@@ -411,8 +505,8 @@ export interface SettingsAnswer {
   setup?: SetupHolder | null
   /** Tracker notices in the Inbox (`trackerNotices.ts`). Absent from an older host. */
   notices?: NoticeSettings
-  /** "Keep this project's modules running" (`server/keepRunning.ts`). Absent from an older host. */
-  modules?: { keep: boolean }
+  /** "Keep this project's modules running", per project id: a project not listed has `default` (`server/keepRunning.ts`). Absent from an older host. */
+  modules?: { default: boolean; projects: Record<string, boolean> }
   /** "Keep modules up to date automatically" (`server/autoUpdates.ts`). Absent from an older host. */
   updates?: { auto: boolean }
   /** Kehikot's share of the GitHub limit, a whole percent (`server/githubShare.ts`). Absent from an older host. */

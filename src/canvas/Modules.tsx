@@ -33,6 +33,8 @@ import { GitSaid } from './GitSaid.tsx'
 import { Hint } from './Hint.tsx'
 import { IntroButton } from './ModuleHelp.tsx'
 import { RunsFrom, useDevelopment } from './Development.tsx'
+import { openModuleSettings } from '@/host/agentSettings.ts'
+import { settingsOf } from '@/host/moduleSettings.ts'
 
 /**
  * Kehikko modules: everything registered, whether or not it is on the canvas.
@@ -678,6 +680,14 @@ function ModuleRow({
           </Hint>
         )}
         <RunControls id={row.id} presence={presence} primary={placed} />
+        {settingsOf(presence.module).length ? (
+          /* Its own settings: its page in Settings (Settings › Modules › <name>). */
+          <Hint label={`${row.name}’s own settings`} side="bottom">
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" data-row-settings="" onClick={() => openModuleSettings(row.id)}>
+              Settings…
+            </Button>
+          </Hint>
+        ) : null}
       </div>
       <Details row={row} shown={trouble} onRemove={onRemove} />
       <RowFoot>

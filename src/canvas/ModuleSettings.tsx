@@ -1,4 +1,5 @@
 import { FileJson, Lock, Plus, Settings as Gear, X } from 'lucide-react'
+import { ModeChoice, useDevelopment } from './Development.tsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
@@ -28,7 +29,6 @@ import { ConnectionsTab, type ConnectionsProps } from './Connections.tsx'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
 import type { ModuleScope } from 'kehikot-module-protocol'
 import { scopeTooltip, type ContainerScope } from '@/host/scope.ts'
-import { moduleSettingsTarget } from '@/host/agentSettings.ts'
 import { ScopeControl, ScopeIcon } from './Scope.tsx'
 import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
 
@@ -36,7 +36,8 @@ import { revealTarget, TARGET_ATTR } from '@/host/settingsTarget.ts'
  * A module's settings, drawn from what it declared (`declares.settings`, protocol 2.15.0) and
  * changed through the module's own door, one change at a time: the module writes, and says
  * "saved" or why not. This page holds no value of its own between reads. Reached from the gear in
- * a container's header, from the Container menu's "Settings…", and from Settings › Modules. Rules and
+ * a container's header and the Container menu's "Settings…" (the container's window, with its scope and
+ * connections), and as the module's own page of Settings (Settings › Modules › <name>). Rules and
  * words: `host/moduleSettings.ts`.
  */
 
@@ -425,6 +426,19 @@ function FileDialog({ shown, name, onClose }: { shown: { file: string; text: str
  * The modal, and how it is reached
  * ------------------------------------------------------------------ */
 
+/** Where this module runs from, when it has a folder of the person's: follow the switch, always the folder, always the release. */
+function RunsFromChoice({ module, name }: { module: string; name: string }) {
+  const { state, change } = useDevelopment()
+  const one = state?.modules.find((entry) => entry.id === module)
+  if (!one?.folder) return null
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs" data-runs-from-choice={module}>
+      <span className="text-muted-foreground">Where {name} runs from</span>
+      <ModeChoice one={one} change={change} />
+    </div>
+  )
+}
+
 export function ModuleSettingsDialog({
   open,
   onOpenChange,
@@ -490,6 +504,7 @@ export function ModuleSettingsDialog({
         {/* The scope and the tab strip stay put; only the tab's own content scrolls. */}
         <ModalBody scroll={false} className="gap-4 px-4 py-4 sm:px-5">
         {scope ? <ScopeControl module={module} scope={scope.value} onPick={scope.onPick} /> : null}
+        {open ? <RunsFromChoice module={module} name={name} /> : null}
         <Tabs value={shown} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col gap-3">
           {tabs.length > 1 ? (
             <TabsList aria-label={`${name} settings sections`} className="w-full">
@@ -564,50 +579,5 @@ export function SettingsButton({ name, onOpen, mode: asked, hint }: { name: stri
           )
         : null}
     </span>
-  )
-}
-
-/* ------------------------------------------------------------------ *
- * Settings › Modules
- * ------------------------------------------------------------------ */
-
-/** Every installed module, its icon and its settings, each form for the project the page has open. */
-export function ModulesSettings({ api = HOST_SETTINGS_API, project }: { api?: SettingsApi; project: SettingsProject | null }) {
-  const [modules, setModules] = useState<readonly SettingsListed[] | null>(null)
-  const [why, setWhy] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    api
-      .list()
-      .then((listed) => live && setModules([...listed].sort((a, b) => Number(b.fields.length > 0) - Number(a.fields.length > 0) || a.name.localeCompare(b.name))))
-      .catch(() => live && setWhy('Kehikot did not answer with its modules.'))
-    return () => {
-      live = false
-    }
-  }, [api])
-
-  if (why) return <p className="text-muted-foreground text-sm">{why}</p>
-  if (!modules) return <Loading className="text-sm" label="Reading the modules…" />
-  return (
-    <div className="flex min-w-0 flex-col gap-4" data-settings-modules>
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        What each module lets you set{project ? ` for ${project.name}` : ''}. The module saves each change itself, in its own folder of the project; Kehikot never writes there.
-      </p>
-      {modules.map((one) => (
-        <section key={one.id} className="min-w-0 rounded-lg border px-4 py-3" aria-labelledby={`module-settings-${one.id}`} data-settings-module={one.id} {...{ [TARGET_ATTR]: moduleSettingsTarget(one.id) }}>
-          <h4 id={`module-settings-${one.id}`} className="mb-3 flex items-center gap-2 text-sm font-medium">
-            <ModuleIcon id={one.id} icon={one.icon} name={one.name} className="text-muted-foreground size-4" />
-            {one.name}
-          </h4>
-          {!one.ready ? (
-            <p className="text-muted-foreground text-xs">Not running, so its settings cannot be read now.</p>
-          ) : one.fields.length ? (
-            <ModuleSettingsForm module={one.id} name={one.name} project={project?.id ?? null} api={api} />
-          ) : (
-            <p className="text-muted-foreground text-xs">No settings.</p>
-          )}
-        </section>
-      ))}
-    </div>
   )
 }
