@@ -18,7 +18,7 @@ import {
 import {
   changeDevelopment,
   DEVELOPMENT,
-  drifted,
+  runsCounted,
   fetchDevelopment,
   MODES,
   moveNowWarning,
@@ -32,7 +32,7 @@ import {
 } from '@/host/development.ts'
 
 /**
- * "Kehikko development", as the page draws it: the switch in Settings › Modules with each official
+ * "Kehikko development", as the page draws it: the switch in Settings › Development with each official
  * module's line under it, and the few words a module's row in the modules list says about where it
  * runs from. The rule and the moving are the server's (`server/development.ts`); this reads the
  * state, sends a press, and reads again while modules are being moved.
@@ -85,7 +85,8 @@ export function DevelopmentSetting() {
   const { state, trouble, change } = useDevelopment()
   const id = useId()
   if (!state) return trouble ? <p className="text-xs text-amber-600 dark:text-amber-400">{trouble}</p> : null
-  const listed = state.modules.filter((one) => state.on || drifted(one) || one.move !== null || one.mode !== 'follow')
+  /* Every official module, whether development is on or off: where each runs from is always worth seeing. */
+  const listed = state.modules
   return (
     <div data-development-setting className="rounded-lg border px-4">
       <div className="flex min-w-0 items-start justify-between gap-4 py-3.5">
@@ -117,6 +118,11 @@ export function DevelopmentSetting() {
         </p>
       ) : null}
       {state.unused > 0 ? <UnusedFolders home={state.home} /> : null}
+      {listed.length ? (
+        <p className="text-muted-foreground border-t py-2.5 text-xs" data-development-count>
+          {runsCounted(listed)}
+        </p>
+      ) : null}
       {listed.length ? (
         <ul className="divide-y border-t" aria-label="Where each module runs from">
           {listed.map((one) => (

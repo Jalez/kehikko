@@ -6,29 +6,25 @@ import { Dialog } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
-import { ScrollArea } from '@/components/ui/scroll-area.tsx'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.tsx'
-import { DELIVERY_SAID, onOpenKehikkoSkills } from '@/host/kehikkoSkills.ts'
+import { DELIVERY_SAID } from '@/host/kehikkoSkills.ts'
 import {
   fetchKehikkoSettings,
   KEHIKKO_SECTIONS,
-  onOpenKehikkoSettings,
   postKehikkoSettings,
   PRIMARY_SAID,
   type AgentChoice,
   type KehikkoSection,
   type KehikkoSettingsAnswer,
 } from '@/host/kehikkoSettings.ts'
-import { revealTarget } from '@/host/settingsTarget.ts'
 import { KehikkoSkillsPanel } from './KehikkoSkills.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
 import { whenNoDialog } from './Onboarding.tsx'
 
 /**
- * Kehikko settings: one kehikko's own settings, in the same window shape as the app's Settings —
+ * Kehikko settings: one kehikko's own settings, drawn as the Kehikko scope of the app's Settings —
  * General (its name), Skills (the person's skills for it) and Agents (which agent module is the
  * primary one). Opened from the gear on each row of the kehikko menu, or by
- * `openKehikkoSettings(section, target, kehikko)` from anywhere.
+ * `openKehikkoSettings(section, target, kehikko)` from anywhere; `AgentSettingsHost` hears it.
  *
  * And the question that comes by itself: when a kehikko has two or more agent modules and none is
  * primary, `PrimaryAgentDialog` asks which one is. See `src/host/kehikkoSettings.ts` for what that
@@ -284,26 +280,24 @@ function GeneralSection({ kehikko, onRename }: { kehikko: KehikkoRef; onRename(i
   )
 }
 
-export function KehikkoSettingsDialog({
-  open,
-  onOpenChange,
+/**
+ * One page of a kehikko's own settings, as Settings › Kehikko "<name>" draws it: General (its name),
+ * Skills (the person's skills for it) or Agents (which agent module is primary). Each page reads
+ * what it needs itself, while it is shown.
+ */
+export function KehikkoPage({
   kehikko,
   section,
-  onSection,
-  target = null,
-  onTargetShown,
+  active,
   onRename,
   load = fetchKehikkoSettings,
   save = postKehikkoSettings,
   skills,
 }: {
-  open: boolean
-  onOpenChange(open: boolean): void
-  kehikko: KehikkoRef | null
+  kehikko: KehikkoRef
   section: KehikkoSection
-  onSection(section: KehikkoSection): void
-  target?: string | null
-  onTargetShown?(): void
+  /** Whether the page is the one shown: Skills reads only then. */
+  active: boolean
   onRename(id: number, name: string): Promise<RenameResult>
   load?: typeof fetchKehikkoSettings
   save?: typeof postKehikkoSettings
@@ -312,11 +306,12 @@ export function KehikkoSettingsDialog({
 }) {
   const [answer, setAnswer] = useState<KehikkoSettingsAnswer | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
-  const id = kehikko?.id ?? null
-  const forSkills = useMemo(() => (kehikko ? { id: kehikko.id, name: kehikko.name } : null), [kehikko?.id, kehikko?.name])
+  const id = kehikko.id
+  const forSkills = useMemo(() => ({ id: kehikko.id, name: kehikko.name }), [kehikko.id, kehikko.name])
+  const agents = section === 'agents' && active
 
   useEffect(() => {
-    if (!open || id === null) return
+    if (!agents) return
     let alive = true
     setAnswer(null)
     setTrouble(null)
@@ -327,94 +322,43 @@ export function KehikkoSettingsDialog({
     return () => {
       alive = false
     }
-  }, [open, id, load])
+  }, [agents, id, load])
 
-  useEffect(() => {
-    if (!open || !target) return
-    const frame = requestAnimationFrame(() => {
-      if (revealTarget(document, target)) onTargetShown?.()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [open, target, section, answer, onTargetShown])
-
-  const shown = KEHIKKO_SECTIONS.includes(section) ? section : 'general'
-  const skillsShown = (kehikko?.project ?? null) !== null
-  const sections = KEHIKKO_SECTIONS.filter((one) => one !== 'skills' || skillsShown)
-
+  if (section === 'general') return <GeneralSection kehikko={kehikko} onRename={onRename} />
+  if (section === 'skills')
+    return (
+      <>
+        <p className="text-muted-foreground text-sm leading-relaxed">{DELIVERY_SAID}</p>
+        <KehikkoSkillsPanel active={active} kehikko={forSkills} {...skills} />
+      </>
+    )
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <ModalContent className="h-[min(600px,calc(100dvh-2rem))] sm:max-w-3xl" data-kehikko-settings="">
-        <ModalHeader title="Kehikko settings" context={kehikko?.name} description="This kehikko’s own settings: its name, its skills, and which agent gets its shared news." descriptionClassName="max-sm:sr-only" />
-        <ModalBody scroll={false}>
-          {kehikko ? (
-            <Tabs value={shown} onValueChange={(value) => onSection(value as KehikkoSection)} orientation="vertical" className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row">
-              <aside className="bg-muted/40 flex shrink-0 flex-col border-b sm:min-h-0 sm:w-48 sm:overflow-y-auto sm:border-r sm:border-b-0">
-                <TabsList aria-label="Kehikko settings sections" className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent px-2 py-2 sm:flex-col sm:items-stretch sm:overflow-visible">
-                  {sections.map((key) => {
-                    const { title, icon: Icon } = SECTION_SAID[key]
-                    return (
-                      <TabsTrigger
-                        key={key}
-                        value={key}
-                        data-section={key}
-                        className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
-                      >
-                        <Icon className="size-4" aria-hidden />
-                        {title}
-                        {key === 'agents' && answer?.due ? (
-                          <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 dark:text-amber-300" data-agents-due="">
-                            choose
-                          </span>
-                        ) : null}
-                      </TabsTrigger>
-                    )
-                  })}
-                </TabsList>
-              </aside>
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-                <ScrollArea className="min-h-0 flex-1" data-modal-scroll="">
-                  <div className="flex min-w-0 flex-col gap-4 px-5 py-5 sm:px-6">
-                    {sections.map((key) => (
-                      <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-4 data-[state=inactive]:hidden">
-                        {key === 'general' ? (
-                          <GeneralSection kehikko={kehikko} onRename={onRename} />
-                        ) : key === 'skills' ? (
-                          <>
-                            <p className="text-muted-foreground text-sm leading-relaxed">{DELIVERY_SAID}</p>
-                            <KehikkoSkillsPanel active={open && shown === 'skills'} kehikko={forSkills} {...skills} />
-                          </>
-                        ) : (
-                          <AgentsSection
-                            answer={answer}
-                            trouble={trouble}
-                            onChoose={async (primary) => {
-                              try {
-                                setAnswer(await save(kehikko.id, { primary }))
-                              } catch (error) {
-                                setTrouble((error as Error).message)
-                              }
-                            }}
-                          />
-                        )}
-                      </TabsContent>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            </Tabs>
-          ) : (
-            <p className="text-muted-foreground p-5 text-sm">There is no kehikko open.</p>
-          )}
-        </ModalBody>
-      </ModalContent>
-    </Dialog>
+    <AgentsSection
+      answer={answer}
+      trouble={trouble}
+      onChoose={async (primary) => {
+        try {
+          setAnswer(await save(kehikko.id, { primary }))
+        } catch (error) {
+          setTrouble((error as Error).message)
+        }
+      }}
+    />
   )
 }
+
+/** The Kehikko pages a kehikko has: Skills only for a kehikko in a project. */
+export function kehikkoSectionsOf(kehikko: KehikkoRef): readonly KehikkoSection[] {
+  return KEHIKKO_SECTIONS.filter((one) => one !== 'skills' || kehikko.project !== null)
+}
+
+export const KEHIKKO_SECTION_SAID = SECTION_SAID
 
 /* ------------------------------------------------------------ held once, in the app */
 
 /**
- * Kehikko settings and the primary-agent question, held once beside the app's other windows.
+ * The primary-agent question, held once beside the app's other windows. A kehikko's own settings
+ * are pages of the app's Settings (`KehikkoPage`, opened by `openKehikkoSettings`).
  *
  * The question is asked for the kehikko on screen: on opening it, and whenever what is placed on it
  * changes (a person adding a module, or an agent through `place_modules`, which the page sees on its
@@ -422,45 +366,18 @@ export function KehikkoSettingsDialog({
  * closed is not asked again for the same kehikko until its agent modules change.
  */
 export function KehikkoSettingsHost({
-  canvases,
   open,
-  onRename,
   load = fetchKehikkoSettings,
   save = postKehikkoSettings,
 }: {
-  canvases: readonly (KehikkoRef & { placements: readonly { i: string }[] })[]
   open: (KehikkoRef & { placements: readonly { i: string }[] }) | null
-  onRename(id: number, name: string): Promise<RenameResult>
   load?: typeof fetchKehikkoSettings
   save?: typeof postKehikkoSettings
 }) {
-  const [showing, setShowing] = useState(false)
-  const [which, setWhich] = useState<number | null>(null)
-  const [section, setSection] = useState<KehikkoSection>('general')
-  const [target, setTarget] = useState<string | null>(null)
   const [asking, setAsking] = useState<{ kehikko: number; name: string; agents: AgentChoice[] } | null>(null)
   const asked = useRef(new Set<string>())
 
   const openId = open?.id ?? null
-  useEffect(() => {
-    const off = [
-      onOpenKehikkoSettings((link) => {
-        setWhich(link.kehikko ?? openId)
-        setSection(link.section ?? 'general')
-        setTarget(link.target)
-        setShowing(true)
-      }),
-      onOpenKehikkoSkills(() => {
-        setWhich(openId)
-        setSection('skills')
-        setTarget(null)
-        setShowing(true)
-      }),
-    ]
-    return () => off.forEach((one) => one())
-  }, [openId])
-
-  const kehikko = canvases.find((one) => one.id === which) ?? null
 
   /* What is placed on the kehikko on screen: the question is looked at again when it changes. */
   const placed = open ? [...new Set(open.placements.map((one) => one.i))].sort().join('\n') : ''
@@ -492,21 +409,6 @@ export function KehikkoSettingsHost({
 
   return (
     <>
-      <KehikkoSettingsDialog
-        open={showing && kehikko !== null}
-        onOpenChange={(next) => {
-          setShowing(next)
-          if (!next) setTarget(null)
-        }}
-        kehikko={kehikko}
-        section={section}
-        onSection={setSection}
-        target={target}
-        onTargetShown={() => setTarget(null)}
-        onRename={onRename}
-        load={load}
-        save={save}
-      />
       <PrimaryAgentDialog
         open={asking !== null}
         kehikkoName={asking?.name ?? ''}

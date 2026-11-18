@@ -3,8 +3,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 
 /*
  * Kehikko settings and the primary-agent question, rendered: the cubes (one picked at a time, by
- * pointer and by keyboard), Confirm selection held until one is picked, Later, the window's tabs and
- * deep links, and the kehikko menu's gear on every row in place of the pencil. In a process of its
+ * pointer and by keyboard), Confirm selection held until one is picked, Later, the Kehikko pages of
+ * Settings and deep links to them, and the kehikko menu's gear on every row in place of the pencil. In a process of its
  * own for the reason `header-menus.test.tsx` gives (Radix decides at load whether it has a DOM).
  */
 
@@ -32,6 +32,7 @@ let UI: typeof import('../src/canvas/KehikkoSettings.tsx')
 let Canvases: typeof import('../src/canvas/Canvases.tsx').Canvases
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let links: typeof import('../src/host/kehikkoSettings.ts')
+let Settings: typeof import('../src/canvas/Settings.tsx')
 
 beforeAll(async () => {
   if (!inChild) return
@@ -44,6 +45,7 @@ beforeAll(async () => {
   ;({ Canvases } = await import('../src/canvas/Canvases.tsx'))
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
   links = await import('../src/host/kehikkoSettings.ts')
+  Settings = await import('../src/canvas/Settings.tsx')
 })
 
 afterAll(async () => {
@@ -132,29 +134,31 @@ const answer = (over: Partial<import('../src/host/kehikkoSettings.ts').KehikkoSe
   ...over,
 })
 
+/** The app's Settings, at the Kehikko pages of the kehikko Review: what the kehikko menu's gear opens. */
 function Window({ start = 'general' as const, load, save, onRename = async () => ({ ok: true as const }) }: { start?: 'general' | 'skills' | 'agents'; load: never; save?: never; onRename?: (id: number, name: string) => Promise<{ ok: true } | { ok: false; why: string }> }) {
-  const [section, setSection] = React.useState<'general' | 'skills' | 'agents'>(start)
+  const [section, setSection] = React.useState<string>(`kehikko-${start}`)
   return (
-    <UI.KehikkoSettingsDialog
-      open
-      onOpenChange={() => {}}
-      kehikko={{ id: 2, name: 'Review', project: 1 }}
-      section={section}
+    <Settings.SettingsBody
+      answer={null}
+      busy={false}
+      section={section as never}
       onSection={setSection}
+      onChange={() => {}}
+      kehikko={{ id: 2, name: 'Review', project: 1 }}
       onRename={onRename}
-      load={load}
-      save={save ?? ((async () => answer()) as never)}
-      skills={{ load: async () => ({ skills: [], folder: '.kehikot/host/skills/k2/' }) }}
+      kehikkoApi={{ load, save: save ?? ((async () => answer()) as never), skills: { load: async () => ({ skills: [], folder: '.kehikot/host/skills/k2/' }) } }}
     />
   )
 }
 
-test('the window: General, Skills and Agents tabs; renaming from General', async () => {
+test('Settings › Kehikko “Review”: General, Skills and Agents, said to apply to it alone; renaming from General', async () => {
   if (!inChild) return
   const renamed: Array<[number, string]> = []
   await mount(<Window load={(async () => answer()) as never} onRename={async (id, name) => (void renamed.push([id, name]), { ok: true as const })} />)
-  expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent?.replace('choose', '').trim())).toEqual(['General', 'Skills', 'Agents'])
-  expect(document.querySelector('[data-agents-due]')).not.toBeNull()
+  const scope = document.querySelector('[data-settings-scope="kehikko"]')!
+  expect(scope.querySelector('h3')!.textContent).toBe('Kehikko “Review”')
+  expect([...scope.querySelectorAll('[role="tab"]')].map((one) => one.textContent?.trim())).toEqual(['General', 'Skills', 'Agents'])
+  expect(document.querySelector('[data-scope-lead]')!.textContent).toContain('These apply only to the kehikko Review.')
   const name = document.querySelector<HTMLInputElement>('#kehikko-settings-name')!
   expect(name.value).toBe('Review')
   await act(async () => {
@@ -196,6 +200,7 @@ test('Agents: a quiet reminder after Later, and the same cubes to choose with', 
   await mount(<Window start="agents" load={(async () => answer({ settings: { primary: null, later: ['stand.alpha', 'stand.beta'] }, due: false })) as never} save={save} />)
   expect(document.querySelector('[data-primary-reminder]')!.getAttribute('data-primary-reminder')).toBe('later')
   const confirm = document.querySelector<HTMLButtonElement>('[role="tabpanel"][data-state="active"] [data-primary-confirm]')!
+  expect(document.querySelector('[role="tab"][data-state="active"]')!.textContent).toContain('Agents')
   expect(confirm.disabled).toBe(true)
   await act(async () => cubes()[1]!.click())
   await act(async () => confirm.click())
@@ -205,7 +210,7 @@ test('Agents: a quiet reminder after Later, and the same cubes to choose with', 
   expect(document.body.textContent).toContain('primary now')
 })
 
-test('a deep link opens that kehikko’s settings at that section', async () => {
+test('a deep link opens Settings at that kehikko’s page', async () => {
   if (!inChild) return
   const asked: number[] = []
   const load = (async (id: number) => {
@@ -216,13 +221,15 @@ test('a deep link opens that kehikko’s settings at that section', async () => 
     { id: 1, name: 'Writing', project: 1, placements: [] },
     { id: 2, name: 'Review', project: 1, placements: [] },
   ]
-  await mount(<UI.KehikkoSettingsHost canvases={canvases} open={canvases[0]!} onRename={async () => ({ ok: true as const })} load={load} save={(async () => answer()) as never} />)
-  expect(document.querySelector('[data-kehikko-settings]')).toBeNull()
+  const never = (() => new Promise(() => {})) as never
+  await mount(<Settings.AgentSettingsHost load={never} save={never} kehikot={canvases} kehikko={canvases[0]!} kehikkoApi={{ load, save: (async () => answer()) as never }} />)
+  expect(document.querySelector('[data-settings]')).toBeNull()
   await act(async () => links.openKehikkoSettings('agents', 'primary-agent', 2))
   await act(async () => {})
-  expect(document.querySelector('[data-kehikko-settings]')).not.toBeNull()
-  expect(document.querySelector('[data-kehikko-settings] [data-modal-context]')!.textContent).toBe('Review')
+  expect(document.querySelector('[data-settings]')).not.toBeNull()
+  expect(document.querySelector('[data-settings-scope="kehikko"] h3')!.textContent).toBe('Kehikko “Review”')
   expect(document.querySelector('[role="tab"][data-state="active"]')!.textContent).toContain('Agents')
+  expect(document.querySelector('[data-scope-lead]')!.getAttribute('data-scope-lead')).toBe('kehikko')
   expect(asked).toEqual([2])
 })
 
@@ -231,7 +238,7 @@ test('the question opens by itself when a second agent module is placed, and not
   const one = { id: 1, name: 'Writing', project: 1, placements: [{ i: 'stand.alpha' }] }
   const due = { current: false }
   const load = (async () => answer({ due: due.current })) as never
-  const draw = (open: typeof one) => <UI.KehikkoSettingsHost canvases={[open]} open={open} onRename={async () => ({ ok: true as const })} load={load} save={(async () => answer()) as never} />
+  const draw = (open: typeof one) => <UI.KehikkoSettingsHost open={open} load={load} save={(async () => answer()) as never} />
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)

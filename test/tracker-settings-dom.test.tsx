@@ -334,15 +334,17 @@ test('the news switch and the GitHub share are in Settings › Trackers, and the
   expect(document.querySelectorAll('[data-settings-target="github-share"]').length).toBe(1)
 })
 
-test('with no project open, Settings › Trackers says so and still holds the share', async () => {
+test('with no project open there is no Project scope; the GitHub share is this computer’s, under Trackers', async () => {
   if (!inChild) return
   await render(<Settings.SettingsBody answer={answer()} busy={false} section="trackers" onSection={() => {}} onChange={() => {}} />)
-  expect(document.querySelector('[data-trackers-project="none"]')!.textContent).toContain('No project is open')
-  expect(document.querySelector('[data-settings-target="github-share"]')).toBeTruthy()
+  expect(document.querySelector('[data-settings-scope="project"]')).toBeNull()
+  expect(document.querySelector('[data-trackers-project]')).toBeNull()
+  const share = document.querySelector('[data-settings-target="github-share"]')!
+  expect(share.closest('[role="tabpanel"]')!.id).toBe(document.querySelector('[data-settings-scope="app"] [data-section="notices"]')!.getAttribute('aria-controls')!)
   act(() => unmount?.())
   document.body.innerHTML = ''
   /* No project and an older host that says no share: no Trackers tab at all. */
-  await render(<Settings.SettingsBody answer={answer({ github: undefined })} busy={false} section="tools" onSection={() => {}} onChange={() => {}} />)
+  await render(<Settings.SettingsBody answer={answer({ github: undefined, notices: undefined })} busy={false} section="tools" onSection={() => {}} onChange={() => {}} />)
   expect([...document.querySelectorAll('[role="tab"]')].map((one) => one.textContent)).not.toContain('Trackers')
 })
 

@@ -1789,7 +1789,7 @@ const settingsModuleOf = (presence: Presence | undefined): SettingsModule | null
   presence?.condition === 'ready' && presence.module
     ? { id: presence.id, name: presence.module.name, origin: presence.at, fields: presence.module.declares.settings ?? [] }
     : null
-/** Every registered module, and the settings it declared when it is running: Settings › Modules and `module_settings`. */
+/** Every registered module, and the settings it declared when it is running: each module’s page in Settings (Settings › Modules › <name>) and `module_settings`. */
 async function settingsListed() {
   return (await sweep()).presences.map((presence) => ({
     id: presence.id,

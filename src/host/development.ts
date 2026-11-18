@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /**
  * "Kehikko development": the one switch that says where the official modules run from, and the words
- * a person reads about it. Shared by the page (Settings › Modules, the modules list) and the server
+ * a person reads about it. Shared by the page (Settings › Development, the modules list) and the server
  * (`server/development.ts`, which holds the rule and does the moving).
  *
  * ## From the person's side
@@ -63,7 +63,7 @@ export const developmentSchema = z.object({
 })
 export type Development = z.infer<typeof developmentSchema>
 
-/** The switch, as Settings › Modules says it. */
+/** The switch, as Settings › Development says it. */
 export const DEVELOPMENT = {
   label: 'Kehikko development',
   description: 'Off: every module runs from Kehikot’s releases. On: modules you develop run from your own folders.',
@@ -79,6 +79,15 @@ export function pathSaid(dir: string, home: string | null): string {
 export function runsSaid(runs: Runs, home: string | null): string {
   if (runs.from === 'release') return runs.version ? `Release ${runs.version.replace(/^v/, '')}` : 'Release'
   return `Your folder ${pathSaid(runs.dir, home)}`
+}
+
+/** How many modules run from where, at the top of the list: "28 from releases · 2 from your folders". */
+export function runsCounted(modules: readonly Pick<DevModule, 'runs'>[]): string {
+  const folders = modules.filter((one) => one.runs.from === 'folder').length
+  const releases = modules.length - folders
+  const parts = [`${releases} from ${releases === 1 ? 'its release' : 'releases'}`]
+  if (folders) parts.push(`${folders} from your folder${folders === 1 ? '' : 's'}`)
+  return parts.join(' · ')
 }
 
 /** Whether a module runs from somewhere other than where it should: a folder while it wants its release, or the reverse. */
@@ -100,7 +109,7 @@ export const MODES: ReadonlyArray<{ mode: 'follow' | 'folder' | 'release'; label
 
 /** The one Inbox line a machine with modules on the person's folders starts with. */
 export function startedOnSaid(count: number): string {
-  return `Kehikko development is on because ${count} module${count === 1 ? '' : 's'} run${count === 1 ? 's' : ''} from your own folders. Turn it off in Settings › Modules to run them all from Kehikot’s releases.`
+  return `Kehikko development is on because ${count} module${count === 1 ? '' : 's'} run${count === 1 ? 's' : ''} from your own folders. Turn it off in Settings › Development to run them all from Kehikot’s releases.`
 }
 
 /** What did not move, and why: `later` is a module set to keep running, which Kehikot does not stop for this. */
@@ -124,7 +133,7 @@ export interface Tally {
 export const SUMMARY_LINE_MAX = 400
 
 /** The words for a module set to keep running: it is moved at its next restart, or by a press. */
-export const MOVES_LATER = 'it is set to keep running, so Kehikot did not stop it. It moves by itself the next time it restarts, or press Move now in Settings › Modules.'
+export const MOVES_LATER = 'it is set to keep running, so Kehikot did not stop it. It moves by itself the next time it restarts, or press Move now in Settings › Development.'
 
 /** What a module that did not move says, in words: its name first. */
 export function unmovedSaid(one: Unmoved): string {
@@ -162,11 +171,11 @@ export function summaryLines(done: Tally, home: string | null): string[] {
     lines.push(`${line}.`)
   }
   if (done.kept?.length) lines.push(`Kept in development: ${done.kept.join(', ')}.`)
-  if (done.freed.length) lines.push(`Press Move unused folders to the Trash in Settings › Modules to clear ${done.freed.length === 1 ? 'it' : 'them'}; each is checked first.`)
+  if (done.freed.length) lines.push(`Press Move unused folders to the Trash in Settings › Development to clear ${done.freed.length === 1 ? 'it' : 'them'}; each is checked first.`)
   return lines.length ? lines.map(clip) : ['Every module already ran from where it should.']
 }
 
-/** The summary as one piece, for Settings › Modules. */
+/** The summary as one piece, for Settings › Development. */
 export function summarySaid(done: Tally, home: string | null): string {
   return summaryLines(done, home).join(' ')
 }
