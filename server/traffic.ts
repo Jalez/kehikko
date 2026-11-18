@@ -363,6 +363,7 @@ export const ROUTE_REASONS: Readonly<Record<string, string>> = {
   '/host/official/install': 'a person installs a module',
   '/host/official/propose': 'a person proposes a module',
   '/host/mine': 'my modules',
+  '/host/development': 'where the official modules run from (Kehikko development)',
   '/host/feedback': 'a person sends feedback',
   '/host/is-project': 'a module asks whether a folder is a project',
   '/host/place': 'a session’s place',
