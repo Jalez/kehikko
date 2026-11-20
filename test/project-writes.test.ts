@@ -26,7 +26,7 @@ const MACHINE_LEVEL: Record<string, string> = {
   'versionRuns.ts: mkdirSync(join(this.#root, id), { recursive: true })': 'the versions directory',
   'moduleLog.ts: mkdirSync(dirname(file), { recursive: true })': 'the logs directory',
   'hostLog.ts: mkdirSync(dirname(this.file), { recursive: true })': 'the logs directory (host.log, page.log)',
-  'server.ts: mkdirSync(dir, { recursive: true })': 'the logs directory, made before it is opened for the person (/host/logs/open)',
+  'logRoutes.ts: mkdirSync(dir, { recursive: true })': 'the logs directory, made before it is opened for the person (/host/logs/open)',
   'installs.ts: mkdirSync(deps.root, { recursive: true })': 'the installed-modules directory',
   'installs.ts: mkdirSync(deps.registry, { recursive: true })': 'the module registry',
   'installs.ts: mkdirSync(join(deps.root, INCOMING), { recursive: true })': 'a release being cloned beside an installed module, under the installed-modules directory',

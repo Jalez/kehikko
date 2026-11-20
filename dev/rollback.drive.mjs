@@ -28,8 +28,10 @@ import { dirname, join } from 'node:path'
 
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, readBundleInfo, sha256, unpackBundle, writeTarGz } from 'kehikot-module-protocol/bundle'
+import { inModulePorts, portOf } from 'kehikot-module-protocol/serve'
 
-import { bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
+import { bundleServe } from './fixtures/bundle-serve.mjs'
+import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const ID = 'kehikot.sample'
 const REPO = 'Jalez/kehikko-sample'
@@ -58,17 +60,8 @@ const manifest = (version) =>
     declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: [], storage: true, prompt: false }, health: '/healthz',
   })
 
-/** A server that answers its manifest and health, from one file with nothing to import. */
-const working = (version) => `
-const manifest = ${JSON.stringify(manifest(version))}
-const headers = { 'access-control-allow-origin': '*', 'content-type': 'application/json' }
-Bun.serve({ port: Number(process.env.PORT), hostname: '127.0.0.1', fetch(request) {
-  const path = new URL(request.url).pathname
-  if (path === ${JSON.stringify(WELL_KNOWN)}) return new Response(JSON.stringify(manifest), { headers })
-  if (path === '/healthz') return new Response('ok')
-  return new Response('<!doctype html><title>Sample</title>', { headers: { 'content-type': 'text/html' } })
-} })
-`
+/** A server that answers its manifest and health, from one file with nothing to import, and registers where it bound. */
+const working = (version) => bundleServe(manifest(version))
 const broken = `throw new Error('this release was built wrong and cannot start')\n`
 
 export async function rollbackDrive({ check = false } = {}) {
@@ -77,7 +70,7 @@ export async function rollbackDrive({ check = false } = {}) {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`)
     if (!ok) failures.push(what)
   }
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'rollback-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'rollback-'))))
   try {
     /* The fake GitHub: release files and the raw package.json, for whatever `https://` the host asks. */
     const releases = { 'v1.0.0': bundleOf('1.0.0', working('1.0.0')), 'v1.1.0': bundleOf('1.1.0', broken) }
@@ -139,9 +132,18 @@ export async function rollbackDrive({ check = false } = {}) {
     const installed = join(scratch.root, 'installed', ID)
     const headers = { origin: new URL(pageUrl).origin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }
     const post = (path, body) => fetch(`${api}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
+    /* Where the module answers is its registration's to say: a bundle built against 2.65.0 or newer is
+       started on a port the host hands, and writes where it bound there (`server/anyPort.ts`). */
+    const registered = () => {
+      try {
+        return JSON.parse(readFileSync(join(scratch.root, 'modules', `${ID}.json`), 'utf8')).url ?? null
+      } catch {
+        return null
+      }
+    }
     const manifestNow = async () => {
       try {
-        return await (await fetch(`http://127.0.0.1:${port}${WELL_KNOWN}`)).json()
+        return await (await fetch(`${registered()}${WELL_KNOWN}`)).json()
       } catch {
         return null
       }
@@ -160,6 +162,8 @@ export async function rollbackDrive({ check = false } = {}) {
     expect(started.ok, `the host starts the installed bundle (${started.status})`)
     expect(await until('v1.0.0 answers', async () => (await manifestNow())?.version === '1.0.0'), 'it answers as 1.0.0')
     expect(readBundleInfo(installed)?.version === '1.0.0', 'the installed copy is the 1.0.0 bundle')
+    const handed = portOf(registered() ?? '')
+    expect(handed !== port && handed !== null && inModulePorts(handed), `it was started on a port the host handed, of the module band, and registered it (${registered()}; its list port ${port})`)
 
     /* "Check now": the host reads the module's releases, and so knows 1.1.0 is there. */
     const checked = await (await fetch(`${api}/host/updates?fetch=1`, { headers })).json()
@@ -209,14 +213,14 @@ export async function rollbackDrive({ check = false } = {}) {
     if (!failures.length) console.log('the idle rollback held: an update that landed while it was stopped was put back at its first start')
 
     /* ---- A container pinned to an older bundled version runs beside the current one ---------------------
-     * 1.3.0 is published and becomes the current version (the registered module, on its own port); a
+     * 1.3.0 is published and becomes the current version (the registered module, where it registered); a
      * container on a kehikko is pinned to v1.0.0, which the host takes from the release's bundle (the
      * installed copy has no git history to check out) and runs on a port of its own, beside it. */
     releases['v1.3.0'] = bundleOf('1.3.0', working('1.3.0'))
     git('tag', '-a', 'v1.3.0', '-m', 'v1.3.0')
     git('push', '-q', origin, '--tags')
     await (await fetch(`${api}/host/updates?fetch=1`, { headers })).json()
-    expect(Boolean(await until('1.3.0 is the current version', async () => (await manifestNow())?.version === '1.3.0', 90_000).catch(() => false)), 'the update to 1.3.0 is the current version, on the module’s own port')
+    expect(Boolean(await until('1.3.0 is the current version', async () => (await manifestNow())?.version === '1.3.0', 90_000).catch(() => false)), 'the update to 1.3.0 is the current version, where its registration says')
     const canvasesNow = (await (await fetch(`${api}/host/canvases`, { headers })).json()).canvases
     const kehikko = canvasesNow[0]
     const placed2 = await fetch(`${api}/host/canvases/${kehikko.id}`, {
@@ -236,7 +240,8 @@ export async function rollbackDrive({ check = false } = {}) {
     expect(Boolean(view), 'the pinned version answers, and the host has read it')
     const pinnedAt = view?.presence?.at ?? ''
     expect(view?.presence?.module?.version === '1.0.0', `the pinned container's module says it is 1.0.0 (${view?.presence?.module?.version})`)
-    expect(pinnedAt !== '' && pinnedAt !== `http://127.0.0.1:${port}`, `it runs on a port of its own (${pinnedAt}), not the module's (${port})`)
+    const moduleAt = registered()
+    expect(pinnedAt !== '' && moduleAt !== null && pinnedAt !== moduleAt, `it runs on a port of its own (${pinnedAt}), not the module's (${moduleAt}), and did not take the module's registration`)
     /* Beside, at the same moment: the current version still answers on its own port, and the pinned one on its. */
     const current = await manifestNow()
     const beside = await fetch(`${pinnedAt}${WELL_KNOWN}`).then((one) => one.json()).catch(() => null)

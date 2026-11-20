@@ -35,8 +35,10 @@ import { basename, join, relative } from 'node:path'
 
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, readBundleInfo, sha256, writeTarGz } from 'kehikot-module-protocol/bundle'
+import { inModulePorts, portOf } from 'kehikot-module-protocol/serve'
 
-import { bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
+import { bundleServe } from './fixtures/bundle-serve.mjs'
+import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const text = (value) => new TextEncoder().encode(value)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -49,17 +51,8 @@ const manifest = (id, name, version) =>
     declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: [], storage: true, prompt: false }, health: '/healthz',
   })
 
-/** A server that answers its manifest and health, from one file with nothing to import. */
-const working = (id, name, version) => `
-const manifest = ${JSON.stringify(manifest(id, name, version))}
-const headers = { 'access-control-allow-origin': '*', 'content-type': 'application/json' }
-Bun.serve({ port: Number(process.env.PORT), hostname: '127.0.0.1', fetch(request) {
-  const path = new URL(request.url).pathname
-  if (path === ${JSON.stringify(WELL_KNOWN)}) return new Response(JSON.stringify(manifest), { headers })
-  if (path === '/healthz') return new Response('ok')
-  return new Response('<!doctype html><title>${name}</title>', { headers: { 'content-type': 'text/html' } })
-} })
-`
+/** A server that answers its manifest and health, from one file with nothing to import, and registers where it bound. */
+const working = (id, name, version) => bundleServe(manifest(id, name, version), name)
 const broken = `throw new Error('this release was built wrong and cannot start')\n`
 
 /** A bundle as `kehikot-bundle` writes one: `serve.ts`, `run.sh`, `bundle.json` listing both. */
@@ -138,7 +131,7 @@ export async function developmentDrive({ check = false } = {}) {
   const claudeBundle = process.env.CLAUDE_BUNDLE ? realpathSync(process.env.CLAUDE_BUNDLE) : null
   const claudeSource = process.env.CLAUDE_CHECKOUT ? realpathSync(process.env.CLAUDE_CHECKOUT) : null
   const withClaude = Boolean(claudeBundle && claudeSource)
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'development-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'development-'))))
   try {
     const sample = { id: 'kehikot.sample', name: 'Sample', repo: 'Jalez/kehikko-sample' }
     const brokenOne = { id: 'kehikot.broken', name: 'Broken', repo: 'Jalez/kehikko-broken' }
@@ -231,13 +224,25 @@ export async function developmentDrive({ check = false } = {}) {
     const headers = { origin: new URL(pageUrl).origin, 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }
     const post = (path, body) => fetch(`${api}${path}`, { method: 'POST', headers, body: JSON.stringify(body) })
     const state = async () => (await fetch(`${api}/host/development`, { headers })).json()
-    const versionAt = async (port) => {
+    /* Where a module answers is its registration's to say: a release bundle built against 2.65.0 or
+       newer is started on a port the host hands and writes where it bound there (`server/anyPort.ts`),
+       and a folder started after it keeps that address. */
+    const urlOf = (id) => {
       try {
-        return (await (await fetch(`http://127.0.0.1:${port}${WELL_KNOWN}`)).json()).version
+        return JSON.parse(readFileSync(join(scratch.root, 'modules', `${id}.json`), 'utf8')).url ?? null
       } catch {
         return null
       }
     }
+    const versionAt = async (id) => {
+      try {
+        return (await (await fetch(`${urlOf(id)}${WELL_KNOWN}`)).json()).version
+      } catch {
+        return null
+      }
+    }
+    /* The pid listening where a module's registration says. */
+    const listenerOf = (id) => execFileSync('lsof', ['-ti', `tcp:${portOf(urlOf(id) ?? '')}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim().split('\n')[0]
     const until = async (what, test, ms = 60_000) => {
       const end = Date.now() + ms
       while (Date.now() < end) {
@@ -268,14 +273,14 @@ export async function developmentDrive({ check = false } = {}) {
       const started = await post('/host/start', { module: one.id })
       expect(started.ok, `${one.name} starts from the person's folder (${started.status})`)
     }
-    expect((await until('Sample answers from the folder', async () => (await versionAt(ports.sample)) === '0.0.0-dev')) === true, 'Sample answers as the folder’s version')
-    expect((await until('Broken answers from the folder', async () => (await versionAt(ports.broken)) === '0.0.0-dev')) === true, 'Broken answers as the folder’s version')
+    expect((await until('Sample answers from the folder', async () => (await versionAt(sample.id)) === '0.0.0-dev')) === true, 'Sample answers as the folder’s version')
+    expect((await until('Broken answers from the folder', async () => (await versionAt(brokenOne.id)) === '0.0.0-dev')) === true, 'Broken answers as the folder’s version')
 
     /* Claude, set to keep running, runs from the clone: Kehikot must not stop it to move it. */
     if (withClaude) {
       const started = await post('/host/start', { module: 'kehikot.claude' })
       expect(started.ok, `Claude (set to keep running) starts from the clone (${started.status})`)
-      expect(Boolean(await until('Claude answers from the clone', async () => (await versionAt(ports.claude)) !== null, 240_000).catch(() => false)), 'and answers')
+      expect(Boolean(await until('Claude answers from the clone', async () => (await versionAt('kehikot.claude')) !== null, 240_000).catch(() => false)), 'and answers')
     }
 
     /* The folders as the person has them, with their modules running from them: what the switches below must leave exactly so. */
@@ -287,14 +292,15 @@ export async function developmentDrive({ check = false } = {}) {
     const off = await settled()
     const row = (read, id) => read.modules.find((one) => one.id === id)
     expect(registration(sample.id).dir === installed(sample.id), `Sample's registration names its installed copy (${registration(sample.id).dir})`)
-    expect(registration(sample.id).url === `http://127.0.0.1:${ports.sample}`, 'and keeps its address')
+    const releaseAt = portOf(registration(sample.id).url)
+    expect(releaseAt !== null && releaseAt !== ports.sample && inModulePorts(releaseAt), `and names the port the host handed its release, of the module band (${registration(sample.id).url}; the folder's was ${ports.sample})`)
     expect(readBundleInfo(installed(sample.id))?.version === '1.0.0', 'the installed copy is its 1.0.0 release bundle')
     expect(asked.some((url) => url.includes('/kehikko-sample/releases/download/v1.0.0/')), 'the bundle was downloaded from the release')
-    expect((await until('Sample answers as its release', async () => (await versionAt(ports.sample)) === '1.0.0').catch(() => false)) === true, 'Sample answers as its release, 1.0.0')
+    expect((await until('Sample answers as its release', async () => (await versionAt(sample.id)) === '1.0.0').catch(() => false)) === true, 'Sample answers as its release, 1.0.0')
     expect(row(off, sample.id)?.move?.step === 'done' && row(off, sample.id)?.runs?.from === 'release', 'its line says it moved, and runs from its release')
     expect(registration(brokenOne.id).dir === brokenFolder, `Broken's release did not start, so its registration names the folder again (${registration(brokenOne.id).dir})`)
     expect(row(off, brokenOne.id)?.move?.step === 'restored', `its line says it was put back (${row(off, brokenOne.id)?.move?.why})`)
-    expect((await until('Broken answers from the folder again', async () => (await versionAt(ports.broken)) === '0.0.0-dev').catch(() => false)) === true, 'Broken runs from the folder again')
+    expect((await until('Broken answers from the folder again', async () => (await versionAt(brokenOne.id)) === '0.0.0-dev').catch(() => false)) === true, 'Broken runs from the folder again')
     expect(/Your folder .*kehikko-sample is no longer used by Kehikot|kehikko-sample/.test(off.summary ?? '') && !/kehikko-broken[,.]/.test((off.summary ?? '').split('no longer used')[1] ?? ''), `the summary names the folder no longer used (${off.summary})`)
     expect(/Broken did not start from/.test(off.summary ?? '') || /Broken[^.]*did not move/.test(off.summary ?? ''), 'and the one that did not move')
     if (withClaude) {
@@ -322,7 +328,7 @@ export async function developmentDrive({ check = false } = {}) {
       const claudeRow = row(off, 'kehikot.claude')
       expect(registration('kehikot.claude').dir === claudeFolder && registration('kehikot.claude').keep === true, `Claude, running and set to keep running, is not moved under itself (${registration('kehikot.claude').dir})`)
       expect(claudeRow?.move?.step === 'later' && claudeRow?.keeps === true, `its row says it moves at its next restart (${claudeRow?.move?.step}: ${claudeRow?.move?.why})`)
-      expect((await versionAt(ports.claude)) !== null, 'and it is still running')
+      expect((await versionAt('kehikot.claude')) !== null, 'and it is still running')
       const settings = join(scratch.root, 'claude', 'settings.json')
       const hookNow = () => JSON.parse(readFileSync(settings, 'utf8')).hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? ''
       expect(hookNow().includes(join(claudeFolder, 'started.sh')) || hookNow().includes(claudeFolder), 'its session hook still names the clone, which still runs')
@@ -333,7 +339,7 @@ export async function developmentDrive({ check = false } = {}) {
       expect(registration('kehikot.claude').dir === installed('kehikot.claude') && registration('kehikot.claude').keep === true, `Claude's registration names its installed copy, and still says keep (${registration('kehikot.claude').dir}; ${row(after4, 'kehikot.claude')?.move?.why ?? ''})`)
       expect(row(after4, 'kehikot.claude')?.move?.step === 'done' && row(after4, 'kehikot.claude')?.runs?.from === 'release', 'its row says it moved, and runs from its release')
       expect(readBundleInfo(installed('kehikot.claude'))?.version === claudeVersion, `the installed copy is Claude's ${claudeVersion} bundle`)
-      expect((await until('Claude answers as its release', async () => (await versionAt(ports.claude)) === claudeVersion, 90_000).catch(() => false)) === true, `Claude answers as ${claudeVersion}, from its bundle`)
+      expect((await until('Claude answers as its release', async () => (await versionAt('kehikot.claude')) === claudeVersion, 90_000).catch(() => false)) === true, `Claude answers as ${claudeVersion}, from its bundle`)
       const followed = await until('the hook names the installed copy', async () => hookNow().includes(join(installed('kehikot.claude'), 'started.sh')), 60_000).catch(() => false)
       expect(Boolean(followed), `the session hook in Claude Code's settings is repaired, and runs the installed copy: ${hookNow()}`)
       expect(JSON.parse(readFileSync(settings, 'utf8')).model === 'opus', 'and the rest of the settings is as it was')
@@ -349,44 +355,44 @@ export async function developmentDrive({ check = false } = {}) {
     await settled()
     expect(registration(sample.id).dir === sampleFolder, 'development on: Sample runs from the person’s folder again')
     if (withClaude) expect(registration('kehikot.claude').dir === installed('kehikot.claude'), 'and Claude, set to use its release, stays on it')
-    expect((await until('Sample answers from the folder again', async () => (await versionAt(ports.sample)) === '0.0.0-dev').catch(() => false)) === true, 'and answers as the folder’s version')
+    expect((await until('Sample answers from the folder again', async () => (await versionAt(sample.id)) === '0.0.0-dev').catch(() => false)) === true, 'and answers as the folder’s version')
     const one = await post('/host/development', { module: sample.id, release: true })
     expect(one.ok, `"Use the release for this one" (${one.status})`)
     const after = await settled()
     expect(registration(sample.id).dir === installed(sample.id) && row(after, sample.id)?.release === true, 'Sample runs from its release while development stays on')
-    expect((await until('Sample answers as its release again', async () => (await versionAt(ports.sample)) === '1.0.0').catch(() => false)) === true, 'and answers as 1.0.0')
+    expect((await until('Sample answers as its release again', async () => (await versionAt(sample.id)) === '1.0.0').catch(() => false)) === true, 'and answers as 1.0.0')
 
     /* ---- 5. A module set to keep running moves by itself at its next restart --------------------- */
     const toFolder = await post('/host/development', { module: sample.id, release: false })
     expect(toFolder.ok, 'Sample is put back on the person’s folder')
     await settled()
-    expect((await until('Sample answers from the folder', async () => (await versionAt(ports.sample)) === '0.0.0-dev').catch(() => false)) === true, 'and runs from it')
+    expect((await until('Sample answers from the folder', async () => (await versionAt(sample.id)) === '0.0.0-dev').catch(() => false)) === true, 'and runs from it')
     const sampleReg = registration(sample.id)
     writeFileSync(join(scratch.root, 'modules', `${sample.id}.json`), JSON.stringify({ ...sampleReg, keep: true }))
     await post('/host/development', { module: sample.id, release: true })
     const waiting = await settled()
     expect(registration(sample.id).dir === sampleFolder && row(waiting, sample.id)?.move?.step === 'later', `Sample, set to keep running, is not moved while it runs (${registration(sample.id).dir}; ${row(waiting, sample.id)?.move?.step})`)
-    const listener = execFileSync('lsof', ['-ti', `tcp:${ports.sample}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim().split('\n')[0]
+    const listener = listenerOf(sample.id)
     process.kill(Number(listener), 'SIGTERM')
-    expect((await until('Sample ends', async () => (await versionAt(ports.sample)) === null, 30_000).catch(() => false)) === true, 'it ends (a restart, an update or a crash: the next start is its next restart)')
+    expect((await until('Sample ends', async () => (await versionAt(sample.id)) === null, 30_000).catch(() => false)) === true, 'it ends (a restart, an update or a crash: the next start is its next restart)')
     const startedAgain = await post('/host/start', { module: sample.id })
     expect(startedAgain.ok, `Sample starts again (${startedAgain.status})`)
     await settled()
     expect(registration(sample.id).dir === installed(sample.id) && registration(sample.id).keep === true, `at that start it moved by itself, and still says keep (${registration(sample.id).dir})`)
-    expect((await until('Sample answers as its release', async () => (await versionAt(ports.sample)) === '1.0.0', 60_000).catch(() => false)) === true, 'and answers as its release, 1.0.0')
+    expect((await until('Sample answers as its release', async () => (await versionAt(sample.id)) === '1.0.0', 60_000).catch(() => false)) === true, 'and answers as its release, 1.0.0')
     expect(row(await state(), sample.id)?.move?.step === 'done', 'its row says it moved')
     expect(/Sample now runs|1 module now runs from Kehikot’s releases/.test(await inboxNow()), 'and the Inbox says so')
 
     /* ---- 6. A registration edited a moment before Start is read as it is -------------------------
        The host's last look at the registrations is a sweep old, and a sweep under load is later still:
        a start that judged by it owed no move to a module whose `keep` was just added (CI, once). */
-    const again = execFileSync('lsof', ['-ti', `tcp:${ports.sample}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).trim().split('\n')[0]
+    const again = listenerOf(sample.id)
     process.kill(Number(again), 'SIGTERM')
     writeFileSync(join(scratch.root, 'modules', `${sample.id}.json`), JSON.stringify({ url: `http://127.0.0.1:${ports.sample}`, dir: sampleFolder, keep: true }))
     expect((await post('/host/start', { module: sample.id })).ok, 'Sample is started the moment its registration says keep')
     await settled()
     expect(registration(sample.id).dir === installed(sample.id), `and that start moves it, from the registration as it is on disk (${registration(sample.id).dir})`)
-    expect((await until('Sample answers as its release', async () => (await versionAt(ports.sample)) === '1.0.0', 60_000).catch(() => false)) === true, 'and it answers as its release')
+    expect((await until('Sample answers as its release', async () => (await versionAt(sample.id)) === '1.0.0', 60_000).catch(() => false)) === true, 'and it answers as its release')
 
     const sampleChanged = changedIn(before.sample, fingerprint(sampleFolder))
     expect(!sampleChanged.length, `Sample’s folder is exactly as it was: every file, mode and time${sampleChanged.length ? ` (changed: ${sampleChanged.join(', ')})` : ''}`)
