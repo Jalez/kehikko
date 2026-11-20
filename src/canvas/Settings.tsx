@@ -488,7 +488,7 @@ export function SettingsBody({
   const said = pageSaid(shown, modules)
   const scopeName = scope === 'project' ? (project?.name ?? null) : scope === 'kehikko' ? (kehikko?.name ?? null) : scope === 'module' ? said.title : null
   const problems = answer?.status.problems.length ?? 0
-  const shownModule = moduleOfPage(shown)
+  const page: Omit<PageProps, 'page'> = { shown, said, answer, trouble, onChange, onClose, project, baseBranch, modulesApi, modules, trackers, kehikko, onRename, open, kehikkoApi }
 
   return (
     <Tabs
@@ -500,43 +500,7 @@ export function SettingsBody({
       orientation="vertical"
       className="flex min-h-0 flex-1 flex-col gap-0 sm:flex-row"
     >
-      <aside className="bg-muted/40 flex max-h-40 shrink-0 flex-col overflow-y-auto border-b sm:max-h-none sm:min-h-0 sm:w-56 sm:border-r sm:border-b-0" data-settings-nav>
-        {groups.map((group) => {
-          const heading = `settings-scope-${group.scope}`
-          return (
-            <div key={group.scope} className="px-2 pt-2 last:pb-2" data-settings-scope={group.scope}>
-              <h3 id={heading} className="text-muted-foreground truncate px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-wide uppercase" title={scopeHeading(group.scope, group.name)}>
-                {scopeHeading(group.scope, group.name)}
-              </h3>
-              <TabsList aria-labelledby={heading} className="h-auto w-full flex-wrap justify-start gap-0.5 rounded-none bg-transparent p-0 sm:flex-col sm:flex-nowrap sm:items-stretch">
-                {group.pages.map((key) => {
-                  const { title, icon: Icon } = pageSaid(key, modules)
-                  return (
-                    <TabsTrigger
-                      key={key}
-                      value={key}
-                      data-section={key}
-                      className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 min-w-0 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
-                    >
-                      <Icon className="size-4 shrink-0" aria-hidden />
-                      <span className="truncate">{title}</span>
-                      {key === 'tools' && problems > 0 ? (
-                        <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
-                          {problems}
-                          <span className="sr-only"> left alone</span>
-                        </span>
-                      ) : null}
-                    </TabsTrigger>
-                  )
-                })}
-              </TabsList>
-            </div>
-          )
-        })}
-        <p className="text-muted-foreground mt-auto hidden px-4 pt-3 pb-4 text-[11px] sm:block">
-          Open Settings with <kbd className="bg-background rounded border px-1 font-sans">{chordSaid(onMac())}</kbd>
-        </p>
-      </aside>
+      <SettingsNav groups={groups} modules={modules} problems={problems} />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" aria-busy={busy}>
         <SavedNote saved={saved} />
@@ -551,39 +515,7 @@ export function SettingsBody({
             {trouble && scope === 'app' ? <Trouble>{trouble}</Trouble> : null}
             {every.map((key) => (
               <TabsContent key={key} value={key} forceMount className="flex min-w-0 flex-col gap-5 data-[state=inactive]:hidden">
-                {moduleOfPage(key) !== null ? (
-                  /* Only while it is shown: its form asks the module. */
-                  shownModule === moduleOfPage(key) ? (
-                    <ModulePage module={said.module ?? { id: shownModule!, name: shownModule! }} project={project} api={modulesApi} open={open} onOpened={onClose} />
-                  ) : null
-                ) : key.startsWith('kehikko-') ? (
-                  shown === key && kehikko ? (
-                    <KehikkoPage kehikko={kehikko} section={key.slice('kehikko-'.length) as KehikkoSection} active={open} onRename={onRename} {...kehikkoApi} />
-                  ) : null
-                ) : key === 'about' ? (
-                  <About onClose={onClose} />
-                ) : key === 'appearance' ? (
-                  /* Only while it is shown, like Modules: its controls are nobody else's to find. */
-                  shown === 'appearance' ? <AppearanceSettings onChange={onChange} modules={modules} /> : null
-                ) : key === 'trackers' ? (
-                  <ProjectTrackers door={trackers} projectName={project?.name ?? null} projectId={project?.id ?? null} />
-                ) : key === 'project' ? (
-                  project ? (
-                    <>
-                      <ProjectSettings project={project} door={baseBranch} />
-                      <ProjectModules project={project} answer={answer} onChange={onChange} />
-                    </>
-                  ) : null
-                ) : key === 'modules' ? (
-                  <ModulesPage answer={answer} onChange={onChange} modules={modules} />
-                ) : key === 'development' ? (
-                  /* Where the official modules run from: Kehikot's releases, or your own folders. Machine-wide. */
-                  shown === 'development' ? <DevelopmentPage /> : null
-                ) : answer ? (
-                  <Section which={key as SectionKey} answer={answer} onChange={onChange} />
-                ) : !trouble ? (
-                  <Loading className="text-sm" label="Reading the settings…" />
-                ) : null}
+                <PageView page={key} {...page} />
               </TabsContent>
             ))}
           </div>
@@ -591,6 +523,112 @@ export function SettingsBody({
       </div>
     </Tabs>
   )
+}
+
+/** The dialog's nav: one tab list per scope, under the scope's heading, and the chord that opens Settings. */
+function SettingsNav({ groups, modules, problems }: { groups: ReturnType<typeof pagesOf>; modules: readonly ModuleRef[]; problems: number }) {
+  return (
+    <aside className="bg-muted/40 flex max-h-40 shrink-0 flex-col overflow-y-auto border-b sm:max-h-none sm:min-h-0 sm:w-56 sm:border-r sm:border-b-0" data-settings-nav>
+      {groups.map((group) => {
+        const heading = `settings-scope-${group.scope}`
+        return (
+          <div key={group.scope} className="px-2 pt-2 last:pb-2" data-settings-scope={group.scope}>
+            <h3 id={heading} className="text-muted-foreground truncate px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-wide uppercase" title={scopeHeading(group.scope, group.name)}>
+              {scopeHeading(group.scope, group.name)}
+            </h3>
+            <TabsList aria-labelledby={heading} className="h-auto w-full flex-wrap justify-start gap-0.5 rounded-none bg-transparent p-0 sm:flex-col sm:flex-nowrap sm:items-stretch">
+              {group.pages.map((key) => (
+                <NavTab key={key} page={key} modules={modules} problems={problems} />
+              ))}
+            </TabsList>
+          </div>
+        )
+      })}
+      <p className="text-muted-foreground mt-auto hidden px-4 pt-3 pb-4 text-[11px] sm:block">
+        Open Settings with <kbd className="bg-background rounded border px-1 font-sans">{chordSaid(onMac())}</kbd>
+      </p>
+    </aside>
+  )
+}
+
+/** One page's tab in the nav: its icon and title, and on Tools how many were left alone. */
+function NavTab({ page, modules, problems }: { page: SettingsPage; modules: readonly ModuleRef[]; problems: number }) {
+  const { title, icon: Icon } = pageSaid(page, modules)
+  return (
+    <TabsTrigger
+      value={page}
+      data-section={page}
+      className="text-muted-foreground hover:text-foreground data-[state=active]:text-foreground h-8 min-w-0 flex-none justify-start gap-2 px-2.5 text-[13px] font-normal data-[state=active]:font-medium"
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span className="truncate">{title}</span>
+      {page === 'tools' && problems > 0 ? (
+        <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] text-amber-700 tabular-nums dark:text-amber-300">
+          {problems}
+          <span className="sr-only"> left alone</span>
+        </span>
+      ) : null}
+    </TabsTrigger>
+  )
+}
+
+interface PageProps {
+  /** The page this is. */
+  page: SettingsPage
+  /** The page shown now: some pages draw only while they are. */
+  shown: SettingsPage
+  said: ReturnType<typeof pageSaid>
+  answer: SettingsAnswer | null
+  trouble: string | null
+  onChange(what: Change): void
+  onClose(): void
+  project: SettingsProject | null
+  baseBranch: BaseBranchDoor
+  modulesApi: SettingsApi | undefined
+  modules: readonly ModuleRef[]
+  trackers: TrackersDoor | null
+  kehikko: KehikkoRef | null
+  onRename(id: number, name: string): Promise<RenameResult>
+  open: boolean
+  kehikkoApi: KehikkoApi | undefined
+}
+
+/** What one page of the dialog holds. */
+function PageView({ page, shown, said, answer, trouble, onChange, onClose, project, baseBranch, modulesApi, modules, trackers, kehikko, onRename, open, kehikkoApi }: PageProps) {
+  const module = moduleOfPage(page)
+  if (module !== null) {
+    /* Only while it is shown: its form asks the module. */
+    const shownModule = moduleOfPage(shown)
+    if (shownModule !== module) return null
+    return <ModulePage module={said.module ?? { id: shownModule!, name: shownModule! }} project={project} api={modulesApi} open={open} onOpened={onClose} />
+  }
+  if (page.startsWith('kehikko-')) {
+    if (shown !== page || !kehikko) return null
+    return <KehikkoPage kehikko={kehikko} section={page.slice('kehikko-'.length) as KehikkoSection} active={open} onRename={onRename} {...kehikkoApi} />
+  }
+  switch (page) {
+    case 'about':
+      return <About onClose={onClose} />
+    case 'appearance':
+      /* Only while it is shown, like Modules: its controls are nobody else's to find. */
+      return shown === 'appearance' ? <AppearanceSettings onChange={onChange} modules={modules} /> : null
+    case 'trackers':
+      return <ProjectTrackers door={trackers} projectName={project?.name ?? null} projectId={project?.id ?? null} />
+    case 'project':
+      return project ? (
+        <>
+          <ProjectSettings project={project} door={baseBranch} />
+          <ProjectModules project={project} answer={answer} onChange={onChange} />
+        </>
+      ) : null
+    case 'modules':
+      return <ModulesPage answer={answer} onChange={onChange} modules={modules} />
+    case 'development':
+      /* Where the official modules run from: Kehikot's releases, or your own folders. Machine-wide. */
+      return shown === 'development' ? <DevelopmentPage /> : null
+  }
+  if (answer) return <Section which={page as SectionKey} answer={answer} onChange={onChange} />
+  return !trouble ? <Loading className="text-sm" label="Reading the settings…" /> : null
 }
 
 type SectionKey = 'tools' | 'skills' | 'hook' | 'notices'
