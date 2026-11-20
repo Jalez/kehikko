@@ -5,7 +5,7 @@ import { hostLog } from './hostLogStart.ts'
 import { editSpaces, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import type { PartsEdit } from '../src/host/parts.ts'
 import { undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne } from './answers.ts'
@@ -26,6 +26,7 @@ import { projectDesk } from './projectRoutes.ts'
 import { spaceDesk } from './spaceRoutes.ts'
 import { ModuleStates } from './supervisor/state.ts'
 import { Processes } from './supervisor/processes.ts'
+import { Supervisor } from './supervisor/supervisor.ts'
 import { moduleDesk } from './moduleRoutes.ts'
 import { callDesk } from './callRoutes.ts'
 import { personDesk } from './personRoutes.ts'
@@ -57,11 +58,11 @@ import { adopt, followProjects, knowFolders, listProjects, projectAt, projectByI
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, type AgentAwareness } from './agents.ts'
-import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
+import { look, type FramedModule, type Presence } from './discover.ts'
 import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
 import { RestartEnv, RestartHold, takeRestartReason, writeRestartReason, type RestartWhy } from './restartHold.ts'
 import { keptScope } from '../src/host/scope.ts'
-import { ManifestCache, probe } from './manifests.ts'
+import { ManifestCache } from './manifests.ts'
 import { answered, gone, hostEnv, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
@@ -92,33 +93,19 @@ import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
 import { stopModuleDesk } from './stopModule.ts'
 import { aim, anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
-  endedTooOftenLine,
-  EXIT_RESTARTS_WINDOW_MS,
   doorWake,
   exitedLine,
   personStoppedDoorLine,
   Idleness,
-  inFlight,
   INSTALLING_FOR_MS,
   lifecycleLine,
   namedLine,
-  lifecycleOf,
-  MIN_RUN_MS,
   silentSaid,
-  STARTING_FOR_MS,
-  THEIRS_TO_RESTART_MS,
-  toStart,
-  toStop,
-  toWarm,
-  toWatch,
   wanted,
-  WATCH_EVERY_MS,
-  type Doing,
   type Wanted,
-  type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
-import { installing, logFile, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
+import { installing, logFile, readyLog, startOfRun, tail } from './moduleLog.ts'
 import { ensureKeepRunning, keepingOf } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
@@ -129,7 +116,6 @@ import { holdsShells } from '../src/host/autoUpdates.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, buildBun, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
-import { Tethers } from './tether.ts'
 import { idOfFile, readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import {
   awarenessAt,
@@ -209,8 +195,7 @@ import { bootReadsNow, DEFER_FOR_MS, deferredMayRun } from './startOrder.ts'
 /* When each step of this start happened, from the process's own start: `startupTimeline.ts`. */
 const startup = new StartupTimeline()
 startup.mark('server code loaded')
-/** How long after the open kehikko is up the timeline is written, and when it is written anyway. */
-const TIMELINE_AFTER_UP_MS = 15_000
+/* When the timeline is written anyway; after the open kehikko is up, `TIMELINE_AFTER_UP_MS` (`supervisor/supervisor.ts`). */
 setTimeout(() => startup.write('two minutes passed'), 120_000).unref?.()
 
 /**
@@ -1804,7 +1789,7 @@ const moduleSettings = moduleSettingsDesk({
  * last answered. Named here as before; the operations that change several at once are on `states`.
  */
 const states = new ModuleStates()
-const { starting, sleeping, runs, exits, stoppedByPerson, failures, working, inHand, theirs, scopeRead, exitRestarts, exitHeld, answeredBy } = states
+const { starting, sleeping, runs, exits, stoppedByPerson, failures, working, inHand, theirs, scopeRead, answeredBy } = states
 
 /** What an update has reached, per checkout, for a page that was not there when it began. */
 const progress = new Map<string, UpdateStep>()
@@ -1819,7 +1804,7 @@ let going = false
 
 /**
  * The module processes this host runs (`supervisor/processes.ts`): the only place a module's script
- * is run, and the only writer of the nursery's children. An end that is news goes to `ended`.
+ * is run, and the only writer of the nursery's children. An end that is news goes to `Supervisor.ended`.
  */
 const processes = new Processes({
   states,
@@ -1829,36 +1814,8 @@ const processes = new Processes({
   startup,
   manifests,
   staleness,
-  onEnded: (id, at, code) => void ended(id, at, code),
+  onEnded: (id, at, code) => void supervisor.ended(id, at, code),
 })
-
-/**
- * Ask once a second whether a module that somebody else was running has come
- * back, and when it has — or when its time is up — look properly, decide, and
- * tell the pages. After the time is up the deciding is the ordinary rule: a
- * module an open kehikko has, that nothing answers for, is started.
- */
-function theirReturn(id: string): void {
-  const again = async () => {
-    const went = theirs.get(id)
-    if (went === undefined) return
-    const registration = registered.get(id)
-    const back = registration ? await fetchManifest(registration.url).then((got) => (got.ok ? true : got.reached), () => false) : false
-    if (registration && !back && Date.now() - went < THEIRS_TO_RESTART_MS) {
-      setTimeout(() => void again(), 1_000).unref()
-      return
-    }
-    theirs.delete(id)
-    try {
-      const view = await sweep()
-      govern(view.presences)
-    } catch {
-      /* Nothing found out; the watch asks within half a minute. */
-    }
-    wakes.registryChanged()
-  }
-  setTimeout(() => void because('is the module back', again), 1_000).unref()
-}
 
 /**
  * Which modules are on a kehikko that a live page says it has open.
@@ -1892,177 +1849,73 @@ function wantedNow(now = Date.now()): Wanted {
 }
 
 
-/** What the host is doing to one module, for `lifecycleOf`. */
-function doing(id: string): Doing {
-  const ranAt = starting.get(id) ?? null
-  const alive = nursery.holds(id)
-  return {
-    work: working.get(id) ?? null,
-    ranAt,
-    alive,
-    /* Read only for a start still in flight: it is a file read. */
-    installing: ranAt !== null && alive && installing(logFile(id)),
-    asleep: sleeping.has(id),
-    /* Its copy is being put on a newer release, or built, or read at host start for one: started after. */
-    levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || bootHolds(id),
-  }
-}
-
-/** Whether a start, install, update or restart the host is running for it is still in flight. */
-function isStarting(id: string, now: number): boolean {
-  return inFlight(lifecycleOf(true, doing(id), now))
-}
-
 /**
- * Every fact the policy is allowed to consider, gathered in one place.
- *
- * Gathering and deciding are deliberately separate functions in separate files.
- * Everything here reads a map, a database or a directory; everything in
- * `lifecycle.ts` is arithmetic over what this returns. That is what lets the
- * policy — which module may be stopped, when, and what is exempt — be tested
- * exhaustively without a process ever being created.
+ * The module supervisor (`supervisor/supervisor.ts`): which module to start and stop, and when; what
+ * a run that ended means; the tethers, the watch and the reaper. What it reads of the rest of the
+ * host is handed over here. `releases`, `auto`, `builds`, `pressedStarts` and `backfilled` are made
+ * further down, so they are handed over as getters and functions, read when they are used.
  */
+const supervisor = new Supervisor<Swept>({
+  states,
+  processes,
+  nursery,
+  registered,
+  lastPresences,
+  manifests,
+  idleness,
+  staleness,
+  get releases() {
+    return releases
+  },
+  get builds() {
+    return builds
+  },
+  get auto() {
+    return auto
+  },
+  development,
+  get pressedStarts() {
+    return pressedStarts
+  },
+  startup,
+  wakes,
+  sweep,
+  seen: () => seen,
+  sweeping: () => sweeping,
+  pageView: (view) => pageView(view),
+  going: () => going,
+  wanted: wantedNow,
+  bootHolds,
+  bootPump,
+  startable,
+  startOnce: (id, registration, runnable) => startOnce(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS),
+  installedPlace,
+  checkWhenUp,
+  backfilled: () => backfilled,
+  backfill,
+  runHeldChecks,
+  /* A module that is not registered (uninstalled; its containers say so) runs no pinned version. */
+  reconcileVersions: (now, mayStart) => {
+    const canvases = listCanvases(db).map((canvas) => ({ ...canvas, placements: canvas.placements.filter((p) => registered.has(p.i)) }))
+    versionRuns.reconcile(pinUses(canvases), pinsNeeded(canvases, new Set(openness.every(now))), mayStart)
+  },
+  whileStopped,
+  spokenName,
+})
+
+/** Every fact the policy is allowed to consider, gathered in one place (`Supervisor.standings`). */
 function standings(presences: readonly Presence[], now: number): Standing[] {
-  for (const presence of presences) if (presence.module) scopeRead.set(presence.id, presence.module)
-  const { needed, warm } = wantedNow(now)
-  idleness.noted(needed, now)
-  /* Warm counts as needed for idleness: a module on another kehikko of the
-     open project is idle from when the project closed, not from when the
-     person last looked at its kehikko. */
-  idleness.noted(warm.keys(), now)
-
-  /* A module whose registration is gone stops being remembered anywhere here.
-     Not housekeeping for its own sake: an entry left in `sleeping` would keep
-     the host saying "asleep" about a program nobody has registered any more,
-     and one left in the nursery would have it holding a pid for a name it can
-     no longer look up a directory for. The registry is the list of what exists
-     — see `readRegistrations` — so it is also the list of what these may hold. */
-  const here = new Set(presences.map((presence) => presence.id))
-  idleness.forgetAllBut(here)
-  states.forgetAllBut(here)
-  staleness.forgetAllBut(here)
-  releases.forgetAllBut(here)
-  auto.forgetAllBut(here)
-  builds.forgetAllBut(here)
-  for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
-
-  return presences.map((presence) => {
-    const registration = registered.get(presence.id) ?? null
-    /* `startedAt` is null for every module this host did not start, and asking
-       the nursery is also what drops a pid whose process has died — so a module
-       somebody restarted by hand stops being ours at the moment we look. */
-    const startedAt = nursery.startedAt(presence.id)
-    /* Answering ends a start, whoever asked: without this a module that came
-       up stayed "starting" here until a page's own sweep said otherwise, and
-       the project's next modules (`toWarm`) waited the whole `STARTING_FOR_MS`
-       behind it. */
-    if (presence.condition !== 'silent') starting.delete(presence.id)
-    if (presence.reached && startup.has(`started ${presence.id}`)) startup.mark(`answered ${presence.id}`)
-    return {
-      id: presence.id,
-      needed: needed.has(presence.id),
-      warm: warm.get(presence.id) ?? null,
-      answering: presence.reached,
-      startable: startable(registration).ok,
-      ours: startedAt !== null,
-      keep: registration?.keep === true,
-      idleSince: idleness.since(presence.id, startedAt),
-      /* An update in hand counts too: it decides for itself whether to start
-         the module again, and nothing else may in the meantime. */
-      starting: isStarting(presence.id, now) || inHand.has(presence.id),
-      /* Stopped by a person counts as not to be started again on its own, as a start that failed does. */
-      failed: failures.has(presence.id) || stoppedByPerson.has(presence.id),
-    }
-  })
+  return supervisor.standings(presences, now)
 }
 
-/**
- * Run one module's script because a kehikko somebody has open needs it.
- *
- * The one place in this program that starts something nobody pressed a button
- * for, and it is worth saying exactly why that is not the autostart `launch.ts`
- * refuses. That essay's objection is to a host that runs programs on a guess —
- * everything registered, at boot, because it might be wanted. This runs one
- * named program because a person is at this moment looking at a container for
- * it, on a canvas they arranged, from a registration they wrote naming a
- * directory they chose. The press has not disappeared; it has moved from a
- * button on the container to the act of opening the kehikko the container is on.
- *
- * Nothing is started that is not on an open kehikko or on another kehikko of
- * the project it is in (`toWarm`, while the person keeps a project's modules
- * running — the kehikot they arranged in the project they have open). There
- * is no prediction beyond that and no retry loop: a start that does not take is
- * a container that says so, with the button on it, which is where this began.
- */
-function begin(id: string, why = 'an open kehikko or project has it'): void {
-  /* A host on its way out starts nothing: see `leave` below. */
-  if (going) return
-  /* Somebody else was running it and it has only just gone: theirs to bring
-     back first. See `THEIRS_TO_RESTART_MS`. */
-  if (theirs.has(id)) return
-  /* A person stopped it from the modules menu: it stays stopped until they press Start. */
-  if (stoppedByPerson.has(id)) return
-  /* A newer release is being put in place while it is stopped (`whileStopped`);
-     started when that is done. */
-  if (releases.applying(id)) return
-  /* "Keep modules up to date automatically" is putting a newer release in
-     place, or has one queued (`autoUpdates.ts`); started when that is done.
-     At host start, an installed copy waits until its own tags were read. */
-  if (auto.pending(id) || bootHolds(id)) return
-  /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
-     a module, so the start waits for that one build. Started when it ends. */
-  if (builds.busy(id)) return
-  /* Already starting, by a press or an update, or a process of the host's is
-     there: a second copy would race it for the port (`startOnce.ts`). */
-  if (inHand.has(id) || pressedStarts.has(id) || nursery.holds(id)) return
-  /* Its process ended a moment ago and the next start after an end waits (`ExitRestarts`). */
-  if (states.heldAfterEnd(id, Date.now())) return
-  const registration = registered.get(id) ?? null
-  const can = startable(registration)
-  if (!can.ok) return
-  /* Set to keep running and not yet moved (Kehikko development): this start is its next restart, so it is moved first. */
-  if (development.owes(id, registration)) {
-    void because('a module set to keep running moves at its next start', () => startOnce(id, registration, can.run, ANSWERS_WITHIN_UPDATE_MS)).catch(() => null)
-    return
-  }
-  const ran = run(id, can.run)
-  if (!ran.ok || !ran.child) return
-  console.log(`kehikko: started ${id} at ${can.run.url} — ${why} (pid ${ran.child.pid})`)
-  /* The copy as it is starts now; whether a newer release is out is asked
-     beside it, never before it. See `releaseWait.ts`. */
-  const place = installedPlace(id)
-  if (place) checkWhenUp(place)
-  /* Under its own reason: it is started from whatever request decided to start it (a page's
-     report, a page's read of the modules), and its asks were filed under that, as the page's. */
-  void because('the host waits for a module it started', () => untilAnswered(id, can.run.url))
+/** Run one module's script because a kehikko somebody has open needs it (`Supervisor.begin`). */
+function begin(id: string, why?: string): void {
+  supervisor.begin(id, why)
 }
 
-/**
- * The moment a module the host started answers, decide again and tell the
- * pages — instead of the page finding out on its next 1.5-second look, and
- * so that the next of the project's modules (`toWarm`) starts as soon as
- * there is room. Bounded by `STARTING_FOR_MS`, after which the host has
- * stopped saying "starting" anyway.
- */
-async function untilAnswered(id: string, url: string): Promise<void> {
-  const at = runs.get(id)
-  const registration = registered.get(id)
-  if (!registration || registration.url !== url) return
-  /* The one asker of a module the host started: every sweep meanwhile reads what this found. */
-  const waited = await manifests.wait(registration, STARTING_FOR_MS)
-  /* Replaced, stopped or ended meanwhile: whoever did that decides, and tells. */
-  if ((!waited.up && waited.cancelled) || runs.get(id) !== at) return
-  try {
-    if (sweeping) await sweeping.catch(() => null)
-    /* What every other module said stands: only this one changed, and the wait has its answer. */
-    const view = await sweep({ kept: true })
-    govern(view.presences)
-    /* Up, or given up on: either way the containers stop saying "starting". The reading goes
-       with the news, so no page asks for it again (`registryIn` in `src/host/registry.ts`). */
-    wakes.registryChanged(await pageView(view))
-  } catch {
-    /* Nothing found out; the page's own look and the watch still ask. */
-  }
+/** Decide and act, from a sweep already in hand (`Supervisor.govern`). */
+function govern(presences: readonly Presence[], mayStart = true): void {
+  supervisor.govern(presences, mayStart)
 }
 
 /**
@@ -2204,7 +2057,7 @@ async function bootAutoUpdates(first: Promise<Swept>): Promise<void> {
   /* What answers now: a module kept running across the restart is running, and waits for its stop. */
   const view = await first.catch(() => null)
   if (view) {
-    notice(view.presences, Date.now())
+    supervisor.notice(view.presences, Date.now())
     for (const id of registered.keys()) {
       const place = installedPlace(id)
       if (place) bootHeld.set(id, place)
@@ -2445,11 +2298,6 @@ async function slim(copies: readonly Copy[]): Promise<void> {
   const freed = await materialiser.prune(pinned, new Set(versionRuns.all().map((one) => one.key)), { measure: (dir) => ownBytes(dir, own) })
   recordVersions(installsDir(), freed)
 }
-/** The open kehikko's modules are up: one is needed, and each needed one answers, failed, or cannot be started here. */
-function openUp(standing: readonly Standing[]): boolean {
-  const needed = standing.filter((one) => one.needed)
-  return needed.length > 0 && needed.every((one) => one.answering || one.failed || !one.startable)
-}
 /* With no page open nothing is ever "up", so it happens anyway, later. */
 setTimeout(backfill, BACKFILL_AT_THE_LATEST_MS).unref?.()
 
@@ -2540,294 +2388,6 @@ if (RESTART_FILE) {
 }
 
 /**
- * A process this host started has ended, and it is news (`Processes` hands over only the run the
- * host was still waiting on, and has forgotten what that process served).
- *
- * This is how a dead module stops looking alive without waiting for the
- * thirty-second watch: the runtime says so, once, and the host looks. Nothing
- * is polled. A module the host did not start still waits for the watch — there
- * is no handle to hear from.
- *
- * What it does depends on what the process had done. One that ended before it
- * ever answered, or within `MIN_RUN_MS`, failed to start: the container says
- * what it printed and it is NOT started again, or a broken module would be
- * spawned in a loop. One that had been running is a module that died — a Vite
- * config reload ends the process on purpose — and the ordinary policy starts
- * it again if a kehikko still has it.
- */
-async function ended(id: string, at: number, code: number | null): Promise<void> {
-  /* An update or a restart in hand already knows, and decides for itself. */
-  if (working.has(id) || inHand.has(id)) return
-  try {
-    /* A sweep already in flight may have asked before the process ended. */
-    if (sweeping) await sweeping.catch(() => null)
-    const view = await sweep()
-    const presence = view.presences.find((one) => one.id === id)
-    /* The sweep took its time, and a start began meanwhile (a person's press, the host's own): the
-       process in `starting` and in `runs` is that one's, not the one that ended. Judging it by this
-       end blamed it for a failure that was not its own and cleared its `starting`. It decides for itself. */
-    if (runs.has(id)) return
-    /* Something answers there: this module was already running, and the copy
-       the host started stepped aside, which is what it is meant to do. */
-    if (!presence || presence.reached) return
-    const neverAnswered = starting.has(id)
-    if (neverAnswered || Date.now() - at < MIN_RUN_MS) {
-      starting.delete(id)
-      failures.set(id, { line: exitedLine(presence.name ?? spokenName(id), presence.at, code, logFile(id)), detail: tail(logFile(id)) })
-      console.log(`kehikko: ${id} stopped again${code === null ? '' : ` (exit code ${code})`} without answering — see ${logFile(id)}`)
-    } else {
-      /* Started again on its own only so often, and each time later (`ExitRestarts`). */
-      const again = exitRestarts.ended(id)
-      if (again.wait === null) {
-        failures.set(id, { line: endedTooOftenLine(presence.name ?? spokenName(id), again.times, logFile(id)), detail: tail(logFile(id)) })
-        console.log(`kehikko: ${id} ended ${again.times} times within ${EXIT_RESTARTS_WINDOW_MS / 60_000} minutes — not started again until a press`)
-      } else if (again.wait > 0) {
-        exitHeld.set(id, Date.now() + again.wait)
-        console.log(`kehikko: ${id} is no longer running — started again in ${again.wait / 1000} s`)
-        setTimeout(() => {
-          exitHeld.delete(id)
-          void sweep().then((later) => govern(later.presences)).catch(() => null).finally(() => wakes.registryChanged())
-        }, again.wait).unref?.()
-      } else {
-        console.log(`kehikko: ${id} is no longer running — the process the host started ended`)
-      }
-    }
-    govern(view.presences)
-    wakes.registryChanged()
-  } catch {
-    /* Nothing found out; the watch asks again within half a minute. */
-  }
-}
-
-/**
- * Decide and act, from a sweep already in hand.
- *
- * Never sweeps: the caller has just done that, or is deliberately working from
- * the last one. Never awaits either — a start is a spawn and the moment after
- * it the module is `starting`, which is a thing the container can say straight
- * away. Waiting here would make every canvas switch pause for a dev server.
- */
-function govern(presences: readonly Presence[], mayStart = true): void {
-  const now = Date.now()
-  notice(presences, now)
-  act(standings(presences, now), now, mayStart)
-}
-
-/**
- * See a module somebody else was running go, wherever the sweep that shows it
- * came from — the tether, the watch, a page saying its module went quiet — so
- * the host does not start a copy of its own in the same breath. See
- * `THEIRS_TO_RESTART_MS`. Something the host itself has in hand (an update, a
- * restart) is the host's doing and is not waited on.
- */
-function notice(presences: readonly Presence[], now: number): void {
-  for (const presence of presences) {
-    const id = presence.id
-    if (presence.reached) {
-      answeredBy.set(id, nursery.holds(id) ? 'ours' : 'theirs')
-      theirs.delete(id)
-      continue
-    }
-    const was = answeredBy.get(id)
-    answeredBy.delete(id)
-    if (was !== 'theirs' || theirs.has(id) || inHand.has(id) || working.has(id)) continue
-    theirs.set(id, now)
-    theirReturn(id)
-  }
-}
-
-/** The same decision, from standings the caller already gathered. */
-function act(standing: readonly Standing[], now: number, mayStart: boolean): void {
-  /* An automatic update that waited for its module to be off screen or stopped
-     may go now — decided before anything is started, so a module it takes is
-     held back (`auto.pending`) rather than started on the old release. */
-  void auto.moved()
-  /* A kehikko opened while copies are still being read at host start: its copies go first. */
-  bootPump()
-  if (mayStart) {
-    for (const id of toStart(standing)) begin(id)
-    /* The rest of the open project, in the background: nothing while the
-       open kehikko's own are still to start, a few at a time after. The next
-       few start when one answers (`untilAnswered`). */
-    for (const id of toWarm(standing)) begin(id)
-    /* Once the open kehikko's modules are up, the copies installed before
-       modules were built are built, in the background (`backfill`). */
-    if (!backfilled && openUp(standing)) backfill()
-    if (!startup.has('open kehikko up') && openUp(standing)) {
-      startup.mark('open kehikko up')
-      runHeldChecks()
-      /* Written a little after, so that what waits for this moment is in it too. */
-      setTimeout(() => startup.write('the open kehikko is up'), TIMELINE_AFTER_UP_MS).unref?.()
-    }
-  }
-
-  /* The versions containers are pinned to, by the same rule as the modules:
-     started for an open kehikko, stopped when nothing pins them or nobody has
-     looked for the grace period. See `versionRuns.ts`. */
-  /* A module that is not registered (uninstalled; its containers say so) runs no pinned version. */
-  const canvases = listCanvases(db).map((canvas) => ({ ...canvas, placements: canvas.placements.filter((p) => registered.has(p.i)) }))
-  versionRuns.reconcile(pinUses(canvases), pinsNeeded(canvases, new Set(openness.every(now))), mayStart)
-
-  for (const id of toStop(standing, now)) {
-    const was = halt(id)
-    if (was !== 'stopped') continue
-    sleeping.set(id, now)
-    starting.delete(id)
-    console.log(`kehikko: stopped ${id} — no open kehikko or project has had it for the grace period`)
-    const url = registered.get(id)?.url
-    if (url) void because('the host waits for a module it stopped', () => whileStopped(id, url))
-  }
-
-  tether(standing)
-}
-
-/**
- * A held connection to each module somebody is looking at that this host did
- * not start, so its going is heard when it goes instead of at the next watch.
- * See `tether.ts`. A drop is a reason to look, and looking is the watch, asked
- * of that one module.
- */
-const tethers = new Tethers((id, quick) => {
-  void because('a module’s connection closed', async () => {
-    try {
-      if (!seen) return
-      const now = Date.now()
-      const standing = standings((await seen).presences, now)
-      /* It had been held a while: most often an idle connection the module
-         closed (Bun's server does after ten seconds). Put it back before asking
-         anything — a process that died leaves nothing to connect to, so the new
-         tether closes at once, and THAT is the drop that asks. Asking the module
-         on every idle close was a request every ten seconds per module, each to
-         be told nothing changed. */
-      if (!quick) {
-        tether(standing)
-        return
-      }
-      /* A watch already asking is asking about this one too, a moment early:
-         once it is done, ask again. One that closed at once is put back by the
-         next tick. */
-      while (watching) await new Promise((wake) => setTimeout(wake, 50))
-      await watch(standing, new Set([id]))
-    } catch {
-      /* Nothing found out; the watch asks within half a minute. */
-    }
-  })
-})
-
-/** Tether exactly the modules an open kehikko has, that answer, and that this host does not hold. */
-function tether(standing: readonly Standing[]): void {
-  const want = new Map<string, string>()
-  for (const one of standing) {
-    if (!one.needed || !one.answering || one.ours || one.starting) continue
-    const url = registered.get(one.id)?.url
-    if (url) want.set(one.id, url)
-  }
-  tethers.sync(want)
-}
-
-/** One watch at a time. A slow port must not have two rounds asking about it. */
-let watching = false
-
-/**
- * Ask whether the modules somebody is looking at are still there.
- *
- * ## What this is for
- *
- * `Presence.condition` is documented as what the host found out by ASKING, and
- * until this existed the host stopped asking the moment everything was `ready`.
- * A module that died afterwards kept its green light until the person reloaded
- * or alt-tabbed — while its own page, inside the frame, already said the
- * connection had ended. Two halves of one screen disagreeing, which is this
- * workspace's recurring failure shape. See `WATCH_EVERY_MS` in `lifecycle.ts`
- * for why this is a check and not a heartbeat, and for the numbers.
- *
- * ## What it asks
- *
- * The module's health door (its manifest's `health`, `/healthz` on the
- * protocol's doors), not its manifest: `probe` in `manifests.ts`. The two
- * cases that matter are the same — a connection REFUSED is nothing running, a
- * connection accepted and then silent is something running badly — and the
- * health door's `x-module-build` header says which process answered, which is
- * all the manifest was asked for here. A module that names no health door is
- * asked for its manifest, through `manifests`, so the answer is kept. A module
- * whose manifest was read within the last half tick is not asked at all on the
- * timer's round: that read is the answer. A tether's drop (`only`) always asks.
- *
- * What it finds goes to `manifests`: a module that went, came back or answers
- * from another build is forgotten there, so the sweep below reads it again.
- *
- * ## Why nothing here decides anything
- *
- * A changed bit is not a finding; it is a reason to make one. So this does no
- * arithmetic on conditions, writes no line, and touches neither `starting` nor
- * `sleeping`. It sweeps — the whole sweep, once, the same one the page would
- * have asked for — and hands that to `govern`, which is where the policy lives
- * and the only place that may start anything. A watch that had reasoned about
- * reachability on its own would be a second, worse `discover.ts`.
- */
-async function watch(standing: readonly Standing[], only?: ReadonlySet<string>): Promise<void> {
-  if (watching) return
-  const ids = toWatch(standing).filter((id) => !only || only.has(id))
-  if (ids.length === 0) return
-  const believed = new Map(standing.map((s) => [s.id, s.answering]))
-  /* And WHICH process answered, where the module says: another one at the same
-     address is a restart nobody told this host about, and the page framed from
-     the old one is older than its server. See `stampOf`. */
-  const stamps = new Map<string, string | null>()
-  for (const presence of (await seen?.catch(() => null))?.presences ?? []) {
-    stamps.set(presence.id, presence.module?.build ? buildStamp(presence.module.build) : null)
-  }
-
-  watching = true
-  try {
-    const found = await Promise.all(
-      ids.map(async (id) => {
-        const registration = registered.get(id)
-        /* Unregistered since the standings were gathered. `standings` will
-           forget it on the next tick; there is nothing to ask. */
-        if (!registration) return null
-        const read = manifests.readAt(id)
-        if (!only && read !== null && Date.now() - read < WATCH_EVERY_MS / 2) return { id, reached: true, stamp: manifests.stampOf(id) }
-        const health = lastPresences.get(id)?.module?.health ?? null
-        if (health) return { id, ...(await probe(health)) }
-        const presence = await manifests.read(registration, { fresh: true })
-        return { id, reached: presence.reached, stamp: presence.module?.build ? buildStamp(presence.module.build) : null }
-      }),
-    )
-
-    type Found = { id: string; reached: boolean; stamp: string | null }
-    const another = (one: Found): boolean => {
-      const was = stamps.get(one.id) ?? null
-      return one.reached && believed.get(one.id) === true && was !== null && one.stamp !== null && was !== one.stamp
-    }
-    const changed = found.filter(
-      (one): one is Found => one !== null && (believed.get(one.id) !== one.reached || another(one)),
-    )
-    if (changed.length === 0) return
-    for (const one of changed) manifests.forget(one.id)
-    for (const one of changed) {
-      console.log(
-        `kehikko: ${one.id} is ${another(one) ? 'answered by another process' : one.reached ? 'answering again' : 'no longer answering'} — `
-          + 'an open kehikko has it, so the host looked',
-      )
-    }
-
-    /* One sweep, then the policy, then the pages. The ORDER is the whole of it:
-       `govern` may start the module that just died, and a page told before that
-       would sweep, be told `silent`, and draw a start button for a start that
-       is already happening. Told after, it reads `starting` and says so. */
-    const view = await sweep()
-    govern(view.presences)
-    wakes.registryChanged()
-  } catch {
-    /* A watch that failed found nothing out, which is the safe outcome: nobody
-       is told, nothing is started, and the next tick asks again. */
-  } finally {
-    watching = false
-  }
-}
-
-/**
  * A registration rewritten on disk — a module that moved itself off a taken
  * port — is followed at once: the pages are pointed at the new address without
  * waiting for a focus or a reload. See `registryWatch.ts`.
@@ -2847,20 +2407,6 @@ watchRegistry(registryDir(), () => {
     }
   })
 })
-
-/**
- * What the host has done to a module lately, for the container to say.
- *
- * Only ever attached to a module that is not answering, because that is the
- * only time it changes what a person should read: a module that is up needs no
- * explanation, and one that is down needs the right one. A module that has come
- * back — however it came back — stops being described as asleep here, which is
- * how a module the other agent restarted by hand loses the word.
- */
-function saidOf(presence: Presence, now: number): Lifecycle | undefined {
-  if (presence.condition !== 'silent') states.answering(presence.id)
-  return lifecycleOf(presence.condition === 'silent', doing(presence.id), now)
-}
 
 /**
  * What `/host/modules` answers, from a sweep in hand: the host's words on it (`told`) and what each
@@ -2890,7 +2436,7 @@ function told(view: Swept): Swept {
       const held = startedAt === null ? seen : { ...seen, run: startedAt }
       /* Said only while nothing answers: a module somebody else started is running, whatever was pressed. */
       const presence = stoppedByPerson.has(seen.id) && seen.condition === 'silent' && !seen.reached ? { ...held, stopped: true as const } : held
-      const lifecycle = saidOf(presence, now)
+      const lifecycle = supervisor.saidOf(presence, now)
       if (!lifecycle) {
         if (presence.condition !== 'silent') return presence
         /* Nothing is wrong and nothing is coming: said as that, with the one thing to do. */
@@ -2916,60 +2462,8 @@ function told(view: Swept): Swept {
   }
 }
 
-/**
- * The reaper: stop what nothing has needed for long enough.
- *
- * On a timer and not on a request, because the moment worth reclaiming memory
- * is the moment nobody is looking — a canvas closed for the night makes no
- * requests at all, and a policy that only ran when the page asked would save
- * exactly nothing overnight, which is most of the day.
- *
- * It costs a sqlite read and some arithmetic. No sweep, no manifest, no
- * network — see `seen` above. Every thirty seconds, so the effective grace is
- * five minutes and a bit, and the "and a bit" does not matter to anything.
- *
- * ## And the watch, on the same tick, deliberately
- *
- * The two are opposite halves of one question — the reaper is about the modules
- * NOBODY is looking at, the watch about the ones somebody is — and they read
- * the same standings, from the same clock, on the same evidence about which
- * screens exist. Running them on one timer means one place decides how often
- * this host thinks about a module's life, and there is no second interval to
- * fall out of step with the first.
- *
- * The watch is the half that costs anything: half a dozen localhost GETs while
- * a canvas is open, and none at all when no page reports a kehikko. See
- * `WATCH_EVERY_MS` in `lifecycle.ts` for the whole argument and the numbers,
- * and `watch` above for what it does with what it finds. `REAP_EVERY_MS` is
- * kept as its own name because the reaper's number is argued from the grace
- * period and the watch's from how fast a dead module has to stop looking alive;
- * they agree today, and neither is the reason for the other.
- */
-const REAP_EVERY_MS = 30_000
-setInterval(() => {
-  void because('is each module still up', async () => {
-    try {
-      /* No sweep has happened yet, so the host knows nothing about what is
-         running — and a host that knows nothing must not decide anything. It
-         also cannot have started anything, so there is nothing to stop. */
-      if (!seen) return
-      const now = Date.now()
-      const standing = standings((await seen).presences, now)
-      act(standing, now, false)
-      /* The logs of what is running, kept to their bound. A stat each. */
-      for (const id of nursery.ids) trim(logFile(id))
-      /* Not awaited: the reaper's decision is arithmetic and is already made,
-         and the watch is network. A tick that waited on half a dozen ports
-         before reaping would make reclaiming memory depend on a module being
-         slow to answer. */
-      void watch(standing)
-    } catch {
-      /* A failed sweep is not a reason to kill anything. */
-    }
-  })
-  /* The sooner of the two, so that either constant may be lowered on its own
-     argument without the other silently capping it. */
-}, Math.min(REAP_EVERY_MS, WATCH_EVERY_MS)).unref()
+/* The reaper and the watch, on one timer: `Supervisor.start`. */
+supervisor.start()
 
 /**
  * Ask each running module's build identity whether it is behind its checkout,
@@ -4212,7 +3706,7 @@ const moduleProxy = new ModuleProxy({
   },
   /* An agent's request at a module's MCP door is held while this host brings the module up: a
      start, a restart or an update it is running, or somebody else's restart it gives time to. */
-  starting: (id) => isStarting(id, Date.now()) || theirs.has(id),
+  starting: (id) => supervisor.isStarting(id, Date.now()) || theirs.has(id),
   /* Nothing answers at the door and nothing is bringing it up: one this host stopped for being idle
      is started for the request (held until it answers); one the person stopped is refused in words. */
   wake: (id) => {
@@ -4220,7 +3714,7 @@ const moduleProxy = new ModuleProxy({
     if (rule === 'refuse') return { ok: false, why: personStoppedDoorLine(lastPresences.get(id)?.module?.name ?? lastPresences.get(id)?.name ?? knownName(id) ?? nameFromId(id)) }
     if (rule !== 'start') return null
     begin(id, 'an agent used its tools')
-    return isStarting(id, Date.now()) ? { ok: true } : null
+    return supervisor.isStarting(id, Date.now()) ? { ok: true } : null
   },
   /* An agent using a module's tools keeps it from the idle stop, as an open kehikko does. */
   used: (id) => idleness.noted([id]),
