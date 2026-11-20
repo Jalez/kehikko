@@ -13,6 +13,7 @@ import { describeModule, myModulesDesk, readMine, whereOf, type Mine } from '../
 import type { Official } from '../server/official.ts'
 import { readRegistration } from '../server/registrations.ts'
 import type { Ran, Runner } from '../server/versions.ts'
+import { doorSource } from './doorSource.ts'
 
 /*
  * "My modules": a module installed from a repository that is on no official
@@ -523,7 +524,7 @@ describe('who may do any of it', () => {
       expect(tool.name).not.toMatch(/install|repositor|mine|\badopt|uninstall/i)
       expect(tool.description ?? '').not.toMatch(/\/host\/mine|my modules/i)
     }
-    const door = readFileSync(join(import.meta.dir, '..', 'server', 'mcp.ts'), 'utf8')
+    const door = doorSource()
     expect(door).not.toMatch(/myModules|\/host\/mine|myModulesFile/)
   })
 })
