@@ -49,7 +49,7 @@ import {
 } from './common.ts'
 import { closedSince, kindOf, type Reads } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
-import { gitlabApprovals, gitlabChecks, gitlabComments, gitlabNotesPath, milestoneOf } from './itemDetail.ts'
+import { gitlabApprovals, gitlabBot, gitlabChecks, gitlabComments, gitlabNotesPath, milestoneOf } from './itemDetail.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -266,7 +266,9 @@ export function activityOf(notes: unknown, author: unknown, createdAt: unknown):
     if (!kind) continue
     const by = login(all[i]!.author)
     const at = instant(all[i]!.createdAt)
-    return by && at ? { login: by, at, kind, ...noteDetail(all[i]!, kind) } : undefined
+    /* An automated account, as GitLab says of the note's author (protocol 2.111.0); said only when it does. */
+    const bot = gitlabBot(all[i]!.author)
+    return by && at ? { login: by, at, kind, ...noteDetail(all[i]!, kind), ...(bot !== undefined ? { bot } : {}) } : undefined
   }
   if (all.length >= NOTES) return undefined
   const by = login(author)
