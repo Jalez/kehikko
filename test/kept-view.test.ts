@@ -77,9 +77,9 @@ describe('state.set', () => {
       seen.push([module, state, kehikko])
       return kehikko !== 2
     }
-    expect(answer(MODULE, 'state.set', { state: 'a', kehikko: 1 }, known, keep)).toEqual({ ok: true, data: { kept: true } })
-    expect(answer(MODULE, 'state.set', { state: 'b' }, known, keep)).toEqual({ ok: true, data: { kept: true } })
-    expect(answer(MODULE, 'state.set', { state: 'c', kehikko: 2 }, known, keep)).toEqual({ ok: true, data: { kept: false } })
+    expect(answer(MODULE, 'state.set', { state: 'a', kehikko: 1 }, { knownModule: known, keep })).toEqual({ ok: true, data: { kept: true } })
+    expect(answer(MODULE, 'state.set', { state: 'b' }, { knownModule: known, keep })).toEqual({ ok: true, data: { kept: true } })
+    expect(answer(MODULE, 'state.set', { state: 'c', kehikko: 2 }, { knownModule: known, keep })).toEqual({ ok: true, data: { kept: false } })
     expect(seen).toEqual([
       [MODULE, 'a', 1],
       [MODULE, 'b', null],

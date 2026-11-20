@@ -8,7 +8,7 @@ import { answer } from '../server/answers.ts'
 import { CONTENT_QUIET_MS, Contents, ContentWatch, folderSource, stepsAreKeptBy } from '../server/content.ts'
 import { epicsDir, stateDir } from '../server/hostData.ts'
 import { Wakes, type News } from '../server/wake.ts'
-import { toWireContext, whileFrozen } from '../src/host/context.ts'
+import { toWireContext, whileFrozen, type WireExtras } from '../src/host/context.ts'
 
 /**
  * What tells a container that the material it shows has changed.
@@ -153,25 +153,25 @@ describe('a module reporting its own write', () => {
   test('is announced under the name of the module that asked', () => {
     const reports: unknown[] = []
     const report = (module: string, root: string, epic: string | null) => void reports.push([module, root, epic])
-    const said = answer('kehikot.journeys', 'content.changed', { epic: 'x' }, known, undefined, '/p', undefined, null, report)
+    const said = answer('kehikot.journeys', 'content.changed', { epic: 'x' }, { knownModule: known, root: '/p', report })
     expect(said.ok).toBe(true)
-    answer('kehikot.journeys', 'content.changed', {}, known, undefined, '/p', undefined, null, report)
+    answer('kehikot.journeys', 'content.changed', {}, { knownModule: known, root: '/p', report })
     expect(reports).toEqual([['kehikot.journeys', '/p', 'x'], ['kehikot.journeys', '/p', null]])
   })
 
   test('a source it names for itself is not taken', () => {
     const reports: unknown[] = []
-    answer('kehikot.journeys', 'content.changed', { epic: 'x', source: 'host' }, known, undefined, '/p', undefined, null, (module) => void reports.push(module))
+    answer('kehikot.journeys', 'content.changed', { epic: 'x', source: 'host' }, { knownModule: known, root: '/p', report: (module) => void reports.push(module) })
     expect(reports).toEqual(['kehikot.journeys'])
   })
 
   test('standing in no project, it is refused rather than told to nobody', () => {
-    const said = answer('kehikot.journeys', 'content.changed', {}, known, undefined, null, undefined, null, () => {})
+    const said = answer('kehikot.journeys', 'content.changed', {}, { knownModule: known, report: () => {} })
     expect(said.ok).toBe(false)
   })
 
   test('and a host given nobody to tell says so', () => {
-    expect(answer('kehikot.journeys', 'content.changed', {}, known, undefined, '/p').ok).toBe(false)
+    expect(answer('kehikot.journeys', 'content.changed', {}, { knownModule: known, root: '/p' }).ok).toBe(false)
   })
 })
 
@@ -189,8 +189,8 @@ describe('the news on the stream', () => {
 describe('the context a container is sent', () => {
   const project = { id: 1, name: 'P', path: '/p' }
   const subject = { epic: 'x', project } as unknown as Parameters<typeof toWireContext>[0]
-  const wire = (content: Parameters<typeof toWireContext>[8]) =>
-    toWireContext(subject, 'light', [], null, null, [], [], { at: null, refreshing: false }, content)
+  const wire = (content: WireExtras['content']) =>
+    toWireContext(subject, 'light', { content })
 
   test('says what changed', () => {
     const changes = new Contents().announce('/p', CONTENT_HOST, 'x')

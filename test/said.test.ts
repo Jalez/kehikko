@@ -152,10 +152,10 @@ describe('switching between two kehikot in one project', () => {
       toWireContext(
         subject,
         'light',
-        [],
-        null,
-        passageOn(said, placements.map((p) => p.i)),
-        containersOf({ placements, said: said.showing, pointed: pointedBy(said), selection: [], selectedBy: null }),
+        {
+          passage: passageOn(said, placements.map((p) => p.i)),
+          containers: containersOf({ placements, said: said.showing, pointed: pointedBy(said), selection: [], selectedBy: null }),
+        },
       )
     const row = (context: ModuleContext, module: string) => context.containers.find((c) => c.module === module)?.showing.documents
     return { ask: (module: string) => makeAsk(module, controls), told, row, unload: (module: string) => { said = forgotten(said, module) } }

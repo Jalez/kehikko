@@ -245,7 +245,7 @@ describe('what a module is told', () => {
     const about = { epic: 'auth', parts: ['login'], selection: [], space: { ids: ['auth', 'login', 'errors'], picked: [] } }
     const space = spaceHere(tree, about)
     for (const kehikko of [{ id: 1, name: 'Writing', key: 'aaaa1111' }, { id: 2, name: 'Review', key: 'bbbb2222' }]) {
-      const ctx = toWireContext({ epic: 'auth', project: null, space }, 'light', [], kehikko)
+      const ctx = toWireContext({ epic: 'auth', project: null, space }, 'light', { kehikko })
       expect(ctx.space?.path.map((step) => step.name)).toEqual(['Auth', 'Login', 'Errors'])
       expect(ctx.epic).toBe('auth')
       expect(ctx.kehikko?.key).toBe(kehikko.key)

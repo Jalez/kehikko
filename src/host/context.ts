@@ -167,16 +167,6 @@ function idOf(project: Project | null): string | null {
 }
 
 /**
- * The subject, as the wire spells it.
- *
- * Built in one place and validated with the protocol's own schema before it
- * goes out, so that a rename in the package fails here — loudly, in one
- * function — rather than as a module quietly never hearing which epic it is on.
- * The host is not obliged to use `contextSchema` (it is a convenience, and the
- * host stays responsible for having run it); using it is how the host finds out
- * it has drifted.
- */
-/**
  * A kehikko as the wire spells it: `{ id, name }`, and `key` when there is one
  * the protocol will read.
  *
@@ -201,19 +191,18 @@ export function kehikkoOnWire(
   return typeof key === 'string' && KEHIKKO_KEY.test(key) ? { id, name, key } : { id, name }
 }
 
-export function toWireContext(
-  subject: Subject,
-  theme: 'light' | 'dark',
+/** What `toWireContext` puts beside the subject and the theme. Each is optional, and an absent one is the empty or null the wire takes for "none". */
+export interface WireExtras {
   /**
    * What has been picked out, as refs.
    *
-   * A separate argument rather than a third field on `Subject`, because it is
+   * Beside the subject rather than a third field on `Subject`, because it is
    * not one. A subject is what the canvas is ABOUT and survives being looked
    * away from; a selection is what somebody currently has their finger on. They
    * change on different gestures and at different rates, and the canvas clears
    * the second whenever the first moves.
    */
-  selection: readonly string[] = [],
+  selection?: readonly string[]
   /**
    * Which canvas this is, or null when there is not one open yet.
    *
@@ -244,11 +233,11 @@ export function toWireContext(
    * spells one (`KEHIKKO_KEY`): a key that is not would fail the whole
    * context, and a module without one is exactly where it was before 1.1.0.
    */
-  kehikko: { id: number; name: string; key?: string } | null = null,
+  kehikko?: { id: number; name: string; key?: string } | null
   /**
    * Where somebody is pointing inside a document, or null.
    *
-   * A fourth argument rather than a third field on `Subject`, and for a sharper
+   * Beside the subject rather than a third field on `Subject`, and for a sharper
    * version of the reason the selection is one. A subject is what the canvas is
    * ABOUT; a selection is what somebody has their finger on; a passage is where
    * inside a document that finger is. Each is narrower than the one before it
@@ -261,13 +250,13 @@ export function toWireContext(
    * cannot say the path exists, that the offsets are inside it, or that the
    * quote is what is there now. See `point` on `CanvasControls` in `ask.ts`.
    */
-  passage: Passage | null = null,
+  passage?: Passage | null
   /**
    * Every container on this kehikko, whether it is picked out, and what it is
    * showing — composed by `containersOf` in `host/showing.ts` out of the
    * arrangement, who pointed, who picked, and what each module said.
    *
-   * A fifth argument rather than a field on `Subject`, and the reason is the
+   * Beside the subject rather than a field on `Subject`, and the reason is the
    * one the other three give sharpened once more: this changes on a tick in a
    * header, on a scroll in a paper, on a module saying something — every one
    * of them faster than the subject and none of them a change of subject. It
@@ -275,34 +264,34 @@ export function toWireContext(
    * not passed through on trust: the placements are the host's, the flag is
    * the host's, and only what each module says it shows is that module's word.
    */
-  containers: readonly CanvasContainer[] = [],
+  containers?: readonly CanvasContainer[]
   /**
    * The open project's dispositions: people's marks on why refs closed. Per
    * project rather than per canvas — a verdict on a ref is about the work — and
    * only the marks; what a tracker implies is derived on each module's side.
    * See `server/dispositions.ts`.
    */
-  dispositions: readonly Disposition[] = [],
+  dispositions?: readonly Disposition[]
   /**
    * The open project's tracker signal: when its shared reading last changed,
    * and whether a read is running. Per project, like the marks. The rows stay
    * behind `tracker.get`; see `server/trackers/reading.ts`.
    */
-  tracker: TrackerSignal = { at: null, refreshing: false },
+  tracker?: TrackerSignal
   /**
    * What has changed in the material kept for the open project's epics: the
    * last change per source and epic, as the server last said it. Per project,
    * like the tracker signal, and like it only the signal — a module re-reads
    * the material itself. See `server/content.ts`.
    */
-  content: readonly ContentChange[] = [],
+  content?: readonly ContentChange[]
   /**
    * The parts of the open epic, each saying whether it is picked out —
    * composed by `partsOnWire` in `host/parts.ts` out of the epic's own file
    * and the project's stored focus.
    *
    * Part of what the canvas is ABOUT, like the epic: it changes when a person
-   * picks in the bar and at no other time. It is an argument rather than a
+   * picks in the bar and at no other time. It is beside the subject rather than a
    * field on `Subject` only because of where it comes from — the list is read
    * off the project's epics, which the page holds separately. It goes through
    * `contextSchema` with everything else; see `divided` below for what happens
@@ -311,7 +300,7 @@ export function toWireContext(
    * No kehikko is consulted for it, here or anywhere: see `Subject` in
    * `server/canvases.ts`.
    */
-  parts: readonly EpicPart[] = [],
+  parts?: readonly EpicPart[]
   /**
    * Where in a change's code somebody is pointing on this kehikko, or null
    * (protocol 2.13.0); see `host/location.ts`. Checked on its own for the
@@ -319,14 +308,38 @@ export function toWireContext(
    * context carries — so the fallback below, which drops the selection, drops
    * it too.
    */
-  location: SharedLocation | null = null,
+  location?: SharedLocation | null
   /**
    * The last web address handed to this kehikko to be shown, or null (protocol
    * 2.16.0); see `host/address.ts`. Checked on its own for the passage's
    * reason. It survives the fallback below: it is about the kehikko, not the epic.
    */
-  address: SharedAddress | null = null,
-): WireContext {
+  address?: SharedAddress | null
+}
+
+/**
+ * The subject, as the wire spells it.
+ *
+ * Built in one place and validated with the protocol's own schema before it
+ * goes out, so that a rename in the package fails here — loudly, in one
+ * function — rather than as a module quietly never hearing which epic it is on.
+ * The host is not obliged to use `contextSchema` (it is a convenience, and the
+ * host stays responsible for having run it); using it is how the host finds out
+ * it has drifted.
+ */
+export function toWireContext(subject: Subject, theme: 'light' | 'dark', extras: WireExtras = {}): WireContext {
+  const {
+    selection = [],
+    kehikko = null,
+    passage = null,
+    containers = [],
+    dispositions = [],
+    tracker = { at: null, refreshing: false },
+    content = [],
+    parts = [],
+    location = null,
+    address = null,
+  } = extras
   /**
    * The passage, checked on its own before anything else is composed.
    *

@@ -12,7 +12,7 @@ import { toWireContext, whileAway, whileFrozen } from '@/host/context.ts'
  */
 
 const webapp = { id: 1, name: 'webapp', path: '/w/webapp', epics: true, git: true, shared: false }
-const base = toWireContext({ epic: 'held-epic', project: webapp }, 'dark', [], null, null)
+const base = toWireContext({ epic: 'held-epic', project: webapp }, 'dark')
 const card = { ...base, appearance: pageAppearance(true) }
 const none = { ...base, appearance: pageAppearance(false) }
 
@@ -23,7 +23,7 @@ describe('what a module is told', () => {
   })
 
   test('a pinned container is told a change of background, and keeps what it is about', () => {
-    const told = { ...toWireContext({ epic: 'another', project: webapp }, 'dark', [], null, null), appearance: pageAppearance(false) }
+    const told = { ...toWireContext({ epic: 'another', project: webapp }, 'dark'), appearance: pageAppearance(false) }
     const sent = whileFrozen(card, told)
     expect(sent?.appearance).toEqual({ background: 'none' })
     expect(sent?.epic).toBe('held-epic')
@@ -31,7 +31,7 @@ describe('what a module is told', () => {
   })
 
   test('so is a page kept on another kehikko', () => {
-    const told = { ...toWireContext({ epic: 'another', project: null }, 'dark', [], null, null), appearance: pageAppearance(false) }
+    const told = { ...toWireContext({ epic: 'another', project: null }, 'dark'), appearance: pageAppearance(false) }
     const sent = whileAway(card, told)!
     expect(sent.appearance).toEqual({ background: 'none' })
     expect(sent.epic).toBe('held-epic')

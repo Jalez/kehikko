@@ -221,9 +221,9 @@ describe('who may send and read', () => {
   })
 
   test('a page has no session: messages.send is declined there', () => {
-    const said = answer(A, 'messages.send', { token: TOKEN_A, body: 'hi' }, () => true)
+    const said = answer(A, 'messages.send', { token: TOKEN_A, body: 'hi' }, { knownModule: () => true })
     expect(said).toMatchObject({ ok: true, data: { outcome: 'declined' } })
-    expect(answer(A, 'messages.read', { token: TOKEN_A }, () => true).ok).toBe(false)
+    expect(answer(A, 'messages.read', { token: TOKEN_A }, { knownModule: () => true }).ok).toBe(false)
   })
 
   test('clearing is the page’s alone; my_place says where messages go, never what they say', () => {
@@ -292,7 +292,7 @@ describe('a module’s notice to the session that asked (protocol 2.54.0)', () =
   })
 
   test('a page is no asker: messages.notify is declined there', () => {
-    expect(answer(A, 'messages.notify', { token: TOKEN_A, body: 'hi' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
+    expect(answer(A, 'messages.notify', { token: TOKEN_A, body: 'hi' }, { knownModule: () => true })).toMatchObject({ ok: true, data: { outcome: 'declined' } })
   })
 })
 
@@ -358,7 +358,7 @@ describe('news to the sessions at a place (protocol 2.75.0)', () => {
   })
 
   test('a page tells no one: messages.tell is declined there', () => {
-    expect(answer(A, 'messages.tell', { to: { place: { epic: 'methods' } }, body: 'hi' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
+    expect(answer(A, 'messages.tell', { to: { place: { epic: 'methods' } }, body: 'hi' }, { knownModule: () => true })).toMatchObject({ ok: true, data: { outcome: 'declined' } })
   })
 
   test('a session’s message to some parts reaches the sessions at them and at the whole epic', async () => {

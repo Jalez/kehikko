@@ -140,7 +140,7 @@ describe('a call this Kehikot does not know', () => {
 
   test('is answered unknown-method, declined host-too-old, and the module reads the version it needs', async () => {
     const { answer } = await import('../server/answers.ts')
-    const said = answer('example.monitor', 'traffic.replay', {}, () => true)
+    const said = answer('example.monitor', 'traffic.replay', {}, { knownModule: () => true })
     expect(said).toMatchObject({ ok: false, reason: 'unknown-method', declined: 'host-too-old' })
     /* What the module's own protocol (2.22.0 or later) makes of it: the typed result. */
     expect(hostTooOld(said)).toEqual({ outcome: 'declined', reason: 'host-too-old', since: null })
@@ -154,7 +154,7 @@ describe('a call this Kehikot does not know', () => {
     const sent: Record<string, unknown>[] = []
     const contentWindow = { postMessage: (message: unknown) => void sent.push(message as Record<string, unknown>) } as unknown as Window
     const quiet = { ready() {}, silent() {}, fault() {}, height() {}, filters() {}, clearable() {}, refreshable() {}, header() {} }
-    const conversation = new Conversation({ contentWindow }, 'example.monitor', null, async (method, params) => answer('example.monitor', method, params, () => true), quiet)
+    const conversation = new Conversation({ contentWindow }, 'example.monitor', null, async (method, params) => answer('example.monitor', method, params, { knownModule: () => true }), quiet)
     conversation.greet(toWireContext({ epic: null, project: null }, 'dark'))
     conversation.receive({ source: contentWindow, origin: 'null', data: { type: MESSAGE.REQUEST, id: 'q1', method: 'traffic.replay', params: {} } })
     await Bun.sleep(0)
@@ -165,7 +165,7 @@ describe('a call this Kehikot does not know', () => {
 
   test('a known method is answered as before, with no word added', async () => {
     const { answer } = await import('../server/answers.ts')
-    const said = answer('example.monitor', 'epics.list', {}, () => true)
+    const said = answer('example.monitor', 'epics.list', {}, { knownModule: () => true })
     expect('declined' in said).toBe(false)
   })
 

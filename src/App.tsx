@@ -963,9 +963,8 @@ export function App() {
    */
   useEffect(() => {
     if (!settled) return
-    const stop = watchCanvases(
-      openId,
-      (kehikko, note, arrangedNote) => {
+    const stop = watchCanvases(openId, {
+      woke: (kehikko, note, arrangedNote) => {
         void (async () => {
           if (!loaded.current) return
           /* Awaited: the re-read has to be of what the pending writes LEFT. Two
@@ -1011,7 +1010,7 @@ export function App() {
         })()
       },
       /* With the reading, when the host sent it with the news: taken, not asked for again. */
-      (reading) => (reading ? takeRef.current(reading) : void lookRef.current?.()),
+      looked: (reading) => (reading ? takeRef.current(reading) : void lookRef.current?.()),
       /* A project's epics changed — an agent's `create_epic`, or a `+` in
          another window. Re-read only when it is THIS page's project: the
          dropdown of a page standing in the thesis folder has nothing to learn
@@ -1019,7 +1018,7 @@ export function App() {
          reason `lookRef` is a ref: the stream must not be reopened because the
          open project changed. `held` is not cleared first, as `onRetitleEpic`
          explains — the list stays until the new one lands. */
-      (project) => {
+      wrote: (project) => {
         if (project !== projectRef.current) return
         void (async () => {
           try {
@@ -1032,7 +1031,7 @@ export function App() {
       /* A mark changed — a module's press, or an agent at the door. Re-read
          and let the context carry it to every frame, for `epics`' reason only
          when it is this page's project. */
-      (project) => {
+      marked: (project) => {
         if (project !== projectRef.current) return
         void (async () => {
           try {
@@ -1046,7 +1045,7 @@ export function App() {
       /* The project's tracker reading started or landed a read. The signal
          came with the news and goes straight into the context; when a read
          lands, the sources are re-read for the bar's sentence about them. */
-      (project, signal) => {
+      read: (project, signal) => {
         if (project !== projectRef.current) return
         setTracker((was) => ({ ...was, ...signal }))
         if (signal.refreshing) return
@@ -1062,7 +1061,7 @@ export function App() {
       /* Material kept for the project's epics changed — the host's own write,
          a module's report, or an edit to the project's files. The list came
          with the news and goes straight into the context. */
-      (project, changes) => {
+      rewritten: (project, changes) => {
         if (project !== projectRef.current) return
         setRewritten(changes)
         /* And the list of epics is read again, because the parts of an epic
@@ -1084,13 +1083,13 @@ export function App() {
         })()
       },
       /* An agent's `press_item`, handed to this page to make. */
-      (order) => orderedRef.current?.(order),
+      ordered: (order) => orderedRef.current?.(order),
       /* The stream opened, or reopened after the server went away: say again
          what the modules here have declared — and, on a reopening, which
          kehikko this page has open. The stream's own url says it too, but a
          server that restarted has also forgotten the page's word, and the
          word is what outlives a stream that drops again. */
-      (again) => {
+      opened: (again) => {
         /* The first opening follows the page's own reads and reports by a moment, and a server
            that has not restarted still holds them: only a reopening says them again. */
         if (!again) return
@@ -1100,15 +1099,15 @@ export function App() {
         repostRef.current?.()
         inboxWokeRef.current?.(-1, null)
       },
-      (project, rev) => inboxWokeRef.current?.(project, rev),
+      inboxed: (project, rev) => inboxWokeRef.current?.(project, rev),
       /* A project was found again where its folder went, in this window or
          another: the list, and the kehikot read from the file where it is now. */
-      () => void relistRef.current?.(),
+      relisted: () => void relistRef.current?.(),
       /* An agent's `open_address`, handed to this page to show. */
-      (order) => addressedRef.current?.(order),
+      addressed: (order) => addressedRef.current?.(order),
       /* An agent's `jump`, handed to this page, the one on screen. */
-      (order) => jumpedRef.current?.(order),
-    )
+      jumped: (order) => jumpedRef.current?.(order),
+    })
     return stop
     /* `openId` too, so the stream is reopened when the open kehikko changes.
        The stream's URL carries what this page has open — see `watchCanvases` —
@@ -1903,10 +1902,18 @@ export function App() {
 
   const context = useMemo(
     () =>
-      toWireContext(subject, theme, picked ? picked.split('\n') : [], kehikko, passage, described, marks, {
-        at: trackerAt,
-        refreshing: trackerBusy,
-      }, rewritten, JSON.parse(narrowedTo) as EpicPart[], codeLocation, shownAddress),
+      toWireContext(subject, theme, {
+        selection: picked ? picked.split('\n') : [],
+        kehikko,
+        passage,
+        containers: described,
+        dispositions: marks,
+        tracker: { at: trackerAt, refreshing: trackerBusy },
+        content: rewritten,
+        parts: JSON.parse(narrowedTo) as EpicPart[],
+        location: codeLocation,
+        address: shownAddress,
+      }),
     /* `pointing` and not `passage`, `arranged` and not `described`: the
        value, not the identity. Both objects are intentionally absent from the
        list and the lint rule that would ask for them is wrong here — see the

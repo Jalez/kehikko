@@ -154,7 +154,7 @@ describe('the passage travels in the context every module is told', () => {
   const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
 
   test('it goes out whole, unchecked, because the host did not open the file', () => {
-    const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, paragraph)
+    const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', { passage: paragraph })
     expect(here.passage).toEqual(paragraph)
   })
 
@@ -171,9 +171,7 @@ describe('the passage travels in the context every module is told', () => {
     const here = toWireContext(
       { epic: 'NOT A SLUG '.repeat(40), project: webapp },
       'light',
-      ['gh#1'],
-      { id: 2, name: 'reading' },
-      paragraph,
+      { selection: ['gh#1'], kehikko: { id: 2, name: 'reading' }, passage: paragraph },
     )
     expect(here.epic).toBeNull()
     expect(here.selection).toEqual([])
@@ -184,9 +182,8 @@ describe('the passage travels in the context every module is told', () => {
     /* `toWireContext` runs during render. A quote past `LIMITS.QUOTE` arriving
        from a module must cost that module its passage and must not take every
        other container on the canvas down with it. */
-    const here = toWireContext({ epic: null, project: webapp }, 'light', [], null, {
-      ...paragraph,
-      quoted: 'x'.repeat(5000),
+    const here = toWireContext({ epic: null, project: webapp }, 'light', {
+      passage: { ...paragraph, quoted: 'x'.repeat(5000) },
     })
     expect(here.passage).toBeNull()
     expect(here.projectPath).toBe('/Users/x/Projects/webapp')

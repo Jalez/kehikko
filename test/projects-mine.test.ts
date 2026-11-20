@@ -63,7 +63,7 @@ describe('projectsMine', () => {
 describe('answer: projects.mine', () => {
   const known = (id: string) => id === MODULE
   const ask = (may: boolean, mine: ((m: string) => { path: string; name: string }[]) | null) =>
-    answer(MODULE, 'projects.mine', {}, known, () => {}, null, undefined, null, null, null, { may: () => may }, null, mine)
+    answer(MODULE, 'projects.mine', {}, { knownModule: known, keep: () => {}, grants: { may: () => may }, mine })
 
   test('held to agents:message', () => {
     const said = ask(false, () => [{ path: '/a', name: 'a' }])
@@ -92,7 +92,7 @@ describe('a module’s server asking it', () => {
       may: () => may,
       projectAt: () => null,
       answer: (module, method, params, root) =>
-        answer(module, method, params, (id) => id === MODULE, () => {}, root, undefined, null, null, null, { may: () => may }, null, (m) => projectsMine(projects, m)),
+        answer(module, method, params, { knownModule: (id) => id === MODULE, keep: () => {}, root, grants: { may: () => may }, mine: (m) => projectsMine(projects, m) }),
       fetch: (async (input: string | URL | Request) => {
         const url = new URL(String(input instanceof Request ? input.url : input))
         const said = serverPassReply('GET', url.pathname, url.searchParams)!

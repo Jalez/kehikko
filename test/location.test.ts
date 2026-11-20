@@ -125,7 +125,7 @@ describe('the context', () => {
   const subject = { epic: 'one', project: null }
   const shared: SharedLocation = { ...here, intent: 'comment', by: 'kehikot.diff', at: AT }
   const wire = (selection: string[], location: SharedLocation | null) =>
-    toWireContext(subject, 'light', selection, null, null, [], [], undefined, [], [], location)
+    toWireContext(subject, 'light', { selection, location })
   test('carries the location while its change is selected', () => {
     expect(wire(['gl!123'], shared).location).toEqual(shared)
   })

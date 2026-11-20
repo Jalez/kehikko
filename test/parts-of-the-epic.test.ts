@@ -577,7 +577,7 @@ describe('the record’s share is a fallback, per kind and per epic', () => {
 
 describe('an older module is still greeted on a long epic', () => {
   const forty: EpicPart[] = Array.from({ length: 40 }, (_, n) => ({ id: `p${n}`, heading: `Part ${n}`, refs: [], picked: n === 37 || n === 3 }))
-  const context = toWireContext({ epic: 'thesis', project: null }, 'dark', [], null, null, [], [], undefined, [], forty)
+  const context = toWireContext({ epic: 'thesis', project: null }, 'dark', { parts: forty })
   /* The schema a module built before 1.2.0 parses a context with: 32 and no more. */
   const older = contextSchema.extend({ parts: z.array(z.object({ id: z.string() }).passthrough()).max(PARTS_BEFORE_1_2) })
 
@@ -629,7 +629,7 @@ describe('`parts.set`, from a module', () => {
     },
   })
   const ask = (module: string, root: string | null, params: unknown, door: PartsDoor | null = divide()) => {
-    const given = answer(module, 'parts.set', params, known, () => {}, root, undefined, null, null, door)
+    const given = answer(module, 'parts.set', params, { knownModule: known, keep: () => {}, root, divide: door })
     return given.ok ? partsSetResult.parse(given.data) : given
   }
 
@@ -687,14 +687,14 @@ describe('`parts.set`, from a module', () => {
   test('a call naming none of the four, or two, never reaches the writer', () => {
     const dir = thesis()
     for (const params of [{ epic: 'thesis' }, { epic: 'thesis', add: { name: 'A' }, remove: { id: 'methods' } }, { add: { name: 'A' } }, { epic: 'thesis', move: { id: 'a', after: 'a' } }]) {
-      const given = answer(ME, 'parts.set', params, known, () => {}, dir, undefined, null, null, divide())
+      const given = answer(ME, 'parts.set', params, { knownModule: known, keep: () => {}, root: dir, divide: divide() })
       expect(given.ok).toBe(false)
     }
     expect(file(dir)).toBe(OWN)
   })
 
   test('a module nobody registered is not answered at all', () => {
-    const given = answer('kehikot.stranger', 'parts.set', { epic: 'thesis', add: { name: 'A' } }, known, () => {}, thesis(), undefined, null, null, divide())
+    const given = answer('kehikot.stranger', 'parts.set', { epic: 'thesis', add: { name: 'A' } }, { knownModule: known, keep: () => {}, root: thesis(), divide: divide() })
     expect(given).toMatchObject({ ok: false, reason: 'unknown-module' })
   })
 })

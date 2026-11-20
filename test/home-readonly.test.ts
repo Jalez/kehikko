@@ -87,7 +87,7 @@ describe('the home fallback is read-only', () => {
   test('a module is told of no project while it is the fallback', () => {
     adopt(db, { HOME: home })
     const project = listProjects(db)[0]!
-    const wire = toWireContext({ ...NO_SUBJECT, project }, undefined as never, null as never)
+    const wire = toWireContext({ ...NO_SUBJECT, project }, undefined as never, { selection: null as never })
     expect(wire.projectPath).toBeNull()
     expect(wire.project).toBeNull()
   })

@@ -199,7 +199,7 @@ describe('GitLab boards', () => {
       ],
     })
     /* And the module asking gets the same, under trackers:read. */
-    const asked = answer('kehikot.journeys', 'tracker.columns', {}, () => true, undefined, folder, undefined, trackers)
+    const asked = answer('kehikot.journeys', 'tracker.columns', {}, { knownModule: () => true, root: folder, trackers })
     expect(asked.ok).toBe(true)
     if (asked.ok) expect(asked.data).toEqual(columns)
   })
