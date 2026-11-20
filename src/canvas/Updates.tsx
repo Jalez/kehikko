@@ -1,5 +1,5 @@
 import { CloudDownload, ScrollText } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useReducer, useRef, useState, type Dispatch, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 
@@ -19,9 +19,6 @@ import {
   confirmRestartAnyway,
   fetchUpdates,
   hasUpdate,
-skippedAfter,
-unfetchedCount,
-updateSets,
   isCheckout,
   LeftRunning,
   offersAppRestart,
@@ -30,28 +27,19 @@ updateSets,
   postAutoUpdates,
   requestRestart,
   restartModule,
-  runsReleases,
-  triage,
-  waiting,
-  type Armed,
-  type Check,
   type Checkout,
   type NotRestarted,
   type Outcome,
-  type Phase as UpdatePhase,
   type Preview,
   type Reading,
 } from '@/host/updates.ts'
+import { derive, idsToUpdate, initialState, outcomeOf, updatesReducer, type EngineAction, type Next } from '@/host/updatesEngine.ts'
 import { watchApp, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
 import { openModuleList } from '@/host/moduleList.ts'
 import { askRestart, heldSaid, onRestartChanged, restartNow, restartState, type HeldRestart } from '@/host/restartQueue.ts'
 import {
-  APP_ROW_ID,
   appNotes,
-  indicator,
-  moduleNote,
   moduleRow,
-  previewAll,
   previewText,
   restartNowWord,
   RESTART_ANYWAY_ARMED,
@@ -59,11 +47,7 @@ import {
   RESTART_TO_UPDATE,
   ON_FOCUS_AFTER_MS,
   shouldCheckOnOpen,
-  keptNote,
-  staleNote,
   stateText,
-  updateRows,
-  type Told,
   type UpdateRow,
 } from '@/host/updateModel.ts'
 import { GitSaid } from './GitSaid.tsx'
@@ -188,12 +172,6 @@ function drawn(since: number, signal: AbortSignal, markMs: number): Promise<void
   })
 }
 
-type Phase =
-  | { kind: 'idle' }
-  | { kind: 'checking' }
-  /* `running` is how far the server says each update under way has got; `finished` counts those that ended. */
-  | { kind: 'updating'; ids: string[]; running: Readonly<Record<string, UpdatePhase>>; finished: number }
-
 /** How many of an "Update all" this page runs at once. The server takes its own turns as well (`server/jobSteps.ts`). */
 export const UPDATES_AT_ONCE = 2
 
@@ -208,49 +186,8 @@ export const DISARM_ANYWAY_AFTER_MS = 10_000
 /** How often a page that finds an update already running asks whether it has finished. */
 const PROGRESS_EVERY_MS = 2_000
 
-/** `markMs` is how long a result waits for the mark; tests pass 0. `disarmMs` is how long an arm stands. */
-/**
- * The update engine: the desktop app's updater and every module's checkout — what was checked, what
- * is updating, what each update came to — held once for the page (`UpdatesProvider`) and read by the
- * Updates menu and by the module list, which draws each module's update in its own row. One source,
- * two views: the menu for the app and what moves the whole app, the list for each module.
- */
-export function useUpdatesEngine({
-  markMs = MARK_DRAWN_MS,
-  disarmMs = DISARM_ANYWAY_AFTER_MS,
-}: { markMs?: number; disarmMs?: number } = {}) {
-  const [check, setCheck] = useState<Check | null>(null)
-  const [failed, setFailed] = useState<{ at: Date; why: string } | null>(null)
-  const [open, setOpen] = useState(false)
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
-  /** A quiet check is running — the icon pulses, nothing else moves. */
-  const [quietly, setQuietly] = useState(false)
-  const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({})
-  const [notice, setNotice] = useState<string | null>(null)
-  /** Asked the app to restart; the window is about to go. */
-  const [restarting, setRestarting] = useState(false)
-  /** Modules being started again from a failed row, so a second press does not start a second copy. */
-  const [retryingIds, setRetryingIds] = useState<readonly string[]>([])
-  /** The one "Restart anyway" that has had its first press, and what the server said it would stop. */
-  const [armed, setArmed] = useState<(Armed & { id: string }) | null>(null)
-  /** A first press the server has not answered yet, so a second one does not ask twice. */
-  const [armingId, setArmingId] = useState<string | null>(null)
-  /** The level checkouts are listed, not just counted. */
-  const [showLevel, setShowLevel] = useState(false)
-  /** The module a press elsewhere asked to see ("Update <Module>"): its row is shown and brought into view. */
-  const [asked, setAsked] = useState<string | null>(null)
-  const [now, setNow] = useState(() => new Date())
-  const controller = useRef<AbortController | null>(null)
-  const busy = useRef(false)
-  /** The checkouts whose updates this page started and has not seen end: closing the panel leaves them running. */
-  const updateIds = useRef<Set<string>>(new Set())
-  /** The job in flight, so a press can stop a quiet check and wait it out. */
-  const pending = useRef<Promise<void> | null>(null)
-  /** The desktop app's updater: its last status, and the commands. Null outside the app. */
-  const [app, setApp] = useState<AppUpdateStatus | null>(null)
-  const engine = useRef<AppEngine | null>(null)
-  const appVersion = useRef<string | null>(null)
-  appVersion.current = app?.current ?? null
+/** The release-notes dialogs the engine opens: the app's, a module's "What's new", and what an automatic update moved through. */
+function useNotesDialogs() {
   const notes = useReleaseNotes()
   /* A module's "What's new": every release since the one it runs. */
   const moduleNotes = useModuleNotes()
@@ -274,18 +211,102 @@ export function useUpdatesEngine({
       moduleNotes.show({ repo: release.repo, name, tags: release.notes, works, opener })
     }
   }
+  return { notes, moduleNotes, moved, setMoved, movedOpen, setMovedOpen, notesOpen, showModuleNotes }
+}
+
+/**
+ * The desktop app's updater: the shell's push, "Restart to update" and the
+ * work queue that may hold it (`restartQueue.ts`). Its status goes to the
+ * engine's state; `engine` is null outside the app.
+ */
+function useAppUpdater(dispatch: Dispatch<EngineAction>, version: string | null) {
+  /** The desktop app's updater commands. Null outside the app. */
+  const engine = useRef<AppEngine | null>(null)
+  const tookApp = useCallback((status: AppUpdateStatus | null) => {
+    if (status) dispatch({ type: 'appStatus', status })
+  }, [dispatch])
 
   /* Listen to the shell's push, and ask once now — which is also what tells
      the shell this page draws updates, so it keeps its own alert to itself. */
   useEffect(() => {
-    const link = watchApp(setApp)
+    const link = watchApp(tookApp)
     engine.current = link.engine
     return () => link.stop()
+  }, [tookApp])
+
+  const installNow = () => {
+    const link = engine.current
+    if (!link) return
+    /* The shell pushes `installing` and then relaunches; say so meanwhile. */
+    dispatch({ type: 'appInstalling' })
+    void link.apply()
+  }
+
+  /* "Restart to update": the host asks the work queue to hold it behind queued runs first; not held, it goes now. */
+  const applyApp = () => {
+    if (!engine.current) return
+    void askRestart(version).then((asked) => {
+      if (asked.held) dispatch({ type: 'held', held: asked.restart })
+      else installNow()
+    })
+  }
+
+  /* Restart now, past the hold. */
+  const restartPastHold = () => {
+    dispatch({ type: 'held', held: null })
+    void restartNow(version).then(installNow)
+  }
+
+  /* The queue let it go, or it was cancelled there: read what is held, and apply an update it let go. */
+  useEffect(() => {
+    const read = () =>
+      void restartState().then((state) => {
+        dispatch({ type: 'held', held: state.held })
+        if (state.go) installNow()
+      })
+    read()
+    return onRestartChanged(read)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  return { engine, tookApp, applyApp, restartPastHold }
+}
+
+/** `markMs` is how long a result waits for the mark; tests pass 0. `disarmMs` is how long an arm stands. */
+/**
+ * The update engine: the desktop app's updater and every module's checkout — what was checked, what
+ * is updating, what each update came to — held once for the page (`UpdatesProvider`) and read by the
+ * Updates menu and by the module list, which draws each module's update in its own row. One source,
+ * two views: the menu for the app and what moves the whole app, the list for each module.
+ *
+ * What it holds and how that moves is the pure reducer in `host/updatesEngine.ts`; this hook does the
+ * I/O — checks, updates, restarts, timers — and says there what each came to.
+ */
+export function useUpdatesEngine({
+  markMs = MARK_DRAWN_MS,
+  disarmMs = DISARM_ANYWAY_AFTER_MS,
+}: { markMs?: number; disarmMs?: number } = {}) {
+  const [state, dispatch] = useReducer(updatesReducer, undefined, () => initialState(new Date()))
+  const { check, open, phase, outcomes, notice, restarting, retryingIds, armed, armingId, showLevel, asked, now, skipped, autoTrouble, held, app } = state
+  const controller = useRef<AbortController | null>(null)
+  const busy = useRef(false)
+  /** The checkouts whose updates this page started and has not seen end: closing the panel leaves them running. */
+  const updateIds = useRef<Set<string>>(new Set())
+  /** The job in flight, so a press can stop a quiet check and wait it out. */
+  const pending = useRef<Promise<void> | null>(null)
+  const appVersion = useRef<string | null>(null)
+  appVersion.current = app?.current ?? null
+  const { engine, tookApp, applyApp, restartPastHold } = useAppUpdater(dispatch, app?.version ?? null)
+  const { notes, moduleNotes, moved, setMoved, movedOpen, setMovedOpen, notesOpen, showModuleNotes } = useNotesDialogs()
+
+  /* The setters the engine hands out, as React's: a value, or what to make of the one held. */
+  const setOpen = useCallback((next: Next<boolean>) => dispatch({ type: 'openSet', open: next }), [])
+  const setAsked = useCallback((next: Next<string | null>) => dispatch({ type: 'askedSet', asked: next }), [])
+  const setShowLevel = useCallback((next: Next<boolean>) => dispatch({ type: 'showLevelSet', showLevel: next }), [])
 
   /* The tooltip's "4 minutes ago" has to move while nobody is touching it. */
   useEffect(() => {
-    const tick = setInterval(() => setNow(new Date()), 30_000)
+    const tick = setInterval(() => dispatch({ type: 'ticked', now: new Date() }), 30_000)
     return () => clearInterval(tick)
   }, [])
 
@@ -303,34 +324,26 @@ export function useUpdatesEngine({
       pending.current = new Promise((resolve) => (finish = resolve))
       const abort = new AbortController()
       controller.current = abort
-      if (loud) {
-        setPhase({ kind: 'checking' })
-        setNotice(null)
-      } else {
-        setQuietly(true)
-      }
+      dispatch({ type: 'checkStarted', loud })
       const since = Date.now()
       try {
         /* A press fetches; the automatic check only compares (`quiet`). */
         const found = await fetchUpdates(true, abort.signal, appVersion.current, !loud)
         if (loud) await drawn(since, abort.signal, markMs)
-        setCheck(found)
-        setFailed(null)
+        dispatch({ type: 'checked', check: found })
       } catch (error) {
         if (abort.signal.aborted) {
-          if (loud) setNotice('Check cancelled. What is shown is from the last check that finished.')
+          dispatch({ type: 'checkCancelled', loud })
         } else {
           if (loud) await drawn(since, abort.signal, markMs)
-          setFailed({ at: new Date(), why: (error as Error).message })
+          dispatch({ type: 'checkFailed', at: new Date(), why: (error as Error).message })
         }
       } finally {
         busy.current = false
         controller.current = null
         pending.current = null
         finish()
-        setNow(new Date())
-        if (loud) setPhase({ kind: 'idle' })
-        else setQuietly(false)
+        dispatch({ type: 'checkEnded', loud, now: new Date() })
       }
     },
     [markMs],
@@ -367,86 +380,31 @@ export function useUpdatesEngine({
   /* An arm nobody followed comes down by itself. */
   useEffect(() => {
     if (!armed) return
-    const timer = setTimeout(() => setArmed(null), Math.min(armed.forMs, disarmMs))
+    const timer = setTimeout(() => dispatch({ type: 'disarmed' }), Math.min(armed.forMs, disarmMs))
     return () => clearTimeout(timer)
   }, [armed, disarmMs])
 
   /** "Check now": the app's updater and every module, at once. */
   const checkAll = () => {
-    const link = engine.current
-    if (link) {
-      void link.check().then((status) => {
-        if (status) setApp(status)
-      })
-    }
+    void engine.current?.check().then(tookApp)
     void run(true)
   }
 
-  /* An app restart held behind queued work (protocol 2.110.0, `restartQueue.ts`), as the host says it. */
-  const [held, setHeld] = useState<HeldRestart | null>(null)
-
-  const installNow = () => {
-    const link = engine.current
-    if (!link) return
-    /* The shell pushes `installing` and then relaunches; say so meanwhile. */
-    setApp((was) => (was && was.state === 'ready' ? { ...was, state: 'installing' } : was))
-    void link.apply()
-  }
-
-  /* "Restart to update": the host asks the work queue to hold it behind queued runs first; not held, it goes now. */
-  const applyApp = () => {
-    if (!engine.current) return
-    void askRestart(app?.version ?? null).then((asked) => {
-      if (asked.held) setHeld(asked.restart)
-      else installNow()
-    })
-  }
-
-  /* Restart now, past the hold. */
-  const restartPastHold = () => {
-    setHeld(null)
-    void restartNow(app?.version ?? null).then(installNow)
-  }
-
-  /* The queue let it go, or it was cancelled there: read what is held, and apply an update it let go. */
-  useEffect(() => {
-    const read = () =>
-      void restartState().then((state) => {
-        setHeld(state.held)
-        if (state.go) installNow()
-      })
-    read()
-    return onRestartChanged(read)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const onOpenChange = (next: boolean) => {
     if (next) {
-      setOpen(true)
-      /* What was done last time is cleared, except a host update still waiting
-         on a restart: that is not history, it is the thing the header is asking
-         for, and forgetting it here took the restart button away with it. */
-      setOutcomes((was) => Object.fromEntries(Object.entries(was).filter(([, outcome]) => awaitsRestart(outcome))))
-      setShowLevel(false)
-      setSkipped([])
+      dispatch({ type: 'opened' })
       /* Opening shows what is known. A check older than the focus threshold
          is refreshed out loud; a fresh one is not asked again, so opening the
          menu to press "Restart to update" does not first wait on git. */
       const due = shouldCheckOnOpen(Date.now(), last.current, engine.current ? app : null)
       if (due.modules) void run(true)
-      if (due.app) {
-        void engine.current?.check().then((status) => {
-          if (status) setApp(status)
-        })
-      }
+      if (due.app) void engine.current?.check().then(tookApp)
     } else {
       /* Closing cancels a check this page is waiting on, never an update: that
          is the server's, the header chip and the reopened panel show it, and
          only Cancel stops it. */
       if (updateIds.current.size === 0) controller.current?.abort()
-      setArmed(null)
-      setAsked(null)
-      setOpen(false)
+      dispatch({ type: 'closed' })
     }
   }
 
@@ -458,14 +416,53 @@ export function useUpdatesEngine({
       const module = askedModule(event)
       /* A module's update is in its row of the module list: that opens, on its Updates, at the module. */
       openModuleList({ filter: 'updates', module })
-      setAsked(module)
-      /* A module asked for by name is shown even when it is up to date. */
-      setShowLevel(module !== null)
+      dispatch({ type: 'askedFor', module })
       void run(true)
     }
     window.addEventListener(OPEN_UPDATES, onAsked)
     return () => window.removeEventListener(OPEN_UPDATES, onAsked)
   }, [run])
+
+  /** Read the checkouts as they are, without asking GitHub. */
+  const reread = useCallback(async () => {
+    try {
+      dispatch({ type: 'read', check: await fetchUpdates(false) })
+    } catch {
+      /* The next check says so. */
+    }
+  }, [])
+
+  /** One checkout's update, start to end: it says what it came to, and never throws. */
+  const updateOne = async (id: string, ids: string[], abort: AbortController, back: Readonly<Record<string, string>>): Promise<void> => {
+    dispatch({ type: 'updateStarted', ids, id })
+    updateIds.current.add(id)
+    try {
+      /* No signal: the request is only where the page reads the update's steps. */
+      const done = await applyUpdate(
+        id,
+        undefined,
+        (reached) => dispatch({ type: 'phaseReached', id, phase: reached }),
+        Object.hasOwn(back, id) ? back[id] : undefined,
+      )
+      dispatch({ type: 'updateDone', id, done })
+      const outcome = outcomeOf(id, done)
+      if (id !== 'host') pokeWhatsNew(outcome.kind === 'updated' && !outcome.installFailed ? { updated: id } : { failed: id })
+    } catch (error) {
+      if (error instanceof LeftRunning) {
+        /* Closed after the checkout had moved: the server finishes it, and
+           what is true is read back from there. */
+        void reread()
+        if (id !== 'host') pokeWhatsNew({ updated: id })
+        return
+      }
+      const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
+      dispatch({ type: 'updateFailed', id, why })
+      if (id !== 'host') pokeWhatsNew({ failed: id })
+    } finally {
+      updateIds.current.delete(id)
+      dispatch({ type: 'updateEnded', id })
+    }
+  }
 
   /** One or several checkouts, one after another; a cancel stops the rest. */
   const updateAll = async (readyIds: string[], unfetchedIds: string[] = [], back: Readonly<Record<string, string>> = {}) => {
@@ -473,110 +470,45 @@ export function useUpdatesEngine({
     busy.current = true
     const abort = new AbortController()
     controller.current = abort
-    setNotice(null)
-    setSkipped([])
+    dispatch({ type: 'updateAllStarted', fetching: unfetchedIds.length > 0 })
     let ids = readyIds
     if (unfetchedIds.length > 0) {
       /* Checkouts somebody edits are fetched only by a press: this is it, the same fetch as Check now. */
-      setPhase({ kind: 'checking' })
       try {
         const found = await fetchUpdates(true, abort.signal, appVersion.current)
-        setCheck(found)
-        const wanted = new Set([...readyIds, ...unfetchedIds])
-        const { ready: taken } = updateSets(found.checkouts)
-        ids = taken.filter((one) => wanted.has(one.id)).map((one) => one.id)
-        setSkipped(skippedAfter(found.checkouts, found.pins))
+        dispatch({ type: 'fetchedForUpdate', check: found })
+        ids = idsToUpdate(found, readyIds, unfetchedIds)
       } catch (error) {
-        if (!abort.signal.aborted) setNotice(`GitHub could not be asked, so the local checkouts were not fetched: ${(error as Error).message}`)
+        if (!abort.signal.aborted) dispatch({ type: 'fetchForUpdateFailed', why: (error as Error).message })
       }
     }
     /* A few at a time: each is a different module, and most of an update is waiting on a network or a start. */
-    let running: Record<string, UpdatePhase> = {}
-    let finished = 0
-    const show = () => setPhase({ kind: 'updating', ids, running, finished })
-    const one = async (id: string): Promise<void> => {
-      running = { ...running, [id]: 'updating' }
-      show()
-      updateIds.current.add(id)
-      try {
-        /* No signal: the request is only where the page reads the update's steps. */
-        const done = await applyUpdate(
-          id,
-          undefined,
-          (reached) => {
-            running = { ...running, [id]: reached }
-            show()
-          },
-          Object.hasOwn(back, id) ? back[id] : undefined,
-        )
-        replace(done.checkout)
-        const outcome = outcomeOf(id, done)
-        setOutcomes((was) => ({ ...was, [id]: outcome }))
-        if (id !== 'host') pokeWhatsNew(outcome.kind === 'updated' && !outcome.installFailed ? { updated: id } : { failed: id })
-        if (done.module?.ran !== 'stale') setCheck((was) => (was ? { ...was, stale: without(was.stale, id), older: without(was.older, id) } : was))
-      } catch (error) {
-        if (error instanceof LeftRunning) {
-          /* Closed after the checkout had moved: the server finishes it, and
-             what is true is read back from there. */
-          void reread()
-          if (id !== 'host') pokeWhatsNew({ updated: id })
-          return
-        }
-        const why = abort.signal.aborted ? 'Cancelled — it was not changed.' : (error as Error).message
-        setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why } }))
-        if (id !== 'host') pokeWhatsNew({ failed: id })
-      } finally {
-        updateIds.current.delete(id)
-        const { [id]: _gone, ...rest } = running
-        running = rest
-        finished += 1
-        show()
-      }
-    }
     /* The host's own checkout alone, after the modules: it may ask for a restart of everything. */
     const queue = ids.filter((id) => id !== 'host')
     const workers = Array.from({ length: Math.min(UPDATES_AT_ONCE, queue.length) }, async () => {
       for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
         if (abort.signal.aborted) return
-        await one(id)
+        await updateOne(id, ids, abort, back)
       }
     })
     await Promise.all(workers)
-    if (ids.includes('host') && !abort.signal.aborted) await one('host')
-    if (abort.signal.aborted) setNotice('Update cancelled. Anything not marked as updated was left as it was.')
+    if (ids.includes('host') && !abort.signal.aborted) await updateOne('host', ids, abort, back)
     busy.current = false
     controller.current = null
-    setPhase({ kind: 'idle' })
+    dispatch({ type: 'updatesEnded', cancelled: abort.signal.aborted })
   }
-
-  const [skipped, setSkipped] = useState<{ id: string; name: string; why: string }[]>([])
-  const replace = (reading: Reading) =>
-    setCheck((was) =>
-      was ? { ...was, checkouts: was.checkouts.map((one) => (one.id === reading.id ? reading : one)) } : was,
-    )
-
-  /** Read the checkouts as they are, without asking GitHub. */
-  const reread = useCallback(async () => {
-    try {
-      setCheck(await fetchUpdates(false))
-    } catch {
-      /* The next check says so. */
-    }
-  }, [])
 
   /* The host's automatic updates moved (one began, ended, or now waits): read
      again, without asking GitHub. */
   useEffect(() => onUpdatesChanged(() => void reread()), [reread])
 
   /** "Keep modules up to date automatically", from the top of the panel: the same setting as Settings › Modules. */
-  const [autoTrouble, setAutoTrouble] = useState<string | null>(null)
   const setAuto = async (on: boolean) => {
-    setAutoTrouble(null)
-    setCheck((was) => (was?.auto ? { ...was, auto: { ...was.auto, on } } : was))
+    dispatch({ type: 'autoSet', on })
     try {
       await postAutoUpdates(on)
     } catch (error) {
-      setAutoTrouble((error as Error).message)
+      dispatch({ type: 'autoFailed', why: (error as Error).message })
     }
     void reread()
   }
@@ -593,13 +525,7 @@ export function useUpdatesEngine({
 
   /** What a restart from a row came to, as that row's outcome. */
   const restartedTo = (id: string, failed: NotRestarted | null) => {
-    setRetryingIds((was) => was.filter((one) => one !== id))
-    setOutcomes((was) => ({
-      ...was,
-      [id]: failed
-        ? { kind: 'failed', why: failed.why, detail: failed.detail, retry: true, ...(failed.kept ? { kept: true } : {}) }
-        : { kind: 'updated', note: moduleNote({ ran: 'restarted' }), restart: null, installFailed: null },
-    }))
+    dispatch({ type: 'restarted', id, failed })
     void reread()
   }
 
@@ -607,8 +533,7 @@ export function useUpdatesEngine({
 
   /** Start a module again after an update it did not come back from. */
   const retry = async (id: string) => {
-    setArmed(null)
-    setRetryingIds((was) => (was.includes(id) ? was : [...was, id]))
+    dispatch({ type: 'restartStarted', id })
     restartedTo(id, await restartModule(id).catch(unreached))
   }
 
@@ -620,34 +545,28 @@ export function useUpdatesEngine({
   const restartAnyway = async (id: string) => {
     if (armed?.id === id) {
       const token = armed.token
-      setArmed(null)
-      setRetryingIds((was) => (was.includes(id) ? was : [...was, id]))
+      dispatch({ type: 'restartStarted', id })
       restartedTo(id, await confirmRestartAnyway(id, token).catch(unreached))
       return
     }
     if (armingId !== null) return
-    setArmingId(id)
+    dispatch({ type: 'arming', id })
     const said = await armRestartAnyway(id).catch(unreached)
-    setArmingId(null)
-    if ('armed' in said) {
-      setArmed({ id, ...said.armed })
-      return
-    }
     /* Refused before anything was stopped: the server's sentence, in the row. */
-    setArmed(null)
-    setOutcomes((was) => ({ ...was, [id]: { kind: 'failed', why: said.why, retry: true, ...(said.kept ? { kept: true } : {}) } }))
+    dispatch('armed' in said ? { type: 'armed', id, armed: said.armed } : { type: 'anywayRefused', id, said })
   }
 
   const restartApp = async () => {
-    setRestarting(true)
+    dispatch({ type: 'appRestarting' })
     const why = await requestRestart()
     /* On success there is nothing more to do here: the app stops this page
        and comes back with the new server. A refusal goes back to the list. */
-    if (why) {
-      setRestarting(false)
-      setNotice(why)
-    }
+    if (why) dispatch({ type: 'appRestartRefused', why })
   }
+
+  /* Every install and update the host is running, step by step (`StepProgress`). */
+  const steps = useJobSteps()
+  const { pins, count, checkouts, updating, mine, told, appOne, shown, checking, label, attention, level, askedDrawn, ready, unfetchedOnes, everything, endsAll, appCalm, lastFailed, status } = derive(state)
 
   /**
    * What a press on the header does while it names a restart.
@@ -665,47 +584,8 @@ export function useUpdatesEngine({
     else if (offersAppRestart(outcomes.host, check?.restartable ?? false)) await restartApp()
   }
 
-  const pins = check?.pins ?? {}
-  /* What the switch puts in place by itself once the module is off screen or stops is not counted as waiting for a press. */
-  const scheduled = new Set(
-    Object.entries(check?.auto?.on ? check.auto.waiting : {})
-      .filter(([, wait]) => wait.until === 'off-screen' || wait.until === 'stopped')
-      .map(([id]) => id),
-  )
-  const count = check ? waiting(check.checkouts.filter((one) => !scheduled.has(one.id)), pins) : 0
-  const checkouts = check?.checkouts ?? []
-  const unfetched = unfetchedCount(checkouts, pins)
-  const updating = phase.kind === 'updating' ? phase : null
-  /* Every install and update the host is running, step by step (`StepProgress`). */
-  const steps = useJobSteps()
-  /** The checkouts this page is updating now. */
-  const mine = (id: string) => updating !== null && Object.hasOwn(updating.running, id)
-  /* What the server says beyond the checkouts. An update this page is running
-     is told by its own stream, which is ahead of the last check. */
-  const told: Record<string, Told> = {}
-  for (const [id, reached] of Object.entries(check?.progress ?? {})) if (!mine(id)) told[id] = { phase: reached }
-  for (const [id, why] of Object.entries(check?.stale ?? {})) told[id] = { ...told[id], stale: why }
-  for (const [id, why] of Object.entries(check?.older ?? {})) told[id] = { ...told[id], older: why }
-  /* An installed copy being built, or whose build did not finish (`moduleBuilds.ts`). */
-  for (const [id, build] of Object.entries(check?.builds ?? {})) if (!mine(id)) told[id] = { ...told[id], build }
-  /* Why the switch has not put a module's update in place yet: "Terminal updates when its sessions end". */
-  for (const [id, wait] of Object.entries(check?.auto?.waiting ?? {})) if (!mine(id)) told[id] = { ...told[id], auto: wait }
-  /* Only on a module something is already said about: being kept is not news. */
-  for (const id of check?.kept ?? []) if (Object.hasOwn(told, id)) told[id] = { ...told[id], kept: true }
-  /* Whether a restart ends its sessions: only said on a restart button, so only where one can be drawn. */
-  for (const id of check?.holds ?? []) if (Object.hasOwn(told, id) || outcomes[id]?.kind === 'failed') told[id] = { ...told[id], holds: true }
-  const rows = updateRows(app, checkouts, outcomes, updating ? updating.running : null, pins, told)
-  const appOne = rows[0]?.id === APP_ROW_ID && rows[0].source === 'app' ? rows[0] : null
-  const shown = indicator(rows)
-  const checking = phase.kind === 'checking' || quietly || appOne?.state === 'checking'
-  const label = [tooltipFor(check, failed, count, now, checking && !open, unfetched), appOne ? `Kehikot app ${appOne.current}: ${stateText(appOne).toLowerCase()}` : null]
-    .filter(Boolean)
-    .join(' · ')
-  const { attention, level } = triage(checkouts, outcomes, new Set(Object.keys(told)))
-
   /* The row a press elsewhere asked for, once it is drawn: brought into view
      and given focus, so "Update <Module>" lands on that module's Update. */
-  const askedDrawn = asked !== null && [...attention, ...level].some((one) => one.id === asked)
   useEffect(() => {
     if (!askedDrawn || asked === null) return
     /* Drawn in the module list, which opens in the same moment: looked for once it is there. */
@@ -716,20 +596,6 @@ export function useUpdatesEngine({
     }, 50)
     return () => clearTimeout(timer)
   }, [askedDrawn, asked, showLevel])
-  const sets = updateSets(attention)
-  const ready = sets.ready
-  const unfetchedOnes = sets.unfetched
-  const everything = ready.length + unfetchedOnes.length
-  const endsAll = previewAll(ready.map((one) => ({ name: one.name, preview: check?.previews[one.id] })))
-  const appCalm = !appOne || ['uptodate', 'unknown', 'checking'].includes(appOne.state)
-  const lastFailed = failed && (!check || failed.at > check.checked) ? failed : null
-  const status = restarting
-    ? 'Restarting Kehikot to run the update…'
-    : phase.kind === 'checking'
-      ? 'Asking GitHub what is new for Kehikot and each module…'
-      : updating
-        ? updatingStatus(updating, (id) => nameOf(checkouts, id))
-        : summaryOf(check, lastFailed, count, unfetched)
 
   return { open, setOpen, onOpenChange, label, shown, restartWaiting, checking, updating, restarting, retryingIds, notesOpen, status, check, setAuto, autoTrouble, appOne, held, restartPastHold, applyApp, checkAll, notes, phase, cancel, notice, lastFailed, steps, attention, appCalm, now, outcomes, asked, setAsked, mine, pins, told, retry, armed, restartAnyway, restartApp, showModuleNotes, app, updateAll, level, showLevel, setShowLevel, setMoved, checkouts, ready, endsAll, skipped, everything, unfetchedOnes, moduleNotes, moved, movedOpen, setMovedOpen, count, run }
 }
@@ -1188,25 +1054,7 @@ export function AppRow({
   )
 }
 
-/** One checkout that needs a person: where it is, what is coming, and what can be done. */
-function Row({
-  row,
-  reading,
-  job = null,
-  outcome,
-  preview,
-  retrying,
-  disabled,
-  onUpdate,
-  onStepBack,
-  onCancel,
-  onRetry,
-  armed,
-  onAnyway,
-  onRestartApp,
-  onNotes,
-  have,
-}: {
+interface RowProps {
   /** The same state the app row and the header indicator read. */
   row: UpdateRow
   reading: Reading
@@ -1235,46 +1083,72 @@ function Row({
   onNotes?(release: ModuleRelease, opener: HTMLElement): void
   /** What this Kehikot is: the app's version inside the desktop app, and the host's protocol. For "you have …". */
   have?: { app: string | null; protocol: string | null }
-}) {
-  if (!isCheckout(reading)) {
-    return (
-      <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
-        <p className="flex items-center gap-2 font-medium">
-          <ModuleIcon id={reading.id} name={reading.name} />
-          {reading.name}
-        </p>
-        <p className="text-muted-foreground">{reading.error}</p>
-      </div>
-    )
-  }
+}
+
+/** One checkout that needs a person: where it is, what is coming, and what can be done. */
+function Row(props: RowProps) {
+  const { row, reading, job = null, onNotes, have } = props
+  if (!isCheckout(reading)) return <UnreadableRow row={row} reading={reading} />
   const one = reading
   const release = one.release
   /* A copy that runs releases says them — "Journeys 1.5.0 → 1.6.0" — in place of commits. */
   const releases = release !== undefined && release.follows !== 'main'
-  /* Which Kehikot the release in view works with, as a badge. Left out when that is the one installed and a newer one is said below: "up to date" already says it works. */
-  const badge = release && !(needsNewerSaid(release, have) && !release.target) ? compatBadge(release, releaseInView(release), have) : null
   return (
     <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
-      <div className="flex items-center gap-2">
-        <ModuleIcon id={one.id} name={one.name} />
-        <span className="min-w-0 flex-1 truncate font-medium" data-testid="updates-row-title">
-          {one.name}
-          {release ? <span className="text-muted-foreground pl-1.5 font-normal">{releaseSaid(release)}</span> : null}
-        </span>
-        {release ? null : (
-          <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
-            {one.branch ?? 'detached'} @ {one.commit}
-          </span>
-        )}
-        {badge ? <CompatBadgeView badge={badge} /> : null}
-        {release?.repo && release.notes.length && onNotes ? (
-          <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
-        ) : null}
-      </div>
+      <RowTitle one={one} {...(onNotes ? { onNotes } : {})} {...(have ? { have } : {})} />
       {job ? <StepProgress job={job} className="pt-1" /> : null}
       {release && summaryTags(release).length ? (
         <UpdateSummaries repo={release.repo} tags={summaryTags(release)} onMore={onNotes ? (opener) => onNotes(release, opener) : undefined} />
       ) : null}
+      <RowNotes row={row} release={release} {...(have ? { have } : {})} />
+      {releases ? <ReleasesUnread one={one} /> : <CommitsBehind one={one} />}
+      <RowAction {...props} one={one} />
+    </div>
+  )
+}
+
+/** A checkout that could not be read: its name, and why. */
+function UnreadableRow({ row, reading }: { row: UpdateRow; reading: Exclude<Reading, Checkout> }) {
+  return (
+    <div className="rounded-md border px-3 py-2 text-xs" data-testid="updates-row" data-state={row.state}>
+      <p className="flex items-center gap-2 font-medium">
+        <ModuleIcon id={reading.id} name={reading.name} />
+        {reading.name}
+      </p>
+      <p className="text-muted-foreground">{reading.error}</p>
+    </div>
+  )
+}
+
+/** The row's first line: the module, the release or commit it runs, which Kehikot that works with, and "What's new". */
+function RowTitle({ one, onNotes, have }: { one: Checkout; onNotes?: RowProps['onNotes']; have?: RowProps['have'] }) {
+  const release = one.release
+  /* Which Kehikot the release in view works with, as a badge. Left out when that is the one installed and a newer one is said below: "up to date" already says it works. */
+  const badge = release && !(needsNewerSaid(release, have) && !release.target) ? compatBadge(release, releaseInView(release), have) : null
+  return (
+    <div className="flex items-center gap-2">
+      <ModuleIcon id={one.id} name={one.name} />
+      <span className="min-w-0 flex-1 truncate font-medium" data-testid="updates-row-title">
+        {one.name}
+        {release ? <span className="text-muted-foreground pl-1.5 font-normal">{releaseSaid(release)}</span> : null}
+      </span>
+      {release ? null : (
+        <span className="text-muted-foreground shrink-0 font-mono text-[11px]">
+          {one.branch ?? 'detached'} @ {one.commit}
+        </span>
+      )}
+      {badge ? <CompatBadgeView badge={badge} /> : null}
+      {release?.repo && release.notes.length && onNotes ? (
+        <WhatsNew release={release} onShow={(opener) => onNotes(release, opener)} />
+      ) : null}
+    </div>
+  )
+}
+
+/** What else is true of the module: a newer release it cannot take yet, running from source, pinned, what the switch waits on. */
+function RowNotes({ row, release, have }: { row: UpdateRow; release: ModuleRelease | undefined; have?: RowProps['have'] }) {
+  return (
+    <>
       {release && !release.back && needsNewerSaid(release, have) ? (
         /* One sentence for the newer release's need, with the protocol in the tooltip. */
         <p className="text-muted-foreground pt-1" data-testid="updates-needs-newer" title={needsNewerTip(release, have) ?? undefined}>
@@ -1297,26 +1171,38 @@ function Row({
           {row.autoSaid}
         </p>
       ) : null}
-      {releases ? (
-        one.fetchFailed ? <p className="text-muted-foreground pt-1">
-          {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `Its releases could not be read: ${one.fetchFailed}`}
-        </p> : null
-      ) : (
-        <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
-          {one.behind
-            ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}`
-            : one.waiting
-              ? `New commits on ${one.upstream} — Check now fetches them`
-              : 'Up to date'}
-          {one.fetchFailed ? (
-            <span className="text-muted-foreground">
-              {' — '}
-              {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `GitHub could not be reached: ${one.fetchFailed}`}
-            </span>
-          ) : null}
-        </p>
-      )}
-      {!releases && one.incoming.length ? (
+    </>
+  )
+}
+
+/** A copy that runs releases: said only when its releases could not be read. */
+function ReleasesUnread({ one }: { one: Checkout }) {
+  if (!one.fetchFailed) return null
+  return (
+    <p className="text-muted-foreground pt-1">
+      {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `Its releases could not be read: ${one.fetchFailed}`}
+    </p>
+  )
+}
+
+/** A copy that follows a branch: how far behind it is, and the first commits coming. */
+function CommitsBehind({ one }: { one: Checkout }) {
+  return (
+    <>
+      <p className={one.behind ? 'text-foreground pt-1' : 'text-muted-foreground pt-1'}>
+        {one.behind
+          ? `${one.behind} new commit${one.behind === 1 ? '' : 's'} on ${one.upstream}`
+          : one.waiting
+            ? `New commits on ${one.upstream} — Check now fetches them`
+            : 'Up to date'}
+        {one.fetchFailed ? (
+          <span className="text-muted-foreground">
+            {' — '}
+            {isGitReason(one.fetchFailed) ? <GitSaid said={one.fetchFailed} /> : `GitHub could not be reached: ${one.fetchFailed}`}
+          </span>
+        ) : null}
+      </p>
+      {one.incoming.length ? (
         <ul className="text-muted-foreground mt-1 space-y-0.5">
           {one.incoming.slice(0, 5).map((commit) => (
             <li key={commit.hash} className="truncate">
@@ -1326,85 +1212,123 @@ function Row({
           {one.behind > 5 ? <li>and {one.behind - 5} more</li> : null}
         </ul>
       ) : null}
+    </>
+  )
+}
 
-      {row.state === 'updating' || retrying ? (
-        /* One line for every step, in the row's own words: "Updating…",
-           "Installing what changed…", "Restarting…". */
-        <div className="flex items-center gap-2 pt-1.5" data-testid="updates-running">
-          <KehikkoMark working className="text-foreground size-5 shrink-0" />
-          <span className="text-muted-foreground flex-1">{retrying ? 'Restarting…' : stateText(row)}</span>
-          {onCancel && !retrying ? (
-            <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onCancel}>
-              Cancel
-            </Button>
-          ) : null}
-        </div>
-      ) : outcome?.kind === 'updated' ? (
-        <div className="pt-1.5">
-          <p className="text-foreground">{outcome.note}</p>
-          {outcome.installFailed ? <p className="text-destructive">{outcome.installFailed}</p> : null}
-          {onRestartApp ? (
-            <Button size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestartApp}>
-              {RESTART_THE_HOST}
-            </Button>
-          ) : null}
-        </div>
-      ) : row.state === 'failed' && (outcome?.kind === 'failed' || row.retry) ? (
-        <div className="pt-1.5" data-testid="updates-failed">
-          {/* Armed, the row says what the second press stops and ends, in
-              place of why the first restart was refused. */}
-          <p className="text-destructive" data-testid={armed !== null && row.anyway ? 'updates-armed' : undefined}>
-            {armed !== null && row.anyway ? armed : <GitSaid said={outcome?.kind === 'failed' ? outcome.why : (row.reason ?? '')} />}
-          </p>
-          {outcome?.kind === 'failed' && outcome.detail?.length ? (
-            <pre className="bg-muted text-muted-foreground mt-1 max-h-28 overflow-auto rounded px-2 py-1 font-mono text-[10px] leading-snug whitespace-pre-wrap">
-              {outcome.detail.join('\n')}
-            </pre>
-          ) : null}
-          {row.retry ? (
-            <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRetry}>
-              {row.retryWord ?? 'Try again'}
-            </Button>
-          ) : null}
-          {row.retry && row.anyway ? (
-            /* One button for both presses, as `ClearButton` is: the words and
-               `aria-pressed` say which of the two this press is. */
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={armed !== null}
-              className={`mt-1.5 ml-1.5 h-6 px-2 text-xs ${armed !== null ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : ''}`}
-              onClick={onAnyway}
-            >
-              {armed !== null ? RESTART_ANYWAY_ARMED : restartNowWord(row)}
-            </Button>
-          ) : null}
-        </div>
-      ) : hasUpdate(one) && one.blocked === null ? (
-        <div className="flex items-end gap-2 pt-1.5">
-          {/* Said before the press: there is no second button to decline. */}
-          <p className={`flex-1 ${preview === 'restart' || preview === 'self' ? 'text-foreground' : 'text-muted-foreground'}`} data-testid="updates-preview">
-            {preview ? previewText(preview) : null}
-          </p>
-          <Button size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={onUpdate}>
-            Update
+/** What can be done about the row now, or what was just done: one of these at a time. */
+function RowAction(props: RowProps & { one: Checkout }) {
+  const { row, one, outcome, retrying } = props
+  const release = one.release
+  if (row.state === 'updating' || retrying) return <RowRunning row={row} retrying={retrying} onCancel={props.onCancel} />
+  if (outcome?.kind === 'updated') return <RowUpdated outcome={outcome} onRestartApp={props.onRestartApp} />
+  if (row.state === 'failed' && (outcome?.kind === 'failed' || row.retry)) {
+    return <RowFailed row={row} outcome={outcome} armed={props.armed} onRetry={props.onRetry} onAnyway={props.onAnyway} />
+  }
+  if (hasUpdate(one) && one.blocked === null) return <RowUpdate preview={props.preview} disabled={props.disabled} onUpdate={props.onUpdate} />
+  /* Behind, but not something this host will touch on its own. */
+  if (hasUpdate(one)) return <p className="text-muted-foreground pt-1.5">Not updated automatically: {one.blocked}.</p>
+  if (release?.back && stepBackAsked(release)) {
+    return <RowStepBack release={release} disabled={props.disabled} {...(props.onStepBack ? { onStepBack: props.onStepBack } : {})} />
+  }
+  return null
+}
+
+/** One line for every step, in the row's own words: "Updating…", "Installing what changed…", "Restarting…". */
+function RowRunning({ row, retrying, onCancel }: { row: UpdateRow; retrying: boolean; onCancel: (() => void) | null }) {
+  return (
+    <div className="flex items-center gap-2 pt-1.5" data-testid="updates-running">
+      <KehikkoMark working className="text-foreground size-5 shrink-0" />
+      <span className="text-muted-foreground flex-1">{retrying ? 'Restarting…' : stateText(row)}</span>
+      {onCancel && !retrying ? (
+        <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onCancel}>
+          Cancel
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function RowUpdated({ outcome, onRestartApp }: { outcome: Extract<Outcome, { kind: 'updated' }>; onRestartApp: (() => void) | null }) {
+  return (
+    <div className="pt-1.5">
+      <p className="text-foreground">{outcome.note}</p>
+      {outcome.installFailed ? <p className="text-destructive">{outcome.installFailed}</p> : null}
+      {onRestartApp ? (
+        <Button size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRestartApp}>
+          {RESTART_THE_HOST}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function RowFailed({
+  row,
+  outcome,
+  armed,
+  onRetry,
+  onAnyway,
+}: Pick<RowProps, 'row' | 'outcome' | 'armed' | 'onRetry' | 'onAnyway'>) {
+  return (
+    <div className="pt-1.5" data-testid="updates-failed">
+      {/* Armed, the row says what the second press stops and ends, in
+          place of why the first restart was refused. */}
+      <p className="text-destructive" data-testid={armed !== null && row.anyway ? 'updates-armed' : undefined}>
+        {armed !== null && row.anyway ? armed : <GitSaid said={outcome?.kind === 'failed' ? outcome.why : (row.reason ?? '')} />}
+      </p>
+      {outcome?.kind === 'failed' && outcome.detail?.length ? (
+        <pre className="bg-muted text-muted-foreground mt-1 max-h-28 overflow-auto rounded px-2 py-1 font-mono text-[10px] leading-snug whitespace-pre-wrap">
+          {outcome.detail.join('\n')}
+        </pre>
+      ) : null}
+      {row.retry ? (
+        <Button variant="outline" size="sm" className="mt-1.5 h-6 px-2 text-xs" onClick={onRetry}>
+          {row.retryWord ?? 'Try again'}
+        </Button>
+      ) : null}
+      {row.retry && row.anyway ? (
+        /* One button for both presses, as `ClearButton` is: the words and
+           `aria-pressed` say which of the two this press is. */
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={armed !== null}
+          className={`mt-1.5 ml-1.5 h-6 px-2 text-xs ${armed !== null ? 'border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive' : ''}`}
+          onClick={onAnyway}
+        >
+          {armed !== null ? RESTART_ANYWAY_ARMED : restartNowWord(row)}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function RowUpdate({ preview, disabled, onUpdate }: { preview: Preview | undefined; disabled: boolean; onUpdate(): void }) {
+  return (
+    <div className="flex items-end gap-2 pt-1.5">
+      {/* Said before the press: there is no second button to decline. */}
+      <p className={`flex-1 ${preview === 'restart' || preview === 'self' ? 'text-foreground' : 'text-muted-foreground'}`} data-testid="updates-preview">
+        {preview ? previewText(preview) : null}
+      </p>
+      <Button size="sm" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={onUpdate}>
+        Update
+      </Button>
+    </div>
+  )
+}
+
+/** Its release needs a newer Kehikot, and the older one that works here might not suit what is on this machine: the person decides. */
+function RowStepBack({ release, disabled, onStepBack }: { release: ModuleRelease; disabled: boolean; onStepBack?(to: string): void }) {
+  return (
+    <div className="pt-1.5" data-testid="updates-step-back">
+      <p className="text-foreground font-medium">{stepBackAsked(release)}</p>
+      <p className="text-muted-foreground">{release.back!.ask}</p>
+      {onStepBack ? (
+        <div className="flex justify-end pt-1">
+          <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={() => onStepBack(release.back!.to)}>
+            Step back
           </Button>
-        </div>
-      ) : hasUpdate(one) ? (
-        /* Behind, but not something this host will touch on its own. */
-        <p className="text-muted-foreground pt-1.5">Not updated automatically: {one.blocked}.</p>
-      ) : release?.back && stepBackAsked(release) ? (
-        /* Its release needs a newer Kehikot, and the older one that works here might not suit what is on this machine: the person decides. */
-        <div className="pt-1.5" data-testid="updates-step-back">
-          <p className="text-foreground font-medium">{stepBackAsked(release)}</p>
-          <p className="text-muted-foreground">{release.back.ask}</p>
-          {onStepBack ? (
-            <div className="flex justify-end pt-1">
-              <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" disabled={disabled} onClick={() => onStepBack(release.back!.to)}>
-                Step back
-              </Button>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>
@@ -1528,90 +1452,5 @@ function WhatsNew({ release, onShow }: { release: ModuleRelease; onShow(opener: 
   )
 }
 
-/** A host update that still needs a restart to run: kept across opening the panel. */
-function awaitsRestart(outcome: Outcome): boolean {
-  return outcome.kind === 'updated' && outcome.restart !== null
-}
-
-function without(record: Record<string, string>, id: string): Record<string, string> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== id))
-}
-
-/** What one finished update is, as the row's outcome. */
-function outcomeOf(id: string, done: Awaited<ReturnType<typeof applyUpdate>>): Outcome {
-  const files = `${done.changed.length} file${done.changed.length === 1 ? '' : 's'} changed${done.lockfileReset ? ', a leftover dependency lock file was reset' : ''}${done.installed ? ', dependencies installed' : ''}.`
-  if (id === 'host' || !done.module) {
-    return {
-      kind: 'updated',
-      note:
-        done.restart === 'host'
-          ? `Updated — ${files} The page reloads by itself, but Kehikot itself changed too. Quit and reopen Kehikot to use it.`
-          : `Updated — ${files} The page reloads by itself.`,
-      restart: done.restart,
-      installFailed: done.installFailed,
-    }
-  }
-  if (done.module.ran === 'failed') {
-    return { kind: 'failed', why: `Updated, but it did not start again. ${done.module.why}`, detail: done.module.detail, retry: true }
-  }
-  if (done.module.ran === 'stale') {
-    return { kind: 'failed', why: done.module.kept ? keptNote(done.checkout.name) : staleNote(done.module.why), retry: true, ...(done.module.kept ? { kept: true } : {}) }
-  }
-  /* Commits that cancel out: the checkout moved and no file is different. */
-  if (done.module.ran === 'page' && done.changed.length === 0) {
-    return { kind: 'updated', note: "Updated. Nothing it runs changed, so it wasn't restarted.", restart: null, installFailed: done.installFailed }
-  }
-  return { kind: 'updated', note: moduleNote(done.module), restart: null, installFailed: done.installFailed }
-}
-
-/** The panel's status line while this page updates: "Updating Notes and Terminal (1 of 3 done)…". */
-export function updatingStatus(updating: { ids: readonly string[]; running: Readonly<Record<string, UpdatePhase>>; finished: number }, name: (id: string) => string): string {
-  const now = Object.entries(updating.running)
-  const verb = (phase: UpdatePhase) => (phase === 'restarting' ? 'Restarting' : phase === 'preparing' ? 'Preparing' : phase === 'installing' ? 'Installing for' : 'Updating')
-  const count = updating.ids.length > 1 ? ` (${updating.finished} of ${updating.ids.length} done)` : ''
-  if (now.length === 0) return `Updating${count}…`
-  if (now.length === 1) return `${verb(now[0]![1])} ${name(now[0]![0])}${count}…`
-  return `Updating ${now.map(([id]) => name(id)).join(' and ')}${count}…`
-}
-
-function nameOf(checkouts: readonly Reading[], id: string): string {
-  return checkouts.find((one) => one.id === id)?.name ?? id
-}
-
-export function summaryOf(check: Check | null, failed: { why: string } | null, count: number, unfetched = 0): string {
-  if (failed) return 'The last check did not finish.'
-  if (!check) return 'Not checked yet.'
-  if (count === 0 && unfetched === 0) return 'Everything is up to date with GitHub.'
-  if (count === 0) return `${unfetchedSaid(unfetched)} Update all fetches ${unfetched === 1 ? 'it' : 'them'}.`
-  const updating = check.checkouts.filter((one): one is Checkout => isCheckout(one) && !Object.hasOwn(check.pins, one.id) && hasUpdate(one))
-  const releases = updating.filter(runsReleases).length
-  if (releases > 0) {
-    const n = updating.length
-    return `${n} update${n === 1 ? '' : 's'} waiting${releases === n ? ` — ${n === 1 ? 'a new release' : 'new releases'}` : ''}.${unfetched ? ` ${unfetchedSaid(unfetched)}` : ''}`
-  }
-  return `${count} new commit${count === 1 ? '' : 's'} across ${updating.length} repositor${updating.length === 1 ? 'y' : 'ies'}.${unfetched ? ` ${unfetchedSaid(unfetched)}` : ''}`
-}
-
-/** Checkouts the automatic check saw move and fetched nothing of: never "up to date". */
-function unfetchedSaid(n: number): string {
-  return `${n} local checkout${n === 1 ? ' has' : 's have'} new commits not fetched yet.`
-}
-
-export function tooltipFor(
-  check: Check | null,
-  failed: { at: Date; why: string } | null,
-  count: number,
-  now: Date,
-  checking: boolean,
-  unfetched = 0,
-): string {
-  if (checking) return 'checking for updates…'
-  if (failed && (!check || failed.at > check.checked)) {
-    return `the last check for updates failed ${ago(failed.at, now)}: ${failed.why}`
-  }
-  if (!check) return 'not checked for updates yet — press to check now'
-  const when = `last checked for updates ${ago(check.checked, now)} (${check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
-  const fetch = unfetched ? `${unfetched} local checkout${unfetched === 1 ? ' has' : 's have'} new commits not fetched yet` : ''
-  if (count) return `${when} — ${count} new commit${count === 1 ? '' : 's'} waiting${fetch ? `, ${fetch}` : ''}`
-  return fetch ? `${when} — ${fetch}` : `${when} — everything is up to date`
-}
+/* The engine's words, kept importable from here (`host/updatesEngine.ts` has them). */
+export { summaryOf, tooltipFor, updatingStatus } from '@/host/updatesEngine.ts'
