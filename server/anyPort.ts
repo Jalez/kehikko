@@ -39,14 +39,23 @@ export function atLeast(version: string, since: string): boolean {
   return true
 }
 
-/** The protocol package installed in a module's checkout, or null when there is none to read. */
+/**
+ * The protocol package a module in `dir` was built with, or null when there is none to read: its
+ * checkout's installed package, or — a ready-built bundle, which carries no `node_modules` — the
+ * protocol its `bundle.json` says it was bundled against. Every official module is a bundle, so
+ * reading only the checkout's package took each of them for a module that cannot be started on any
+ * port, and a stranger on its old port left it unstarted with a question for the person.
+ */
 export function installedProtocol(dir: string, read: (file: string) => string = (file) => readFileSync(file, 'utf8')): string | null {
-  try {
-    const version = (JSON.parse(read(join(dir, 'node_modules', 'kehikot-module-protocol', 'package.json'))) as { version?: unknown }).version
-    return typeof version === 'string' ? version : null
-  } catch {
-    return null
+  const versionIn = (file: string, key: 'version' | 'protocol'): string | null => {
+    try {
+      const said = (JSON.parse(read(join(dir, ...file.split('/')))) as Record<string, unknown>)[key]
+      return typeof said === 'string' ? said : null
+    } catch {
+      return null
+    }
   }
+  return versionIn('node_modules/kehikot-module-protocol/package.json', 'version') ?? versionIn('bundle.json', 'protocol')
 }
 
 /** Whether the module in `dir` may be started with `PORT=0`. */

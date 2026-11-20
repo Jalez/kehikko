@@ -68,7 +68,7 @@ function sources(): string[] {
       else if (/\.(ts|tsx)$/.test(entry.name) && !/\.(test|d)\.tsx?$/.test(entry.name)) out.push(path)
     }
   }
-  for (const dir of ['server', 'src/host', 'src/canvas']) walk(dir)
+  for (const dir of ['server', 'src/host', 'src/canvas', 'src/app']) walk(dir)
   out.push('src/App.tsx')
   return out.sort()
 }
