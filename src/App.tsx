@@ -102,7 +102,7 @@ import { receiverContext, type ContextFacts } from './host/connectionContext.ts'
 import { connectionsOf, delivered, readersFor, sidesOf, stepsWithheld, tidy, type ConnectionModule, type ConnectionsSetting } from './host/connections.ts'
 import { settingsOf, settingsOpenAsked } from './host/moduleSettings.ts'
 import { partsOnWire, unpicked, type Part, type PartsEdit } from './host/parts.ts'
-import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit, type Subjects } from './host/subject.ts'
+import { editSubject, movesEpic, subjectOf, withEdit, type SubjectEdit } from './host/subject.ts'
 import { scopeOfContainer, scopeToKeep } from './host/scope.ts'
 /* `settle` is imported under another name: this file already has a `settle`,
    which is the measuring pass after a grid animation, and two of them would be
@@ -159,6 +159,7 @@ import { CanvasGrid, MARGIN } from './app/CanvasGrid.tsx'
 import type { Live } from './app/live.ts'
 import { useFrameStates, useFramings, useFrameWatchers } from './app/useFrames.ts'
 import { useCanvases } from './app/useCanvases.ts'
+import { usePageState } from './app/usePageState.ts'
 import { useAgentArrival, useProjectSwitch } from './app/useProjectSwitch.ts'
 
 /**
@@ -301,48 +302,35 @@ export function App() {
   const [shownTo, setShownTo] = useState<HeldShow | null>(null)
   const [trouble, setTrouble] = useState<string | null>(null)
   const [looking, setLooking] = useState(true)
-  const [canvases, setCanvases] = useState<Canvas[]>([])
-  const canvasesRef = useRef(canvases)
-  canvasesRef.current = canvases
+  /* What the page is showing: the kehikot, the open one (`setOpenId`, which looks at the one being
+     left first), the projects, the open one, and what each is about. See `app/usePageState.ts`. */
+  const {
+    canvases,
+    setCanvases,
+    canvasesRef,
+    openId,
+    setOpenId,
+    setOpenIdNow,
+    leavingRef,
+    projects,
+    setProjects,
+    projectId,
+    setProjectId,
+    subjects,
+    setSubjects,
+  } = usePageState()
   /* Who folded which containers when it was not the person, and what an agent's `arrange_modules`
      changed: `agentMarks`, from `useAgentMarks` (`app/useAgentMarks.ts`), called where `open` is made. */
   /* An agent's jump of the view, the step last walked to and a jump into another project:
      `useProjectSwitch` (`app/useProjectSwitch.ts`), called where the place is worked out. */
-  const [openId, setOpenIdNow] = useState<number | null>(null)
   /* What modules kept for their containers while this page was open (`host/kept.ts`). */
   const [keptHere, setKeptHere] = useState<ReadonlyMap<string, string>>(() => new Map())
-  const openIdRef = useRef(openId)
-  openIdRef.current = openId
-  /*
-   * Which kehikko is open, changed — always through here, because the kehikko
-   * being left has to be looked at BEFORE it is gone: `leaving` keeps a still
-   * copy of it on screen and holds its pages where they are while the next one
-   * is drawn out of sight. See `canvas/useCalmSwitch.ts`. Through a ref because
-   * the switch is set up far below, beside the pages it holds.
-   */
-  const leavingRef = useRef<() => void>(() => undefined)
   /* And what waits for the kehikko arrived at to be shown — the Inbox's light on a container. */
   const whenShownRef = useRef<(then: () => void) => void>((then) => then())
-  const setOpenId = useCallback((next: number | null | ((was: number | null) => number | null)) => {
-    const value = typeof next === 'function' ? next(openIdRef.current) : next
-    if (value !== openIdRef.current) leavingRef.current()
-    openIdRef.current = value
-    setOpenIdNow(value)
-  }, [])
   /** The kehikko the server had been told about when it was last asked what is running. */
   const [askedFor, setAskedFor] = useState<number | null>(null)
   /** How many times the host has restarted each module under a mounted frame. See `Framing.generation`. */
   const [generations, setGenerations] = useState<Record<string, number>>({})
-  /**
-   * The projects, and which one is open.
-   *
-   * Every canvas from every project is held in `canvases`; this is what the
-   * header shows a slice of. Keeping the whole set is what makes switching
-   * project free — see `fetchCanvases`, and `Frames.tsx` on why a module's page
-   * must outlive the container that asked for it.
-   */
-  const [projects, setProjects] = useState<Project[]>([])
-  const [projectId, setProjectId] = useState<number | null>(null)
   /* The page log's line for every project or kehikko switch, by id (`host/pageLog.ts`). */
   useEffect(() => {
     if (projectId === null && openId === null) return
@@ -363,12 +351,6 @@ export function App() {
       /* The list the page has is the list it had; the next load reads it. */
     }
   }
-  /**
-   * What each project is about — its epic and the refs picked out of it — by
-   * project id. Beside the projects and NOT inside the kehikot: the kehikko is
-   * a layout and switching it must not move the epic. See `host/subject.ts`.
-   */
-  const [subjects, setSubjects] = useState<Subjects>({})
   /**
    * What the open project holds, or null while it is being read.
    *
