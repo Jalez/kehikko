@@ -268,3 +268,40 @@ describe('freshness', () => {
     expect(detailVersion(row({ updatedAt: 'a', pipeline: 'running' }))).not.toBe(detailVersion(row({ updatedAt: 'a', pipeline: 'success' })))
   })
 })
+
+describe('who wrote a comment: an automated account or a person (protocol 2.109.0)', () => {
+  test('GitHub says it by the author’s type; a type it does not give is not said', () => {
+    const node = {
+      __typename: 'Issue',
+      comments: {
+        totalCount: 3,
+        nodes: [
+          { databaseId: 1, author: { __typename: 'Bot', login: 'scanner' }, body: 'Quality Gate passed', createdAt: '2026-11-20T08:00:00Z', url: 'https://github.com/o/r/issues/1#c1' },
+          { databaseId: 2, author: { __typename: 'User', login: 'mia', name: 'Mia' }, body: 'Thanks', createdAt: '2026-11-20T08:01:00Z' },
+          { databaseId: 3, author: { login: 'ghost' }, body: 'old', createdAt: '2026-11-20T08:02:00Z' },
+        ],
+      },
+    }
+    const comments = githubItemFacts(node, 'github.com').comments!
+    expect(comments.map((one) => [one.login, one.bot])).toEqual([['scanner', true], ['mia', false], ['ghost', undefined]])
+    expect(githubItemQuery(gh, 1)).toContain('author { __typename login')
+  })
+
+  test('GitLab says it by the author’s bot flag or its own token-bot accounts; an ordinary account is not guessed at', () => {
+    const at = '2026-11-20T08:00:00Z'
+    const notes = [
+      { id: 1, author: { username: 'project_42_bot_0a1b2c3d4e5f', name: 'Code scanner' }, body: 'Quality Gate passed', created_at: at },
+      { id: 2, author: { username: 'group_7_bot', name: 'Release' }, body: 'Released', created_at: at },
+      { id: 3, author: { username: 'ci', name: 'CI', bot: true }, body: 'Pipeline passed', created_at: at },
+      { id: 4, author: { username: 'sonar', name: 'Sonar' }, body: 'Quality Gate passed', created_at: at },
+      { id: 5, author: { username: 'project_42_botany', name: 'A person' }, body: 'hi', created_at: at },
+    ]
+    expect(gitlabComments(notes, 'https://gitlab.example/g/p/-/merge_requests/5').map((one) => [one.id, one.bot])).toEqual([
+      ['1', true],
+      ['2', true],
+      ['3', true],
+      ['4', undefined],
+      ['5', undefined],
+    ])
+  })
+})

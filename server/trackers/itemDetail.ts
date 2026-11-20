@@ -65,6 +65,8 @@ interface CommentFields {
   url?: unknown
   path?: unknown
   verdict?: TrackerComment['verdict']
+  /** What the tracker said of its author: an automated account (true), a person (false), or nothing. */
+  bot?: boolean
 }
 
 /** One comment in the protocol's shape, or null when it has no id or no time. */
@@ -91,7 +93,26 @@ export function comment(f: CommentFields): TrackerComment | null {
     ...(url ? { url } : {}),
     ...(f.kind === 'line' && path ? { path } : {}),
     ...(f.verdict ? { verdict: f.verdict } : {}),
+    ...(f.bot !== undefined ? { bot: f.bot } : {}),
   }
+}
+
+/** GitHub's author type (protocol 2.109.0): a `Bot` is an automated account, a `User` a person; anything else is not said. */
+export function githubBot(author: unknown): boolean | undefined {
+  const type = str(obj(author).__typename)
+  return type === 'Bot' ? true : type === 'User' ? false : undefined
+}
+
+/**
+ * GitLab's word on a note's author (protocol 2.109.0): its `bot` flag where the API gives one, or one
+ * of GitLab's own bot accounts — the project and group access-token users it names
+ * `project_<id>_bot…` and `group_<id>_bot…`, which no person can register. Anything else is not said:
+ * an ordinary account a service posts through is not guessed at.
+ */
+export function gitlabBot(author: unknown): boolean | undefined {
+  const a = obj(author)
+  if (typeof a.bot === 'boolean') return a.bot
+  return /^(?:project|group)_\d+_bot(?:_[0-9a-f]+)?$/.test(str(a.username)) ? true : undefined
 }
 
 const present = <T>(v: T | null | undefined): v is T => v !== null && v !== undefined
@@ -105,7 +126,7 @@ function bounded(checks: TrackerCheck[], total: number): Pick<TrackerDetailFacts
  * GitHub
  * ------------------------------------------------------------------------ */
 
-const GH_AUTHOR = 'author { login ... on User { name } }'
+const GH_AUTHOR = 'author { __typename login ... on User { name } }'
 const GH_COMMENT = `databaseId ${GH_AUTHOR} body createdAt lastEditedAt url`
 
 /**
@@ -153,7 +174,7 @@ export function githubItemFacts(node: unknown, host: string): Partial<TrackerDet
   const conversation = obj(r.comments)
   const comments: TrackerComment[] = nodes(conversation)
     .map(obj)
-    .map((c) => comment({ id: c.databaseId, kind: 'comment', author: c.author, at: c.createdAt, editedAt: c.lastEditedAt, body: c.body, url: c.url }))
+    .map((c) => comment({ id: c.databaseId, kind: 'comment', author: c.author, at: c.createdAt, editedAt: c.lastEditedAt, body: c.body, url: c.url, bot: githubBot(c.author) }))
     .filter(present)
   let extra = 0
   for (const review of nodes(r.reviews).map(obj)) {
@@ -167,6 +188,7 @@ export function githubItemFacts(node: unknown, host: string): Partial<TrackerDet
       body: review.body,
       url: review.url,
       verdict: GH_VERDICT[str(review.state).toUpperCase()],
+      bot: githubBot(review.author),
     })
     if (made) {
       comments.push(made)
@@ -175,7 +197,7 @@ export function githubItemFacts(node: unknown, host: string): Partial<TrackerDet
   }
   for (const thread of nodes(r.reviewThreads).map(obj)) {
     for (const c of nodes(thread.comments).map(obj)) {
-      const made = comment({ id: typeof c.databaseId === 'number' ? `l${c.databaseId}` : null, kind: 'line', author: c.author, at: c.createdAt, editedAt: c.lastEditedAt, body: c.body, url: c.url, path: c.path ?? thread.path })
+      const made = comment({ id: typeof c.databaseId === 'number' ? `l${c.databaseId}` : null, kind: 'line', author: c.author, at: c.createdAt, editedAt: c.lastEditedAt, body: c.body, url: c.url, path: c.path ?? thread.path, bot: githubBot(c.author) })
       if (made) {
         comments.push(made)
         extra += 1
@@ -240,6 +262,7 @@ export function gitlabComments(notes: unknown, itemUrl: string): TrackerComment[
       body: n.body,
       url: /^https:\/\//.test(itemUrl) ? `${itemUrl}#note_${id}` : undefined,
       path: line ? str(position.new_path) || str(position.old_path) : undefined,
+      bot: gitlabBot(n.author),
     })
     if (made) out.push(made)
   }
