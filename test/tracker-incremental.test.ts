@@ -5,8 +5,9 @@ import { join } from 'node:path'
 
 import type { Ran } from '../server/feedback.ts'
 import { etags } from '../server/trackers/common.ts'
-import { Trackers, WHOLE_EVERY_MS } from '../server/trackers/reading.ts'
-import { remotesNamed } from '../server/trackers/sources.ts'
+import type { TrackerRow } from 'kehikot-module-protocol'
+import { Trackers, WHOLE_EVERY_MS, rowIdentity, unsettledLines } from '../server/trackers/reading.ts'
+import { remotesNamed, sourceKey } from '../server/trackers/sources.ts'
 import { fixtureTracker, type Fixture } from './trackerFixture.ts'
 
 /**
@@ -180,6 +181,54 @@ describe('GitLab: a scheduled read costs what changed', () => {
   })
 })
 
+describe('a merge request made while a read is running (#407)', () => {
+  /* Made on the tracker after a read has asked for its merge requests and before it ends. */
+  function madeDuringTheRead(setup: ReturnType<typeof setUp>, at: () => string) {
+    const { f } = setup
+    let made: ReturnType<Fixture['add']> | null = null
+    const run = f.run.bind(f)
+    f.run = async (argv, o) => {
+      const answer = await run(argv, o)
+      const line = argv.join(' ')
+      if (!made && line.includes('merge_requests') && line.includes('updated_after=') && !line.includes(' -i ')) {
+        const when = at()
+        made = f.add({ kind: 'change', state: 'open', createdAt: when, updatedAt: when, closedAt: null, checks: 'SUCCESS', comments: 0 })
+      }
+      return answer
+    }
+    return () => made
+  }
+
+  test('the next scheduled read lists it, though nothing changes it again', async () => {
+    const setup = setUp('gitlab')
+    const { f, read, later, row } = setup
+    await read()
+    const issue = [...f.items.values()].find((it) => it.kind === 'issue' && it.state === 'open')!
+    f.touch(issue.number, later(15 * MIN), { comments: 6 })
+    /* Made a few seconds into the read, after its listing of merge requests answered. */
+    const made = madeDuringTheRead(setup, () => new Date(Date.parse(later(0)) + MIN + 5_000).toISOString())
+    await read()
+    const mr = made()!
+    expect(mr).not.toBeNull()
+    later(5 * MIN)
+    await read()
+    expect(row(`!${mr.number}`)?.state).toBe('open')
+  })
+
+  test('Refresh all lists it', async () => {
+    const setup = setUp('gitlab')
+    const { f, read, later, row } = setup
+    await read()
+    const issue = [...f.items.values()].find((it) => it.kind === 'issue' && it.state === 'open')!
+    f.touch(issue.number, later(15 * MIN), { comments: 6 })
+    const made = madeDuringTheRead(setup, () => new Date(Date.parse(later(0)) + MIN + 5_000).toISOString())
+    await read()
+    later(5 * MIN)
+    await read('press')
+    expect(row(`!${made()!.number}`)?.state).toBe('open')
+  })
+})
+
 describe('conditional requests', () => {
   test('a 304 says "the same" only against an ETag this store kept; a 200 is kept only when told', async () => {
     const store = etags()
@@ -268,5 +317,24 @@ describe('an idle canvas', () => {
     f.reset()
     await idle(trackers, 25, base, setClock)
     expect(said(f)).toEqual([])
+  })
+})
+
+describe('a ref that stays unread is said in the log (#407)', () => {
+  test('one with no row, not gone and its source not failed is said with how the read went; the rest are not', () => {
+    const source = { tracker: 'gitlab', host: 'gitlab.example.org', repo: 'acme/widgets', default: true, listed: true } as const
+    const row = (n: number) => ({ ref: `!${n}`, tracker: 'gitlab', host: source.host, repo: source.repo, kind: 'change', number: n }) as unknown as TrackerRow
+    const lines = unsettledLines({
+      refs: ['!1', '!2', '!3'],
+      sources: [source],
+      rows: [row(1)],
+      notFound: [rowIdentity(row(2))],
+      failed: () => false,
+      listed: () => true,
+      how: () => ({ since: true }),
+      askedByName: () => false,
+      by: 'schedule',
+    })
+    expect(lines).toEqual([`tracker: !3 is still unread after a schedule read of ${sourceKey(source)} (listed what changed; not asked by name)`])
   })
 })
