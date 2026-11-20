@@ -9,6 +9,7 @@ import { arrangeNoteIn, type ArrangeNote } from './arrange.ts'
 import { arranged, dragged, granted, tops } from './columns.ts'
 import { CANVAS_ROWS, COLUMNS } from './fit.ts'
 import { announceUpdatesChanged } from './updates.ts'
+import { announceRestartChanged } from './restartQueue.ts'
 import { announceStepsChanged } from './jobSteps.ts'
 import { announceMessagesChanged } from './messagesClient.ts'
 import { registryIn, type RegistryView } from './registry.ts'
@@ -741,6 +742,8 @@ export function watchCanvases(
       /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
          menu and What's new read again, each on its own (`onUpdatesChanged`). */
       if ((parsed as { updates?: unknown })?.updates === true) announceUpdatesChanged()
+      /* An app restart held behind queued work moved (protocol 2.110.0): the Updates menu reads it again. */
+      if ((parsed as { restart?: unknown })?.restart === true) announceRestartChanged()
       /* An install or update began, changed step or ended (`server/jobSteps.ts`): the steps are read again. */
       if ((parsed as { steps?: unknown })?.steps === true) announceStepsChanged()
       const project = (parsed as { epics?: unknown })?.epics

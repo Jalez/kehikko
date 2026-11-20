@@ -5,7 +5,7 @@ import { hostLog } from './hostLogStart.ts'
 import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_DELIVERY, AGENT_SETUP, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import { editIn, type PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
@@ -52,10 +52,11 @@ import { browse, rootsFor } from './folders.ts'
 import { createEpic, deleteEpic, editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, retitleEpic, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
-import { AcceptedTasks, reportSaid } from './agentSession.ts'
+import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
+import { RestartEnv, RestartHold, takeRestartReason, writeRestartReason, type RestartWhy } from './restartHold.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, hostEnv, leaving, Nursery, originEnv, setHostOrigin, setPageOrigins, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, hostEnv, leaving, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { portToHand } from './modulePorts.ts'
@@ -318,6 +319,10 @@ const FOLLOW_EVERY_MS = 5_000
  * not a page that loads, looks fine, and cannot save anything.
  */
 const db = open()
+/* Why the modules this host starts were started again (protocol 2.110.0): the app's restart the last
+   host saved, for the first minutes, or this host's own update or restart of one module. */
+const restartEnv = new RestartEnv(takeRestartReason(db), Date.now())
+setRestartEnv((id) => restartEnv.envFor(id))
 startup.mark('database open')
 /* Before anything reads or writes a project: the guard in `projectRoot.ts`
    learns which folder each project is, so a ghost an older host left at a
@@ -3425,7 +3430,10 @@ async function restart(
     const halted = await haltForRestart(id, registration, runnable, anyway, heldOnly)
     if (!halted.ok) return { ...halted, refused: true }
     /* Said only of a module that was running: one that was not is starting. */
-    if (halted.was === 'running') working.set(id, 'restarting')
+    if (halted.was === 'running') {
+      working.set(id, 'restarting')
+      restartEnv.note(id, 'module-restart')
+    }
     wakes.registryChanged()
     /* A release a check found while it ran goes in now, while it is down
        (and is built as it goes in); else a build put off while it ran. */
@@ -3943,6 +3951,49 @@ const servicesHere = (service: string, root: string | null, kehikko: string | nu
  * tracker reading for its MCP door, with no page open. Held to the same grant
  * and answered by the page's own `answer`. See `serverAsk.ts`.
  */
+/*
+ * An app restart held behind queued work (protocol 2.110.0, `restartHold.ts`): "Restart to update"
+ * asks the work queue that holds restarts, and the queue's server says when it may go.
+ */
+const restartHold = new RestartHold({
+  providers: () => servicesHere(WORK_QUEUE, null, null).map((one) => ({ module: one.module, name: one.name, descriptor: one.descriptor })),
+  call: (module, path, body, ms) => callModule({ originOf: async (id) => (await readRegistrations()).registrations.find((r) => r.id === id)?.url ?? null }, module, path, body, ms),
+})
+
+/** Restart the app now for `why`: saved for the next host; a plain restart is this host's to do, an update the page's (it applies it). */
+function restartFor(why: RestartWhy, released = false): { ok: true; page: boolean } | { ok: false; why: string } {
+  writeRestartReason(db, why)
+  if (why.reason === 'app-update') {
+    /* Let go by the queue, nobody is waiting on an answer: the page is told, and applies it. Asked
+       now, the page applies it on the answer itself. */
+    if (released) {
+      restartGo = { ...why, at: Date.now() }
+      wakes.restartChanged()
+    }
+    return { ok: true, page: true }
+  }
+  if (!RESTART_FILE) return { ok: false, why: 'This host was not started by the Kehikot app, so nothing here can restart it. Quit and reopen it yourself.' }
+  try {
+    writeFileSync(RESTART_FILE, new Date().toISOString())
+  } catch (error) {
+    return { ok: false, why: `The restart could not be asked for: ${(error as Error).message}` }
+  }
+  return { ok: true, page: false }
+}
+
+/** An app update the queue let go, for the page to apply (it alone can): set until the page reads it. */
+let restartGo: (RestartWhy & { at: number }) | null = null
+
+function restartReleased(module: string, params: Parameters<RestartHold['release']>[1]) {
+  const said = restartHold.release(module, params)
+  if (said.outcome === 'cancelled') wakes.restartChanged()
+  if (said.outcome === 'restarting' && said.restart) {
+    const went = restartFor(said.restart, true)
+    if (!went.ok) return { outcome: 'unknown' as const, why: went.why }
+  }
+  return { outcome: said.outcome, why: said.why }
+}
+
 const serverAsk = serverAskDesk({
   known: (id) => callers.has(id),
   originOf: async (module) => (await readRegistrations()).registrations.find((r) => r.id === module)?.url ?? null,
@@ -3978,6 +4029,8 @@ const serverAsk = serverAskDesk({
   placeOf: (root, session) => placeRoutes.placeOfSession(root, session),
   /* What became of a task a module accepted (protocol 2.99.0). */
   tasks: taskReported,
+  /* A restart this host asked a work queue to hold may go, or was cancelled (protocol 2.110.0). */
+  restart: (module, params) => restartReleased(module, params),
   /* A module that asked before this host read what it declares: its manifest, read now. */
   reread: rereadDeclared,
 })
@@ -4183,6 +4236,7 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
          to know which step this is. */
       phase('restarting')
       job.say('starting')
+      restartEnv.note(id, 'module-update')
       /* The row says it is installing while that is what the wait is for. */
       const came = await bringUpSettled(
         id,
@@ -5555,11 +5609,49 @@ async function answerRequest(request: Request): Promise<Response> {
      * a fresh host. Without the variable — a host run from a terminal, or one the
      * shell adopted — nothing would bring this back, so it is a refusal.
      */
+    /*
+     * An app restart that waits for queued work (protocol 2.110.0, `restartHold.ts`). The page's
+     * "Restart to update" asks here first: held by the work queue, it waits (the page says so, with
+     * Restart now); not held, it goes now — saved for the next host, applied by the page for an update.
+     */
+    if (url.pathname === '/host/restart/queue' && request.method === 'POST') {
+      const body = (await request.json().catch(() => null)) as { reason?: unknown; version?: unknown } | null
+      const reason = body?.reason === 'app-restart' ? 'app-restart' : body?.reason === 'app-update' ? 'app-update' : null
+      if (!reason) return json({ error: 'say the reason: app-update or app-restart' }, 400)
+      const version = typeof body?.version === 'string' ? body.version : null
+      const label = reason === 'app-update' ? `Restart Kehikot to update${version ? ` to ${version}` : ''}` : 'Restart Kehikot'
+      const asked = await restartHold.ask({ reason, version, label })
+      if (asked.held) {
+        wakes.restartChanged()
+        return json({ held: true, restart: asked.restart })
+      }
+      const went = restartFor({ reason, version: version && /^\d+\.\d+\.\d+/.test(version) ? version : null })
+      return went.ok ? json({ held: false, page: went.page, why: asked.why }) : json({ error: went.why }, 409)
+    }
+    /* Restart now, past a hold: what was held is let go (the queue's row says the host went another way). */
+    if (url.pathname === '/host/restart/now' && request.method === 'POST') {
+      const was = restartHold.drop()
+      const body = (await request.json().catch(() => null)) as { reason?: unknown; version?: unknown } | null
+      const reason = was?.reason ?? (body?.reason === 'app-restart' ? 'app-restart' : 'app-update')
+      const version = was?.version ?? (typeof body?.version === 'string' && /^\d+\.\d+\.\d+/.test(body.version) ? body.version : null)
+      const went = restartFor({ reason, version })
+      wakes.restartChanged()
+      return went.ok ? json({ ok: true, page: went.page }) : json({ error: went.why }, 409)
+    }
+    /* What is held, and whether an update the queue let go is the page's to apply now (read once). */
+    if (url.pathname === '/host/restart/state' && request.method === 'GET') {
+      const go = restartGo
+      restartGo = null
+      return json({ held: restartHold.state(), go: go ? { version: go.version } : null })
+    }
+
     if (url.pathname === '/host/restart' && request.method === 'POST') {
       if (!RESTART_FILE) {
         return json({ error: 'This host was not started by the Kehikot app, so nothing here can restart it. Quit and reopen it yourself.' }, 409)
       }
       try {
+        /* Saved for the next host, so the modules it starts say why (protocol 2.110.0). */
+        writeRestartReason(db, { reason: 'app-restart', version: null })
         writeFileSync(RESTART_FILE, new Date().toISOString())
       } catch (error) {
         return json({ error: `The restart could not be asked for: ${(error as Error).message}` }, 500)

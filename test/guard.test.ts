@@ -263,6 +263,8 @@ describe('the routes that are the page’s alone', () => {
       '/host/projects/locate',
       '/host/restart-anyway',
       '/host/restart-module',
+      '/host/restart/now',
+      '/host/restart/queue',
       '/host/settings',
       '/host/skills',
       '/host/sounds',

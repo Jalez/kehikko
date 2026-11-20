@@ -8,9 +8,9 @@ import {
   serverAskSchema,
   serverPassResult,
   sessionsPlaceOfParams,
-  tasksReportParams,
+  restartReleaseParams, tasksReportParams,
   type ServerAskRefusal,
-  type TasksReportParams,
+  type RestartReleaseParams, type RestartReleaseResult, type TasksReportParams,
   type TasksReportResult,
   type ServerAskResult,
 } from 'kehikot-module-protocol'
@@ -73,6 +73,11 @@ export interface ServerAskDeps {
    * `agent.tasks` start. Absent: answered `unknown`.
    */
   tasks?(module: string, report: TasksReportParams): TasksReportResult
+  /**
+   * `restart.release` (protocol 2.110.0): a restart this host asked a work queue to hold may go, or was
+   * cancelled there. Absent: answered `unknown`.
+   */
+  restart?(module: string, params: RestartReleaseParams): RestartReleaseResult
   /**
    * Read this module's manifest again now, when a question would be refused for a capability the last
    * sweep's reading does not hold: a module that has just started (or was just updated) asks at once,
@@ -198,6 +203,12 @@ export function serverAskDesk(deps: ServerAskDeps) {
       const report = tasksReportParams.safeParse(params)
       if (!report.success) return reply({ ok: false, reason: 'failed', error: 'tasks.report takes { session, outcome: started | failed, conversation?, why? }.' })
       return reply({ ok: true, data: deps.tasks?.(module, report.data) ?? { outcome: 'unknown', why: 'This host started no such task with this module.' } })
+    }
+    /* Protocol 2.110.0: a restart this host asked a work queue to hold. Names no project. */
+    if (method === 'restart.release') {
+      const release = restartReleaseParams.safeParse(params)
+      if (!release.success) return reply({ ok: false, reason: 'failed', error: 'restart.release takes { token, go }.' })
+      return reply({ ok: true, data: deps.restart?.(module, release.data) ?? { outcome: 'unknown', why: 'This host holds no restart.' } })
     }
     /* A question about this computer names no project (protocol 2.20.0); the schema holds the rest to one. */
     /* `services.find` (protocol 2.81.0) names a project only to ask about a kehikko in it. */
