@@ -189,67 +189,21 @@ function resolveTarget(
   verb: string,
   refuse: (text: string) => { ok: false; text: string; failed: true },
 ): Target | { ok: false; text: string; failed: true } {
-  const text = (value: unknown, name: string): string | undefined | null => {
-    if (value === undefined || value === null) return undefined
-    if (typeof value !== 'string' || !value.trim() || value.length > 512) return null
-    void name
-    return value.trim()
-  }
-  const askedProject = text(args.project, 'project')
-  const askedKehikko = text(args.kehikko, 'kehikko')
-  const askedEpic = text(args.epic, 'epic')
-  if (askedProject === null) return refuse('project, when given, is a project’s name, folder or id, as my_place prints it.')
-  if (askedKehikko === null) return refuse('kehikko, when given, is a kehikko’s name or key, as read_canvas prints it.')
-  if (askedEpic === null) return refuse('epic (older name of a top-level space), when given, is a top-level space’s id, e.g. "share-links". space takes a space at any depth.')
-  const askedSpace = doorSpace(args)
-  if (args.space !== undefined && args.space !== null && !askedSpace) return refuse('space, when given, is a path of space ids (["auth", "login"] or "auth/login") or one id, as read_canvas prints them.')
-  let askedParts: string[] | undefined
-  if (args.parts !== undefined && args.parts !== null) {
-    if (!Array.isArray(args.parts) || args.parts.length > 64 || !args.parts.every((one) => typeof one === 'string' && one.trim() && one.length <= 200)) {
-      return refuse('parts (older name of direct sub-spaces), when given, is a list of ids or names of the top-level space’s direct sub-spaces, e.g. ["auth"]; [] picks none. space takes a space at any depth.')
-    }
-    askedParts = [...new Set((args.parts as string[]).map((one) => one.trim()))]
-  }
-  const step = args.step
-  if (step !== undefined && step !== null && (typeof step !== 'number' || !Number.isInteger(step) || step < 1 || step > 999)) {
-    return refuse('step, when given, is the step’s 1-based number in the top-level space’s steps, a whole number from 1, e.g. step: 7.')
-  }
-  if (askedProject === undefined && askedKehikko === undefined && askedEpic === undefined && askedParts === undefined && step == null && !askedSpace) {
-    return refuse(`${verb} needs somewhere to go: a project, kehikko, space or step — any of them, and what is left out stays.`)
-  }
+  const asked = targetArgsOf(args, verb)
+  if ('why' in asked) return refuse(asked.why)
+  const { askedProject, askedKehikko, askedEpic, askedSpace, askedParts, step } = asked
 
   const projects = listProjects(door.db)
   const here = base(projects)
   if ('why' in here) return refuse(here.why)
-  /* Each name, strictly: an id, the folder, or the exact name — never a prefix or a guess. */
-  let project = here
-  if (askedProject !== undefined) {
-    const found =
-      projects.find((one) => one.uid === askedProject)
-      ?? projects.find((one) => trimmedPath(one.path) === trimmedPath(askedProject))
-      ?? (projects.filter((one) => same(one.name, askedProject)).length === 1 ? projects.find((one) => same(one.name, askedProject)) : undefined)
-    if (!found) {
-      const two = projects.filter((one) => same(one.name, askedProject)).length > 1
-      return refuse(
-        `${two ? `More than one project is called ${askedProject}; name it by its folder.` : `This host has no project ${askedProject}.`} Its projects: ${listWords(
-          projects.map((one) => `${one.name} (${one.path})`),
-        )}.`,
-      )
-    }
-    if (found.missing) return refuse(missingSaid(found))
-    project = found
-  }
+  const project = askedProject === undefined ? here : projectNamed(projects, askedProject)
+  if ('why' in project) return refuse(project.why)
   const away = project.id !== here.id
-  const kehikot = listCanvases(door.db).filter((c) => c.project === project.id && c.key)
   let kehikko: Canvas | undefined
   if (askedKehikko !== undefined) {
-    kehikko =
-      kehikot.find((c) => c.key === askedKehikko)
-      ?? kehikot.find((c) => String(c.id) === askedKehikko)
-      ?? (kehikot.filter((c) => same(c.name, askedKehikko)).length === 1 ? kehikot.find((c) => same(c.name, askedKehikko)) : undefined)
-    if (!kehikko) {
-      return refuse(`${project.name} has no kehikko ${askedKehikko}. Its kehikot: ${listWords(kehikot.map((c) => `${c.name} (key ${c.key})`))}.`)
-    }
+    const found = kehikkoNamed(listCanvases(door.db).filter((c) => c.project === project.id && c.key), project, askedKehikko)
+    if ('why' in found) return refuse(found.why)
+    kehikko = found
   }
 
   const subject = readSubject(door.db, project.id)
@@ -268,11 +222,9 @@ function resolveTarget(
     if (ids.length > 2) deep = ids
   }
   if (askedEpic !== undefined && !askedSpace) {
-    const found = epics.find((one) => one.slug === askedEpic) ?? (epics.filter((one) => one.title && same(one.title, askedEpic)).length === 1 ? epics.find((one) => one.title && same(one.title, askedEpic)) : undefined)
-    if (!found) {
-      return refuse(`${project.name} has no top-level space ${askedEpic}. Its top-level spaces: ${listWords(epics.map((one) => (one.title ? `${one.slug} (${one.title})` : one.slug)))}.`)
-    }
-    epic = found.slug
+    const found = epicNamed(epics, project, askedEpic)
+    if (typeof found !== 'string') return refuse(found.why)
+    epic = found
   }
   if ((askedParts !== undefined || step != null) && epic === null) {
     return refuse(
@@ -282,17 +234,9 @@ function resolveTarget(
 
   let parts: string[] | undefined
   if (askedParts !== undefined && epic !== null) {
-    const held = (dir ? readParts(dir, epic) : null) ?? []
-    parts = []
-    const unknown: string[] = []
-    for (const one of askedParts) {
-      const found = held.find((part) => part.id === one) ?? held.find((part) => part.heading && same(part.heading, one))
-      if (found) parts.push(found.id)
-      else unknown.push(one)
-    }
-    if (unknown.length) {
-      return refuse(`${epic} has no sub-space ${unknown.join(', ')}. Its direct sub-spaces: ${listWords(held.map((part) => (part.heading ? `${part.heading} (${part.id})` : part.id)))}.`)
-    }
+    const found = partsNamed((dir ? readParts(dir, epic) : null) ?? [], epic, askedParts)
+    if ('why' in found) return refuse(found.why)
+    parts = found
   }
 
   let title: string | undefined
@@ -300,18 +244,9 @@ function resolveTarget(
   if (step != null && epic !== null) {
     const said = dir ? readStepsAnswer(dir, epic) : null
     const steps = said && Array.isArray(said.steps) ? (said.steps as { title?: unknown }[]) : null
-    if (steps) {
-      if (!steps.length) return refuse(`Nobody has written steps for ${epic} yet, so there is no step ${step}.`)
-      if ((step as number) > steps.length) {
-        const listed = steps.map((one, i) => `${i + 1} ${typeof one.title === 'string' ? one.title : ''}`.trim())
-        return refuse(`${epic} has ${steps.length} step${steps.length === 1 ? '' : 's'}, so there is no step ${step}. Its steps: ${listWords(listed)}.`)
-      }
-      const found = steps[(step as number) - 1]?.title
-      if (typeof found === 'string' && found.trim()) title = found.trim().slice(0, LIMITS.TITLE)
-    } else {
-      /* Kept where this host cannot read them — a paper's sections: walked anyway, and the containers say. */
-      unchecked = true
-    }
+    const found = stepNamed(steps, epic, step)
+    if ('why' in found) return refuse(found.why)
+    ;({ title, unchecked } = found)
   }
 
   return {
@@ -323,11 +258,122 @@ function resolveTarget(
     askedEpic: askedEpic === undefined && !askedSpace ? undefined : (epic ?? undefined),
     epic,
     parts: spaceParts ?? parts,
-    step: step == null ? null : (step as number),
+    step,
     title,
     unchecked,
     ...(deep ? { space: deep } : {}),
   }
+}
+
+/** The target arguments as given, each read and bounded; undefined for one left out. */
+interface TargetArgs {
+  askedProject: string | undefined
+  askedKehikko: string | undefined
+  askedEpic: string | undefined
+  askedSpace: ReturnType<typeof doorSpace>
+  askedParts: string[] | undefined
+  step: number | null
+}
+
+/** One named target, trimmed: undefined when left out, null when it is not a name. */
+function nameOf(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || !value.trim() || value.length > 512) return null
+  return value.trim()
+}
+
+/** The target arguments `jump` and `offer_jump` share, read and bounded before anything is looked up; or why not. */
+export function targetArgsOf(args: Record<string, unknown>, verb: string): TargetArgs | { why: string } {
+  const askedProject = nameOf(args.project)
+  const askedKehikko = nameOf(args.kehikko)
+  const askedEpic = nameOf(args.epic)
+  if (askedProject === null) return { why: 'project, when given, is a project’s name, folder or id, as my_place prints it.' }
+  if (askedKehikko === null) return { why: 'kehikko, when given, is a kehikko’s name or key, as read_canvas prints it.' }
+  if (askedEpic === null) return { why: 'epic (older name of a top-level space), when given, is a top-level space’s id, e.g. "share-links". space takes a space at any depth.' }
+  const askedSpace = doorSpace(args)
+  if (args.space !== undefined && args.space !== null && !askedSpace) return { why: 'space, when given, is a path of space ids (["auth", "login"] or "auth/login") or one id, as read_canvas prints them.' }
+  let askedParts: string[] | undefined
+  if (args.parts !== undefined && args.parts !== null) {
+    if (!Array.isArray(args.parts) || args.parts.length > 64 || !args.parts.every((one) => typeof one === 'string' && one.trim() && one.length <= 200)) {
+      return { why: 'parts (older name of direct sub-spaces), when given, is a list of ids or names of the top-level space’s direct sub-spaces, e.g. ["auth"]; [] picks none. space takes a space at any depth.' }
+    }
+    askedParts = [...new Set((args.parts as string[]).map((one) => one.trim()))]
+  }
+  const step = args.step
+  if (step !== undefined && step !== null && (typeof step !== 'number' || !Number.isInteger(step) || step < 1 || step > 999)) {
+    return { why: 'step, when given, is the step’s 1-based number in the top-level space’s steps, a whole number from 1, e.g. step: 7.' }
+  }
+  if (askedProject === undefined && askedKehikko === undefined && askedEpic === undefined && askedParts === undefined && step == null && !askedSpace) {
+    return { why: `${verb} needs somewhere to go: a project, kehikko, space or step — any of them, and what is left out stays.` }
+  }
+  return { askedProject, askedKehikko, askedEpic, askedSpace, askedParts, step: step == null ? null : (step as number) }
+}
+
+/** The one of `many` an exact name picks, case aside — none when two share it. */
+function onlyNamed<T>(many: readonly T[], named: (one: T) => boolean): T | undefined {
+  const all = many.filter(named)
+  return all.length === 1 ? all[0] : undefined
+}
+
+/** Each name, strictly: a project's id, its folder, or its exact name — never a prefix or a guess. */
+export function projectNamed(projects: readonly Project[], asked: string): Project | { why: string } {
+  const found =
+    projects.find((one) => one.uid === asked)
+    ?? projects.find((one) => trimmedPath(one.path) === trimmedPath(asked))
+    ?? onlyNamed(projects, (one) => same(one.name, asked))
+  if (!found) {
+    const two = projects.filter((one) => same(one.name, asked)).length > 1
+    return {
+      why: `${two ? `More than one project is called ${asked}; name it by its folder.` : `This host has no project ${asked}.`} Its projects: ${listWords(
+        projects.map((one) => `${one.name} (${one.path})`),
+      )}.`,
+    }
+  }
+  if (found.missing) return { why: missingSaid(found) }
+  return found
+}
+
+/** A kehikko of the project by its key, id or exact name. */
+export function kehikkoNamed(kehikot: readonly Canvas[], project: Pick<Project, 'name'>, asked: string): Canvas | { why: string } {
+  const found = kehikot.find((c) => c.key === asked) ?? kehikot.find((c) => String(c.id) === asked) ?? onlyNamed(kehikot, (c) => same(c.name, asked))
+  return found ?? { why: `${project.name} has no kehikko ${asked}. Its kehikot: ${listWords(kehikot.map((c) => `${c.name} (key ${c.key})`))}.` }
+}
+
+/** A top-level space by its slug or exact title, as its slug. */
+export function epicNamed(epics: readonly { slug: string; title?: string | null }[], project: Pick<Project, 'name'>, asked: string): string | { why: string } {
+  const found = epics.find((one) => one.slug === asked) ?? onlyNamed(epics, (one) => !!one.title && same(one.title, asked))
+  if (found) return found.slug
+  return { why: `${project.name} has no top-level space ${asked}. Its top-level spaces: ${listWords(epics.map((one) => (one.title ? `${one.slug} (${one.title})` : one.slug)))}.` }
+}
+
+/** Direct sub-spaces of `epic` by id or heading, as ids; every one has to be there. */
+export function partsNamed(held: readonly { id: string; heading?: string | null }[], epic: string, asked: readonly string[]): string[] | { why: string } {
+  const parts: string[] = []
+  const unknown: string[] = []
+  for (const one of asked) {
+    const found = held.find((part) => part.id === one) ?? held.find((part) => part.heading && same(part.heading, one))
+    if (found) parts.push(found.id)
+    else unknown.push(one)
+  }
+  if (unknown.length) {
+    return { why: `${epic} has no sub-space ${unknown.join(', ')}. Its direct sub-spaces: ${listWords(held.map((part) => (part.heading ? `${part.heading} (${part.id})` : part.id)))}.` }
+  }
+  return parts
+}
+
+/**
+ * A step of `epic` by its 1-based number, with its title. `steps` null is steps kept where this host
+ * cannot read them — a paper's sections: walked anyway, and the containers say (`unchecked`).
+ */
+export function stepNamed(steps: readonly { title?: unknown }[] | null, epic: string, step: number): { title: string | undefined; unchecked: boolean } | { why: string } {
+  if (!steps) return { title: undefined, unchecked: true }
+  if (!steps.length) return { why: `Nobody has written steps for ${epic} yet, so there is no step ${step}.` }
+  if (step > steps.length) {
+    const listed = steps.map((one, i) => `${i + 1} ${typeof one.title === 'string' ? one.title : ''}`.trim())
+    return { why: `${epic} has ${steps.length} step${steps.length === 1 ? '' : 's'}, so there is no step ${step}. Its steps: ${listWords(listed)}.` }
+  }
+  const found = steps[step - 1]?.title
+  return { title: typeof found === 'string' && found.trim() ? found.trim().slice(0, LIMITS.TITLE) : undefined, unchecked: false }
 }
 
 /**
