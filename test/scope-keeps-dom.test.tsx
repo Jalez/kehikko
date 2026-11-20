@@ -2,9 +2,10 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 
 /*
- * A container's scope keeps its page, rendered: the layer of pages, fed the
- * way `App.tsx` feeds it (the kehikot kept, `framesKept` with each
- * container's scope, and the record of what is loaded), keeps the same
+ * A container's scope keeps its page, rendered: the layer of pages, fed by
+ * the page's own `useFramings` (`app/useFrames.ts`: the kehikot kept,
+ * `framesKept` with each container's scope, and the record of what is
+ * loaded, across renders as `App.tsx` runs it), keeps the same
  * document for a page at This computer when its kehikko and its project are
  * left, and for one at Project across its project's kehikot — but lets the
  * one at Project go with its project. A kept page on another kehikko is
@@ -37,8 +38,7 @@ let Layer: typeof import('../src/canvas/Frames.tsx')
 let Talk: typeof import('../src/host/conversation.ts')
 let Press: typeof import('../src/host/presses.ts')
 let Ctx: typeof import('../src/host/context.ts')
-let Kept: typeof import('../src/host/canvases.ts')
-let Scope: typeof import('../src/host/scope.ts')
+let Frames: typeof import('../src/app/useFrames.ts')
 
 beforeAll(async () => {
   if (!inChild) return
@@ -51,8 +51,7 @@ beforeAll(async () => {
   Talk = await import('../src/host/conversation.ts')
   Press = await import('../src/host/presses.ts')
   Ctx = await import('../src/host/context.ts')
-  Kept = await import('../src/host/canvases.ts')
-  Scope = await import('../src/host/scope.ts')
+  Frames = await import('../src/app/useFrames.ts')
 })
 
 afterAll(async () => {
@@ -106,7 +105,13 @@ const PROJECTS = { 10: project(10, 'webapp'), 20: project(20, 'other') } as cons
 /* Kehikko 1 holds the three at This computer (default), Project, Epic. Kehikot 2, 3, 4, 5 of the
    same project and 6 of another hold only a module that is not registered here. */
 const k = (id: number, projectId: number, ...placements: { i: string; scope?: string | null }[]) =>
-  ({ id, key: `k${id}`, name: `K${id}`, project: projectId, placements }) as unknown as Canvas
+  ({
+    id,
+    key: `k${id}`,
+    name: `K${id}`,
+    project: projectId,
+    placements: placements.map((p, x) => ({ x: x * 8, y: 0, w: 8, h: 20, wish: 20, collapsed: false, pinned: false, selected: false, prompt: '', promptFor: null, filters: {}, ...p })),
+  }) as unknown as Canvas
 const canvases: Canvas[] = [
   k(1, 10, { i: 'kehikot.tests', scope: null }, { i: 'kehikot.notes', scope: 'project' }, { i: 'kehikot.flows', scope: null }),
   k(2, 10, { i: 'kehikot.missing' }),
@@ -121,47 +126,67 @@ canvases[0]!.placements[2]!.scope = 'epic'
 describe('the layer of pages, kept by scope', () => {
   if (!inChild) return
 
-  /* What `App.tsx` does each render: the kehikot kept, the pages kept, the record of what is loaded. */
+  /* Each registered module, read and answering: its page is what its container shows. */
+  const byId = new Map(
+    [...registered].map(([id, framed]) => [id, { id, at: framed.entry, condition: 'ready', line: '', module: framed } as unknown as import('../src/host/registry.ts').Presence]),
+  )
+  const live = Object.fromEntries([...registered.keys()].map((id) => [id, { condition: 'ready' as const, line: null, fault: null }]))
+  const RECT = { x: 0, y: 0, width: 400, height: 300 }
+  const none = new Map()
+  const noSet = new Set<string>()
+  const bus = { join: nothing, leave: nothing } as unknown as import('../src/host/events.ts').EventBus
+  const presses = () => new Press.Presses()
+
+  /* The layer of pages for the kehikko open, framed by the page's own `useFramings`, as `App.tsx` frames it. */
+  function Page({ id, pressing }: { id: number; pressing: import('../src/host/presses.ts').Presses }) {
+    const here = canvases.find((one) => one.id === id)!
+    const rects = React.useMemo(() => Object.fromEntries(here.placements.map((p) => [p.i, RECT])), [here])
+    const framings = Frames.useFramings({
+      byId,
+      canvases,
+      open: here,
+      openId: id,
+      placements: here.placements,
+      live,
+      drawing: noSet,
+      loadingCovers: none,
+      staleOf: () => false,
+      askedFor: id,
+      restarts: { of: () => undefined },
+      generations: {},
+      rects,
+      pinViews: none,
+      readyVersions: none,
+      expanded: null,
+      about: {},
+      footed: noSet,
+      drawn: { rows: 'always' },
+      keptHere: none,
+      guidance: none,
+    })
+    const context = Ctx.toWireContext({ epic: `epic-of-${id}`, project: PROJECTS[here.project as 10 | 20] }, 'light')
+    return (
+      <Layer.Frames
+        framings={framings}
+        context={context}
+        canvas={inert()}
+        bus={bus}
+        presses={pressing}
+        watcherFor={() => inert()}
+        onDocument={nothing}
+        moving={null}
+      />
+    )
+  }
+
   async function app() {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
-    const loaded = new Set<string>()
-    let recent: number[] = []
+    const pressing = presses()
     const open = async (id: number) => {
-      const here = canvases.find((one) => one.id === id)!
-      recent = Kept.recentlyOpen(recent, id)
-      const kept = Kept.framesKept(canvases, recent, (p) => Scope.keptScope(registered.get(p.i), p.scope))
-      for (const one of [...loaded]) if (!kept.has(one)) loaded.delete(one)
-      const onOpen = new Set(here.placements.map((p) => p.i))
-      for (const p of here.placements) if (registered.has(p.i)) loaded.add(p.i)
-      const framings: import('../src/canvas/Frames.tsx').Framing[] = [...loaded].sort().map((one) => ({
-        module: registered.get(one)!,
-        generation: 0,
-        rect: onOpen.has(one) ? { x: 0, y: 0, width: 400, height: 300 } : null,
-        shown: onOpen.has(one),
-        away: !onOpen.has(one),
-        state: null,
-        pinned: false,
-        prompt: null,
-        filters: {},
-        scope: 'machine',
-        covers: null,
-      }))
-      const context = Ctx.toWireContext({ epic: `epic-of-${id}`, project: PROJECTS[here.project as 10 | 20] }, 'light')
       await act(async () => {
-        root.render(
-          <Layer.Frames
-            framings={framings}
-            context={context}
-            canvas={inert()}
-            bus={{ join: nothing, leave: nothing } as unknown as import('../src/host/events.ts').EventBus}
-            presses={new Press.Presses()}
-            watcherFor={() => inert()}
-            onDocument={nothing}
-            moving={null}
-          />,
-        )
+        root.render(<Page id={id} pressing={pressing} />)
       })
     }
     unmount = () => root.unmount()
