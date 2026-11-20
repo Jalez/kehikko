@@ -40,6 +40,9 @@ export const OTHER = 'Other'
 /** What is placed on the open kehikko, drawn first whatever it is tagged. */
 export const HERE = 'On this kehikko'
 
+/** What needs the person (`attention`), drawn before everything else, on this kehikko or not. */
+export const NEEDS = 'Needs you'
+
 /** The shelf for a module's tags. The FIRST tag decides; the rest only widen a search. */
 export function shelfOf(tags: readonly string[]): string {
   const first = tags[0]
@@ -164,24 +167,29 @@ export interface Section<R> {
   rows: R[]
 }
 
+/** Whether a row is a registered module that needs the person (`attention`). */
+export const needsYou = (row: { kind?: Row['kind']; presence?: Presence }): boolean =>
+  row.kind === 'registered' && row.presence !== undefined && attention(row.presence) !== null
+
 /**
- * The list in the order it is drawn: what is on this kehikko, then one section
- * per shelf. Each row appears once, and on a shelf what is installed comes
- * before what could be.
+ * The list in the order it is drawn: what needs the person, then what is on
+ * this kehikko, then one section per shelf. Each row appears once, and on a
+ * shelf what is installed comes before what could be.
  */
-export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed' | 'scope'> & { kind?: Row['kind'] }>(
+export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' | 'placed' | 'scope'> & { kind?: Row['kind']; presence?: Presence }>(
   rows: readonly R[],
   query = '',
 ): Section<R>[] {
   const byHeading = new Map<string, R[]>()
   for (const row of rows) {
     if (!matches(row, query)) continue
-    const heading = row.placed ? HERE : shelfOf(row.tags)
+    const heading = needsYou(row) ? NEEDS : row.placed ? HERE : shelfOf(row.tags)
     const held = byHeading.get(heading)
     if (held) held.push(row)
     else byHeading.set(heading, [row])
   }
   const rank = (heading: string): number => {
+    if (heading === NEEDS) return -2
     if (heading === HERE) return -1
     if (heading === OTHER) return ORDER.length + 1
     const known = ORDER.indexOf(heading)
@@ -193,6 +201,18 @@ export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' |
       heading,
       rows: held.sort((a, b) => Number(a.kind === 'available') - Number(b.kind === 'available') || a.name.localeCompare(b.name)),
     }))
+}
+
+/**
+ * The module's version as its row's details give it: what it calls itself,
+ * the commit its server started on, and the protocol package it is built
+ * with. Null when the module is not answering, so nothing is known.
+ */
+export function builtFrom(presence: Presence): { version: string; protocol: string | null } | null {
+  const module = presence.module
+  if (!module) return null
+  const commit = module.build?.commit ? ` (${module.build.commit.slice(0, 7)})` : ''
+  return { version: `${module.version}${commit}`, protocol: module.build?.protocol ?? null }
 }
 
 /**
@@ -211,18 +231,6 @@ export function arrange<R extends Pick<Row, 'id' | 'name' | 'summary' | 'tags' |
  * that is not the module registered there. Each sentence ends with the next
  * step.
  */
-/**
- * The module's version as its row's details give it: what it calls itself,
- * the commit its server started on, and the protocol package it is built
- * with. Null when the module is not answering, so nothing is known.
- */
-export function builtFrom(presence: Presence): { version: string; protocol: string | null } | null {
-  const module = presence.module
-  if (!module) return null
-  const commit = module.build?.commit ? ` (${module.build.commit.slice(0, 7)})` : ''
-  return { version: `${module.version}${commit}`, protocol: module.build?.protocol ?? null }
-}
-
 export function attention(presence: Presence): string | null {
   if (presence.condition === 'ready') return null
   if (presence.condition === 'incompatible') {
@@ -242,6 +250,26 @@ export function attention(presence: Presence): string | null {
   if (presence.remedy) return presence.line
   if (presence.lifecycle || !presence.reached) return null
   return `${presence.line} Check what is running at ${presence.at}, then start the module again.`
+}
+
+/**
+ * What the bar's module-list button says, and whether it carries its "!".
+ *
+ * The count of modules that need the person (`attention`) is on the button
+ * that opens the list where they are, not in a sentence elsewhere on the
+ * strip: a "!" in the warning colour, and the label says how many and which,
+ * by the names the modules registered — "Kehikko modules — 1 needs you:
+ * <name>". Nothing needing the person: the plain label and no mark.
+ */
+export const MODULES_LABEL = 'Kehikko modules'
+const NAMES_SHOWN = 3
+
+export function modulesButton(presences: readonly Presence[]): { needing: number; label: string } {
+  const names = presences.filter((presence) => attention(presence) !== null).map((presence) => presence.name ?? presence.id)
+  if (!names.length) return { needing: 0, label: MODULES_LABEL }
+  const shown = names.slice(0, NAMES_SHOWN).join(', ')
+  const more = names.length > NAMES_SHOWN ? ` and ${names.length - NAMES_SHOWN} more` : ''
+  return { needing: names.length, label: `${MODULES_LABEL} — ${names.length} ${names.length === 1 ? 'needs' : 'need'} you: ${shown}${more}` }
 }
 
 /**
