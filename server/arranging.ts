@@ -1,3 +1,5 @@
+import { at, type RouteTable } from './routes.ts'
+
 /**
  * Whether the person is arranging a kehikko right now: a hand on a container's grip or corner, or
  * the arrangement it left not yet stored.
@@ -46,12 +48,17 @@ export class Arranging {
   }
 }
 
+/** What `arrangingRoute` answers (`routes.ts`): the page's alone. */
+export const ARRANGING_ROUTES = {
+  arranging: { method: 'POST', path: '/host/arranging', pageOnly: true },
+} as const satisfies RouteTable
+
 /**
  * `POST /host/arranging` `{ page, kehikko, arranging }`. Anything that is not this host's own page
  * was refused before it got here (`PAGE_ONLY` in `guard.ts`).
  */
 export async function arrangingRoute(request: Request, url: URL, held: Arranging): Promise<Response | null> {
-  if (url.pathname !== '/host/arranging' || request.method !== 'POST') return null
+  if (!at(ARRANGING_ROUTES.arranging, request, url)) return null
   const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
   const text = await request.text().catch(() => '')
   if (text.length > 1024) return reply({ ok: false, why: 'That is more than a word about arranging comes to.' }, 413)

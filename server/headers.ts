@@ -4,6 +4,7 @@ import type { Pressed, Pressing } from '../src/host/header.ts'
 import { toldIn, type Told } from '../src/host/jump.ts'
 import { ARRIVAL_WAIT_MS } from '../src/host/navigate.ts'
 import type { AddressOrder, JumpOrder, PressOrder } from './wake.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * How long a `jump` waits for the page: a switch of project may take
@@ -301,12 +302,18 @@ export interface HeadersDeps {
  * `POST /host/pressed` `{ page, id, ok, why }`. Anything that is not this
  * host's own page was refused before it got here (`guard.ts`).
  */
+/** What this desk answers (`routes.ts`): what the page says, both the page's alone. */
+export const HEADER_ROUTES = {
+  headers: { method: 'POST', path: '/host/headers', pageOnly: true },
+  pressed: { method: 'POST', path: '/host/pressed', pageOnly: true },
+} as const satisfies RouteTable
+
 export function headersDesk(deps: HeadersDeps, held = new Headers()) {
   const short = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 64
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    const which = url.pathname === '/host/headers' ? 'headers' : url.pathname === '/host/pressed' ? 'pressed' : null
-    if (which === null || request.method !== 'POST') return null
+    const which = at(HEADER_ROUTES.headers, request, url) ? 'headers' : at(HEADER_ROUTES.pressed, request, url) ? 'pressed' : null
+    if (which === null) return null
     const text = await request.text().catch(() => '')
     if (text.length > BODY_MAX) return reply({ ok: false, why: 'That is more than any kehikko’s headers come to.' }, 413)
     let body: Record<string, unknown> | null = null

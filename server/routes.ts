@@ -55,6 +55,9 @@ export function moduleIn(value: unknown): string | null {
 
 const keyOf = (method: string, path: string) => `${method} ${path}`
 
+/** Whether a request is the one route a spec declares: its exact method and path. For a desk that matches by hand. */
+export const at = (spec: RouteSpec, request: Request, url: URL): boolean => request.method === spec.method && url.pathname === spec.path
+
 /** A desk answering the routes of `table`, each with its handler. Two routes on one method and path are a mistake, said at once. */
 export function routes<T extends RouteTable>(table: T, handlers: RouteHandlers<T>): Desk {
   const byKey = new Map<string, RouteHandler>()

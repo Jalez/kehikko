@@ -1,27 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ADOPT_ROUTES } from '../server/adoptRoutes.ts'
-import { AGENT_ROUTES } from '../server/agentRoutes.ts'
-import { CALL_ROUTES } from '../server/callRoutes.ts'
-import { CANVAS_ROUTES, canvasDesk } from '../server/canvasRoutes.ts'
+import { canvasDesk } from '../server/canvasRoutes.ts'
 import { createCanvas, open } from '../server/canvases.ts'
-import { DEVELOPMENT_ROUTES } from '../server/developmentRoutes.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
-import { HOST_ROUTES } from '../server/hostRoutes.ts'
-import { KEHIKKO_ROUTES } from '../server/kehikkoRoutes.ts'
-import { LOG_ROUTES } from '../server/logRoutes.ts'
-import { MCP_ROUTES, mcpDesk } from '../server/mcpRoutes.ts'
-import { MODULE_ROUTES } from '../server/moduleRoutes.ts'
-import { PERSON_ROUTES } from '../server/personRoutes.ts'
-import { PROJECT_ROUTES } from '../server/projectRoutes.ts'
-import { RESTART_ROUTES } from '../server/restartRoutes.ts'
-import { pageOnlyPaths, routes, type RouteTable } from '../server/routes.ts'
-import { SETTINGS_ROUTES, settingsRouteDesk } from '../server/settingsRoutes.ts'
-import { SPACE_ROUTES } from '../server/spaceRoutes.ts'
-import { TRACKER_ROUTES } from '../server/trackerRoutes.ts'
-import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
+import { mcpDesk } from '../server/mcpRoutes.ts'
+import { ROUTE_TABLES } from '../server/routeTables.ts'
+import { pageOnlyPaths, routes } from '../server/routes.ts'
+import { settingsRouteDesk } from '../server/settingsRoutes.ts'
 
 /*
  * A desk's routes are a table (`server/routes.ts`): each declares its method,
@@ -31,7 +19,7 @@ import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
  * write to it.
  */
 
-const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES, AGENT_ROUTES, HOST_ROUTES, MCP_ROUTES }
+const TABLES = ROUTE_TABLES
 const specs = Object.entries(TABLES).flatMap(([table, routes]) => Object.entries(routes).map(([name, spec]) => ({ table, name, ...spec })))
 
 const ok = (what: string) => () => new Response(what)
@@ -164,15 +152,55 @@ describe('PAGE_ONLY and the route tables say the same', () => {
     expect(unsaid).toEqual([])
   })
 
-  test('the page-only writes moved into tables are the ones that were listed', () => {
-    expect(pageOnlyPaths(...Object.values(TABLES)).sort()).toEqual(
-      ['/host/log', '/host/logs/open', '/host/module-addresses/check', '/host/restart/now', '/host/restart/queue', '/host/steps/cancel', '/host/tracker/refresh', '/host/trackers', '/host/updates/cancel', '/host/updates/step-back',
-        '/host/layouts', '/host/connections', '/host/kehikot/copy', '/host/kehikko-skills', '/host/kehikko-settings', '/host/projects/followed', '/host/projects/locate', '/host/base-branch',
-        '/host/onboarding', '/host/pinned-places', '/host/whats-new', '/host/whats-new/mentions', '/host/storage', '/host/module-settings', '/host/module-settings/list', '/host/module-settings/file', '/host/module-settings/set', '/host/uninstall', '/host/development', '/host/unused-folders',
-        '/host/startup'].sort(),
+  test('the page-only paths are exactly the ones they were, all of them from the desks', () => {
+    /* Byte for byte what `PAGE_ONLY` held as a literal list before the tables: 65 paths. */
+    expect([...PAGE_ONLY].sort()).toEqual(
+      [
+        '/host/arranging', '/host/base-branch', '/host/connections', '/host/development', '/host/headers',
+        '/host/inbox/act', '/host/inbox/adopt', '/host/inbox/adoption', '/host/inbox/afters', '/host/inbox/answer',
+        '/host/inbox/migrate', '/host/inbox/notice', '/host/inbox/report', '/host/inbox/retrack', '/host/inbox/task',
+        '/host/inbox/undo', '/host/inbox/untrack', '/host/inbox/untracked', '/host/inbox/use', '/host/kehikko-settings',
+        '/host/kehikko-skills', '/host/kehikot/copy', '/host/layouts', '/host/log', '/host/logs/open',
+        '/host/messages/clear', '/host/messages/mute', '/host/messages/say', '/host/mine/add', '/host/mine/adopt',
+        '/host/mine/check', '/host/mine/install', '/host/mine/remove', '/host/module-addresses/check', '/host/module-settings',
+        '/host/module-settings/file', '/host/module-settings/list', '/host/module-settings/set', '/host/onboarding', '/host/pinned-places',
+        '/host/pressed', '/host/projects/followed', '/host/projects/locate', '/host/restart-anyway', '/host/restart-module',
+        '/host/restart/now', '/host/restart/queue', '/host/settings', '/host/skills', '/host/sounds',
+        '/host/sounds/remove', '/host/sounds/rename', '/host/startup', '/host/steps/cancel', '/host/stop-module',
+        '/host/storage', '/host/tracker/refresh', '/host/trackers', '/host/uninstall', '/host/unused-folders',
+        '/host/updates/cancel', '/host/updates/step-back', '/host/visits', '/host/whats-new', '/host/whats-new/mentions',
+      ].sort(),
     )
+    expect([...PAGE_ONLY].sort()).toEqual([...new Set([...pageOnlyPaths(...Object.values(TABLES)), ...ADOPT_ROUTES])].sort())
     /* Answered to programs too, as before. */
-    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts', '/host/modules', '/host/versions', '/host/start', '/host/call', '/host/tools', '/host/agent', '/host/hello', '/host/health', '/host/quiet', '/host/open', '/host/watch', '/mcp']) expect(PAGE_ONLY).not.toContain(path)
+    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts', '/host/modules', '/host/versions', '/host/start', '/host/call', '/host/tools', '/host/agent', '/host/hello', '/host/health', '/host/quiet', '/host/open', '/host/watch', '/mcp', '/host/inbox', '/host/messages', '/host/mine', '/host/server-ask']) expect(PAGE_ONLY).not.toContain(path)
+  })
+
+  test('guard.ts spells no path: the list is gone', () => {
+    const guard = readFileSync(join(import.meta.dir, '..', 'server', 'guard.ts'), 'utf8')
+    const at = guard.indexOf('export const PAGE_ONLY')
+    const list = guard.slice(at, guard.indexOf('\n]\n', at))
+    expect(list.length).toBeGreaterThan(0)
+    expect(list).not.toMatch(/'\/host\//)
+  })
+
+  test('every route table in server/ is one PAGE_ONLY is built from', () => {
+    const dir = join(import.meta.dir, '..', 'server')
+    const declared = readdirSync(dir)
+      .filter((file) => file.endsWith('.ts'))
+      .flatMap((file) => [...readFileSync(join(dir, file), 'utf8').matchAll(/^export const (\w+) = \{\n(?:  .*\n)*?\} as const satisfies RouteTable/gm)].map((hit) => hit[1]!))
+      .sort()
+    expect(declared).toEqual(Object.keys(TABLES).sort())
+  })
+
+  test('the desks that match by hand match on their tables: no path is spelled outside the table', () => {
+    const dir = join(import.meta.dir, '..', 'server')
+    for (const file of ['anyway.ts', 'restartModule.ts', 'stopModule.ts', 'headers.ts', 'arranging.ts', 'inboxRoutes.ts', 'messageRoutes.ts', 'myModules.ts', 'skills.ts', 'agentSettings.ts', 'pickerOrder.ts', 'chime.ts']) {
+      const source = readFileSync(join(dir, file), 'utf8')
+      const table = source.match(/^export const \w+ = \{\n(?:  .*\n)*?\} as const satisfies RouteTable/m)?.[0] ?? ''
+      expect(table.length, file).toBeGreaterThan(0)
+      expect(source.replace(table, '').match(/'\/host\/[^']*'/g) ?? [], file).toEqual([])
+    }
   })
 
   test('adopting is listed once, by its desk', () => {

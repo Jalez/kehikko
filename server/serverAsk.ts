@@ -19,6 +19,7 @@ import { hold } from '../src/host/grants.ts'
 import type { Answer } from './answers.ts'
 import type { MessageAsked } from './messageRoutes.ts'
 import { tag, untraced } from './traffic.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * A module's SERVER asking this host a question (protocol 2.19.0): `POST /host/server-ask`.
@@ -107,6 +108,11 @@ export const SERVER_ASK_SAYS = {
   project: 'This host holds no project at that folder, so there is no reading to answer from.',
 } as const
 
+/** What this desk answers (`routes.ts`): a module's server asking, with its pass; any other method there is a 405. */
+export const SERVER_ASK_ROUTES = {
+  ask: { method: 'POST', path: SERVER_ASK_PATH },
+} as const satisfies RouteTable
+
 export function serverAskDesk(deps: ServerAskDeps) {
   /** Whether the module at its registered origin minted this pass. Fails closed. */
   async function vouched(module: string, pass: string): Promise<boolean> {
@@ -127,7 +133,7 @@ export function serverAskDesk(deps: ServerAskDeps) {
   }
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname !== SERVER_ASK_PATH) return null
+    if (url.pathname !== SERVER_ASK_ROUTES.ask.path) return null
     if (request.method !== 'POST') return reply({ ok: false, error: `${SERVER_ASK_PATH} takes POST.` }, 405)
     const text = await request.text().catch(() => '')
     if (!text || text.length > BODY_MAX) return reply({ ok: false, error: 'A question is a JSON object: module, pass, project, method, params.' }, 400)

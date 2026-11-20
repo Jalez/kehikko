@@ -1,4 +1,5 @@
 import type { Registration } from './registrations.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * "Stop" on a module's row in the Kehikko modules menu, and what remembers it.
@@ -68,11 +69,16 @@ export interface StopModuleDeps {
 }
 
 /** `POST /host/stop-module`: `{ module }`. */
+/** What this desk answers (`routes.ts`): a press on Stop, the page's alone. */
+export const STOP_MODULE_ROUTES = {
+  stopModule: { method: 'POST', path: '/host/stop-module', pageOnly: true },
+} as const satisfies RouteTable
+
 export function stopModuleDesk(deps: StopModuleDeps) {
   const claimed = new Set<string>()
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname !== '/host/stop-module' || request.method !== 'POST') return null
+    if (!at(STOP_MODULE_ROUTES.stopModule, request, url)) return null
     const body = (await request.json().catch(() => null)) as { module?: unknown } | null
     if (!body || typeof body.module !== 'string' || body.module.length === 0 || body.module.length > 64) {
       return reply({ ok: false, why: 'A stop names one module.' }, 400)
