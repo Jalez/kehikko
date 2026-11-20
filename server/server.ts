@@ -2,11 +2,11 @@
 /* First: the host's own log captures everything after it (`hostLogStart.ts`). */
 import { homedir } from 'node:os'
 import { hostLog } from './hostLogStart.ts'
-import { editSpaces, spaceEditIn, spaceTree, type SpaceEdit, type SpaceEdited } from './spaces.ts'
+import { editSpaces, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, methodParams, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
-import { editIn, type PartsEdit } from '../src/host/parts.ts'
+import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import type { PartsEdit } from '../src/host/parts.ts'
 import { hold, undeclaredLine } from '../src/host/grants.ts'
 import { answer as answerOne, answerCall } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
@@ -20,24 +20,22 @@ import { logDesk } from './logRoutes.ts'
 import { trackerDesk } from './trackerRoutes.ts'
 import { updateDesk, type Phase, type UpdateStep } from './updateRoutes.ts'
 import { restartDesk } from './restartRoutes.ts'
+import { canvasDesk } from './canvasRoutes.ts'
+import { kehikkoDesk } from './kehikkoRoutes.ts'
+import { projectDesk } from './projectRoutes.ts'
+import { spaceDesk } from './spaceRoutes.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
-import { connectionsSettingSchema, runsAgents, type ConnectionModule } from '../src/host/connections.ts'
+import { runsAgents, type ConnectionModule } from '../src/host/connections.ts'
 import { forgetFormerName } from './formerName.ts'
 import { doorKept, ensureKnown, forgetDoor, forgetUnregistered, known, knownDoors, remember, settle, rememberDoor, rememberedMcp } from './known.ts'
 import { moduleIconFor } from '../src/host/moduleIcon.ts'
 import {
-  createCanvas,
   databaseFile,
-  deleteCanvas,
-  editCanvas,
-  ensureCanvases,
   epicFromKehikot,
-  hintSubject,
   keepFor,
   keepState,
   listCanvases,
-  listSubjects,
   open,
   readKept,
   readState,
@@ -45,14 +43,10 @@ import {
   spaceOfSubject,
   setSubject,
   type Canvas,
-  type CanvasEdit,
-  type PlacementInput,
 } from './canvases.ts'
-import { baseBranchOf, setBaseBranch } from './baseBranch.ts'
-import { addProject, adopt, followedSaid, followProjects, forgetProject, isProjectAnswer, knowFolders, listProjects, locateProject, projectAt, projectById, shareKehikot } from './projects.ts'
+import { adopt, followProjects, knowFolders, listProjects, projectAt, projectById } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
-import { browse, rootsFor } from './folders.ts'
-import { createEpic, deleteEpic, editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, retitleEpic, type PartsEdited } from './holdings.ts'
+import { editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, type PartsEdited } from './holdings.ts'
 import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
 import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
@@ -154,7 +148,7 @@ import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { doorPaces } from './mcp/paces.ts'
-import { marksOf, setDisposition } from './dispositions.ts'
+import { setDisposition } from './dispositions.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
 import { framedFetch, movedFrom, pageMovedLine, quietEntry, whyQuiet } from './quiet.ts'
 import { sweepAfter } from './sweepAfter.ts'
@@ -201,10 +195,7 @@ import { resolve } from 'node:path'
 import { embeddedPage, servePage } from './page.ts'
 import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
-import { readShelves, saveLayout } from './layouts.ts'
-import { copiedSaid, copyKehikko, elsewhere as kehikotElsewhere } from './fromProject.ts'
-import { listKehikkoSkills, removeKehikkoSkill, saveKehikkoSkill, skillsRel } from './kehikkoSkills.ts'
-import { editKehikkoSettings, ensureKehikkoSettings, readKehikkoSettings, takesNewsAt } from './kehikkoSettings.ts'
+import { ensureKehikkoSettings, readKehikkoSettings, takesNewsAt } from './kehikkoSettings.ts'
 import { choiceDue, shownPrimary } from '../src/host/kehikkoSettings.ts'
 import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
 import { moduleIntros } from './moduleIntros.ts'
@@ -4296,18 +4287,6 @@ function elsewhere(): Response {
   )
 }
 
-/**
- * The canvas a path names, or `null` if it does not name one.
- *
- * Deliberately strict about digits. `Number('1e3')` is 1000 and `Number(' 2 ')`
- * is 2, so a path that is not a plain integer would still address a canvas —
- * which is fine here and is exactly the habit that is not fine somewhere else.
- */
-function canvasId(pathname: string): number | null {
-  const match = /^\/host\/canvases\/(\d{1,15})$/.exec(pathname)
-  return match ? Number(match[1]) : null
-}
-
 /*
  * Modules at stable addresses on this host (`moduleProxy.ts`, `src/host/moduleAddress.ts`): a
  * frame's at `<label>.kehikot.localhost:<port>`, a program's at `/m/<id>/…`, and a pinned
@@ -4433,6 +4412,10 @@ const updateRoutes = updateDesk({
   updateHost,
   updateModule,
 })
+const canvasRoutes = canvasDesk({ db, official })
+const kehikkoRoutes = kehikkoDesk({ db, wakes, agentModulesOfCanvas, kehikkoSettingsAnswer })
+const projectRoutes = projectDesk({ db, wakes, trackers, followMoved, watchOpenProjects })
+const spaceRoutes = spaceDesk({ db, wakes, listEpics, epicWritten, partsEdited, spacesEdited })
 const restartRoutes = restartDesk({
   db,
   restartFile: RESTART_FILE,
@@ -4711,156 +4694,13 @@ async function answerRequest(request: Request): Promise<Response> {
       )
     }
 
-    /* The canvases.
-     *
-     * Read on load and written on every rearrangement, which is a lot of small
-     * writes — the page debounces them, and this end is cheap enough that it
-     * would not matter if it did not.
-     *
-     * There is no authentication here and there is nothing to authenticate. The
-     * server listens on loopback only, holds nothing but names and rectangles,
-     * and belongs to the same person as everything it talks to. */
-    if (url.pathname === '/host/canvases' && request.method === 'GET') {
-      /* Every kehikko, from every project, and the page shows one project's
-         worth. See `listCanvases`: the union is what keeps a module's page
-         alive across a project switch, which is the whole reason switching
-         re-points modules instead of reloading them. */
-      const projects = listProjects(db)
-      /* The files first, because they are the record and a `git pull` since
-         the last load may have changed them. Then the guarantee of at least
-         one kehikko, and the file told about the one it made, if it made one.
-         `trouble` is the files that would not read, as sentences for the
-         footer — see `kehikot.ts`. */
-      const trouble = syncEvery(db)
-      const first = projects[0]?.id ?? null
-      const canvases = ensureCanvases(db, first)
-      keep(db, first)
-      /* Which kehikko this browser remembers having open, said once by the page
-         so the one-time move of the epic off the kehikot can prefer the one the
-         person was last on. See `hintSubject`; after the first load it is a
-         no-op. */
-      const remembered = Number(url.searchParams.get('open'))
-      if (Number.isInteger(remembered) && remembered > 0) {
-        const moved = hintSubject(db, remembered)
-        if (moved !== null) keep(db, moved)
-      }
-      /* What each project is about — its epic and selection — beside the
-         kehikot rather than inside them, because it belongs to no kehikko. */
-      return json({ projects, canvases, trouble, subjects: listSubjects(db) })
-    }
+    /* The kehikot, their layouts and connections, and one kehikko by its id. `canvasRoutes.ts`. */
+    const canvasAnswer = await canvasRoutes.route(request, url)
+    if (canvasAnswer) return canvasAnswer
 
-    if (url.pathname === '/host/canvases' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { name?: unknown; project?: unknown; placements?: unknown } | null
-      const name = typeof body?.name === 'string' ? body.name : undefined
-      /* Which project it goes in. A new kehikko belongs where the person was
-         standing when they pressed new; a kehikko in no project is one no
-         dropdown lists. */
-      const project =
-        typeof body?.project === 'number' && Number.isInteger(body.project) ? body.project : null
-      if (project !== null && !projectById(db, project)) {
-        return json({ error: 'There is no project with that id.' }, 404)
-      }
-      const made = createCanvas(db, name, project)
-      /* Made from a suggested layout: its containers, checked by `editCanvas`
-         exactly as a page's rearrangement is. */
-      const canvas = Array.isArray(body?.placements)
-        ? (editCanvas(db, made.id, { placements: body.placements as PlacementInput[] }) ?? made)
-        : made
-      keep(db, project)
-      return json({ canvas }, 201)
-    }
-
-    /* Suggested layouts: ours, the open project's and the person's own — see
-       `src/host/layouts.ts`. Read on every ask, so a layout a teammate
-       committed is there after a pull. */
-    if (url.pathname === '/host/layouts' && request.method === 'GET') {
-      const id = Number(url.searchParams.get('project'))
-      const project = Number.isInteger(id) && id > 0 ? projectById(db, id) : null
-      /* Ours as the published list has them (`official.layouts`), then the project's and the person's. */
-      return json(readShelves(project?.path ?? null, official.layouts()))
-    }
-
-    /* "Save this kehikko as a layout…": the project's shelf or the person's.
-       The page's alone (`PAGE_ONLY`): it writes into the project and the
-       machine directory. */
-    if (url.pathname === '/host/layouts' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as
-        | { kehikko?: unknown; name?: unknown; summary?: unknown; where?: unknown }
-        | null
-      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
-      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
-      const project = canvas.project === null ? null : projectById(db, canvas.project)
-      const saved = saveLayout(canvas, project?.path ?? null, body)
-      if (!saved.ok) return json({ error: saved.why }, saved.status)
-      return json({ layout: saved.layout }, 201)
-    }
-
-    /* "From another project" in the New kehikko dialog (`server/fromProject.ts`): every other
-       project, recent first, with its kehikot — the frame's rows and each kehikko's skill names,
-       nothing of the project's data. The copy itself is the page's alone (`PAGE_ONLY`); an agent
-       makes one through the door's `create_kehikko`. */
-    if (url.pathname === '/host/kehikot/elsewhere' && request.method === 'GET') {
-      const id = Number(url.searchParams.get('project'))
-      return json({ projects: kehikotElsewhere(db, Number.isInteger(id) && id > 0 ? id : null) })
-    }
-    if (url.pathname === '/host/kehikot/copy' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { from?: unknown; into?: unknown; name?: unknown; take?: unknown } | null
-      if (!body) return json({ error: 'Say which kehikko to copy and into which project.' }, 400)
-      const copied = copyKehikko(db, body)
-      if (!copied.ok) return json({ error: copied.why }, copied.status)
-      wakes.woke(copied.canvas.id)
-      return json({ canvas: copied.canvas, said: copiedSaid(copied, []) }, 201)
-    }
-
-    /* A kehikko's own skills (`server/kehikkoSkills.ts`, protocol 2.53.0):
-       the person's, for every agent session on that kehikko. The GET is the
-       page's list; the POST — save, rename, remove — is in `PAGE_ONLY`, and no
-       MCP tool writes one. */
-    if (url.pathname === '/host/kehikko-skills' && request.method === 'GET') {
-      const canvas = listCanvases(db).find((one) => one.id === Number(url.searchParams.get('kehikko')))
-      if (!canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
-      const project = canvas.project === null ? null : projectById(db, canvas.project)
-      return json({ skills: listKehikkoSkills(project?.path ?? null, canvas.key), folder: project ? skillsRel(canvas.key) : null })
-    }
-    if (url.pathname === '/host/kehikko-skills' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as
-        | { kehikko?: unknown; act?: unknown; name?: unknown; description?: unknown; body?: unknown; was?: unknown }
-        | null
-      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
-      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
-      const project = canvas.project === null ? null : projectById(db, canvas.project)
-      if (body.act === 'remove') {
-        const done = removeKehikkoSkill(project?.path ?? null, canvas.key, body.name)
-        return done.ok ? json({ said: done.said }) : json({ error: done.why }, done.status)
-      }
-      if (body.act !== 'save') return json({ error: 'act is save or remove.' }, 400)
-      const done = saveKehikkoSkill(project?.path ?? null, canvas.key, body)
-      return done.ok ? json({ skill: done.skill, said: done.said }) : json({ error: done.why }, done.status)
-    }
-
-    /* A kehikko's own settings (`server/kehikkoSettings.ts`): which agent module is primary. The
-       GET is the page's; the POST is in `PAGE_ONLY`, and no MCP tool reads or changes them. */
-    if (url.pathname === '/host/kehikko-settings' && request.method === 'GET') {
-      const canvas = listCanvases(db).find((one) => one.id === Number(url.searchParams.get('kehikko')))
-      if (!canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
-      if (canvas.project === null) return json({ settings: { primary: null, later: [] }, agents: [], primary: null, due: false })
-      return json(kehikkoSettingsAnswer(canvas, canvas.project))
-    }
-    if (url.pathname === '/host/kehikko-settings' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { kehikko?: unknown; primary?: unknown; later?: unknown } | null
-      const canvas = listCanvases(db).find((one) => one.id === body?.kehikko)
-      if (!body || !canvas) return json({ error: 'There is no kehikko with that id.' }, 404)
-      if (canvas.project === null) return json({ error: 'That kehikko stands in no project.' }, 409)
-      const agents = agentModulesOfCanvas(canvas)
-      const edit =
-        body.later === true ? { later: agents }
-        : body.primary === null || typeof body.primary === 'string' ? { primary: body.primary as string | null }
-        : null
-      if (!edit) return json({ error: 'Say primary (a module id or null) or later: true.' }, 400)
-      const done = editKehikkoSettings(db, canvas.project, canvas.key, edit, agents)
-      if (!done.ok) return json({ error: done.why }, done.status)
-      return json(kehikkoSettingsAnswer(canvas, canvas.project))
-    }
+    /* One kehikko's own things: copied from another project, its skills, its settings. `kehikkoRoutes.ts`. */
+    const kehikkoAnswer = await kehikkoRoutes.route(request, url)
+    if (kehikkoAnswer) return kehikkoAnswer
 
     /* A module's own introduction (protocol 2.57.0), read without running it: its manifest, its
        installed copy's intro.json, or that file at the release an install would take
@@ -4942,268 +4782,13 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ record })
     }
 
-    /* The projects: what is open, and one more.
-     *
-     * A project is a name and a folder. Adding one is the only write on this
-     * host that turns a string from a page into a path files are later read
-     * under, and every check on that string is in `addProject` rather than
-     * here — one place, so a second endpoint cannot grow a weaker copy. */
-    if (url.pathname === '/host/projects' && request.method === 'GET') {
-      followMoved()
-      return json({ projects: listProjects(db) })
-    }
+    /* The projects, what each is about, and the folders to pick one from. `projectRoutes.ts`. */
+    const projectAnswer = await projectRoutes.route(request, url)
+    if (projectAnswer) return projectAnswer
 
-    /*
-     * The page has told the person that a project was followed to where its
-     * folder went (`followed` on the project); it is not said again. The page's
-     * alone (`PAGE_ONLY`).
-     */
-    if (url.pathname === '/host/projects/followed' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
-      if (!body || typeof body.id !== 'number') return json({ error: 'Which project.' }, 400)
-      if (followedSaid(db, body.id)) wakes.projectsChanged()
-      return json({ ok: true })
-    }
-
-    /*
-     * Whether one folder is a project a person added here. For a module's
-     * server, which is told a path by its page and has no other way to know
-     * the path is one this host handed out. One path in, one answer out: yes
-     * with the project's id, or no — with where the project went when the path
-     * is one a project had (`isProjectAnswer`). The list is not what a module
-     * is given — see `isProject`. Answered to this
-     * host's page and to programs on this machine, like every read here, and
-     * to no other page (`guard.ts`): a module's PAGE cannot ask.
-     */
-    if (url.pathname === '/host/is-project' && request.method === 'GET') {
-      const asked = url.searchParams.get('path')
-      return json(isProjectAnswer(db, asked))
-    }
-
-    /*
-     * One project's base branch (`baseBranch.ts`): what its settings name,
-     * origin's default, and the one in force. Asked by the page with
-     * `project=<id>`, and by a module's server with the `path=` its page was
-     * told, answered only for a folder that is a project here, as
-     * `/host/is-project` is. Setting it is the page's alone (`PAGE_ONLY`): it
-     * writes a file that travels with the repository.
-     */
-    if (url.pathname === '/host/base-branch' && request.method === 'GET') {
-      const id = Number(url.searchParams.get('project') ?? '')
-      const root = url.searchParams.has('project')
-        ? (Number.isInteger(id) ? projectById(db, id) : null)?.path
-        : projectAt(db, url.searchParams.get('path'))?.path
-      if (!root) return json({ error: 'There is no project there.' }, 404)
-      return json({ ok: true, ...baseBranchOf(root) })
-    }
-
-    if (url.pathname === '/host/base-branch' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { project?: unknown; branch?: unknown } | null
-      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      if (body?.branch !== null && typeof body?.branch !== 'string') return json({ error: 'branch is a branch name, or null for origin’s default.' }, 400)
-      const edited = await setBaseBranch(project.path, body.branch)
-      if (edited.outcome === 'declined') return json({ ok: false, why: edited.why })
-      if (edited.outcome === 'changed') wakes.projectsChanged()
-      return json({ ok: true, outcome: edited.outcome, said: edited.said, ...edited.base })
-    }
-
-    /*
-     * Whether one project's `.kehikot/` goes into its history.
-     *
-     * A PATCH on the collection with the id in the body rather than a route per
-     * project, because every other route on this host is a flat path and one
-     * that parsed an id out of a pathname would be the only place an id arrives
-     * by a different road. The check that it IS an id is in `shareKehikot`,
-     * with the rest of what that decision refuses.
-     *
-     * The whole project comes back rather than an acknowledgement, and it is
-     * re-read from disk on the way out. What the page draws is then what the
-     * file says, which matters here more than usual: this is a write to a file
-     * a person can also edit themselves, and a page that drew the value it had
-     * just sent would agree with itself and possibly with nothing else.
-     */
-    /*
-     * Stop holding a folder as a project.
-     *
-     * DELETE with the id in the body, for the reason the PATCH above gives: one
-     * flat path, and ids arrive by one road. It deletes nothing on disk — see
-     * `forgetProject`, and the paragraph there about why erasing `.kehikot/`
-     * is deliberately not what this word does now that papers live in it.
-     */
-    if (url.pathname === '/host/projects' && request.method === 'DELETE') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
-      if (!body || typeof body.id !== 'number') return json({ error: 'Which project.' }, 400)
-      const said = forgetProject(db, body.id)
-      if (!said.ok) return json({ error: said.why }, said.status)
-      /* Nothing more is read or written there: no tracker schedule, no watch of its `.kehikot/`. */
-      trackers.forget(said.project.path)
-      watchOpenProjects()
-      return json({ project: said.project, canvases: said.canvases })
-    }
-
-    if (url.pathname === '/host/projects' && request.method === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown; shared?: unknown } | null
-      if (!body || typeof body.id !== 'number' || typeof body.shared !== 'boolean') {
-        return json({ error: 'Which project, and shared or not.' }, 400)
-      }
-      const said = shareKehikot(db, body.id, body.shared)
-      if (!said.ok) return json({ error: said.why }, said.status)
-      return json({ project: said.project })
-    }
-
-    /*
-     * What one project is about: its epic, the parts of it picked out, and the
-     * refs picked out of it.
-     *
-     * Its own flat path rather than a field on the projects PATCH, because the
-     * two are different kinds of write: sharing is a write to a `.gitignore`,
-     * and this is a write to the database and the project's `kehikot.json`.
-     * Only `scope`, `epic`, `parts` and `selection` are read off the body, one at a
-     * time, for the reason the canvas PATCH gives. The rule that a new epic
-     * clears the parts and the selection is in `setSubject`, not here. There
-     * is no kehikko in this body and there must not be: what a project is
-     * about is not a property of a layout.
-     */
-    if (url.pathname === '/host/subject' && request.method === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; scope?: unknown; epic?: unknown; parts?: unknown; selection?: unknown; space?: unknown }
-        | null
-      if (!body || typeof body.project !== 'number') {
-        return json({ error: 'A change to what a project is about names the project.' }, 400)
-      }
-      const said = setSubject(db, body.project, {
-        /* "All epics", or back to one epic. Any other word is not a scope and is not read. */
-        ...(body.scope === 'project' || body.scope === 'epic' ? { scope: body.scope } : {}),
-        ...(body.epic !== undefined ? { epic: typeof body.epic === 'string' ? body.epic : null } : {}),
-        ...(Array.isArray(body.parts) ? { parts: body.parts as string[] } : {}),
-        ...(Array.isArray(body.selection) ? { selection: body.selection as string[] } : {}),
-        /* A space by its path of ids and the children picked in it; it says the epic and the parts too. */
-        ...(body.space === null
-          ? { space: null }
-          : body.space && typeof body.space === 'object' && Array.isArray((body.space as { ids?: unknown }).ids)
-            ? { space: { ids: (body.space as { ids: string[] }).ids, picked: Array.isArray((body.space as { picked?: unknown }).picked) ? ((body.space as { picked: string[] }).picked) : [] } }
-            : {}),
-      })
-      if (!said) return json({ error: 'There is no project with that id.' }, 404)
-      keep(db, body.project)
-      return json({ subject: { project: body.project, ...said } })
-    }
-
-    if (url.pathname === '/host/projects' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { path?: unknown; name?: unknown } | null
-      if (!body || typeof body.path !== 'string') {
-        return json({ error: 'A project is added by naming one folder.' }, 400)
-      }
-      const added = addProject(db, body.path, typeof body.name === 'string' ? body.name : undefined)
-      if (!added.ok) return json({ error: added.why }, added.status)
-      /* This is the moment a kehikko arrives from another computer: the folder
-         was cloned with `.kehikot/host/kehikot.json` in it, and reading it
-         here is what makes adding the project enough. The file wins over the
-         empty kehikko `addProject` just made, which is the point. A file that
-         will not read is reported on the load the page does next. */
-      if (!added.already) syncProject(db, added.project)
-      /* The folder carried the id of a project whose folder had gone: that
-         project is here now. Its file is read where it is, and every page is
-         told the list changed. */
-      if (added.relinked) {
-        syncProject(db, added.project)
-        wakes.projectsChanged()
-      }
-      return json({ project: added.project, already: added.already, relinked: added.relinked === true }, added.already ? 200 : 201)
-    }
-
-    /*
-     * "Locate…": a project whose folder is gone, pointed at where it went.
-     *
-     * The page's alone (`PAGE_ONLY`): it is a person's answer to a question
-     * the page asked. Every check — that the folder carries the project's own
-     * id, and the second step for a project that never had one — is in
-     * `locateProject`. On success the project's file is read where it is now,
-     * and every page is told the list changed.
-     */
-    if (url.pathname === '/host/projects/locate' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown; path?: unknown; anyway?: unknown } | null
-      if (!body || typeof body.id !== 'number' || typeof body.path !== 'string') {
-        return json({ error: 'Which project, and which folder.' }, 400)
-      }
-      const found = locateProject(db, body.id, body.path, body.anyway === true)
-      if (!found.ok) return json({ error: found.why, ...(found.anyway ? { anyway: true } : {}) }, found.status)
-      syncProject(db, found.project)
-      wakes.projectsChanged()
-      return json({ project: found.project })
-    }
-
-    /*
-     * The folders under one folder, so a person can pick a project.
-     *
-     * A browser cannot hand a page a real path — `showDirectoryPicker` returns
-     * an opaque handle — and a path is exactly what a module needs. So the
-     * server lists and the page draws. Every refusal is in `folders.ts`, with
-     * the four rules and what each one is for; this end only supplies the roots,
-     * which are home plus the folders already opened as projects.
-     */
-    if (url.pathname === '/host/folders' && request.method === 'GET') {
-      const roots = rootsFor(listProjects(db).map((project) => project.path))
-      const browsed = browse(url.searchParams.get('path'), roots)
-      if (!browsed.ok) return json({ error: browsed.why }, browsed.status)
-      return json({ listing: browsed.listing, roots })
-    }
-
-    /*
-     * One project's epics, for the host's own header.
-     *
-     * The same reading `epics.list` gives a framed module, asked for by the
-     * page rather than through `/host/call` — because the page is the host and
-     * is not a module: it has no registration, so `answer` would refuse it with
-     * `unknown-module`, and inventing a registration for the host inside its
-     * own host would be worse than a second route.
-     *
-     * `holds` is the field that matters and it is why this is not just a list.
-     * A project with no `.kehikot/host/epics` and a project whose `.kehikot/host/epics` is empty
-     * both answer with no epics, and only one of those should make the header
-     * say "this project has none". See `Epics.tsx`.
-     */
-    if (url.pathname === '/host/epics' && request.method === 'GET') {
-      const asked = Number(url.searchParams.get('project') ?? '')
-      const project = Number.isInteger(asked) ? projectById(db, asked) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      const dir = epicsIn(project.path)
-      const epics = dir ? listEpics(dir) : []
-      /* The tree of spaces beside the epics it is made from (`server/spaces.ts`), read off the same listing. */
-      return json({ holds: dir !== null, epics, spaces: dir ? spaceTree(project.path, epics) : [] })
-    }
-
-    /*
-     * One edit of the project's spaces, from the space picker in the bar: `{ project, create | rename |
-     * move | remove }` (`spaceEditIn`). The one writer is `editSpaces`; the door's space tools come to
-     * the same function. A remove without `confirm` is answered `confirm` with what would go.
-     */
-    if (url.pathname === '/host/spaces' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as ({ project?: unknown } & Record<string, unknown>) | null
-      if (!body || typeof body.project !== 'number') return json({ error: 'An edit of the spaces names one project and one change.' }, 400)
-      const project = projectById(db, body.project)
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      const edit = spaceEditIn(body)
-      if (!edit) return json({ error: 'One change at a time: create, rename, move or remove, each with its path.' }, 400)
-      return json(spacesEdited(project, edit))
-    }
-
-    /*
-     * The marks people have put on this project's refs, for `context.dispositions`.
-     *
-     * Read by the page on a project switch and whenever it is told one changed;
-     * the page composes them into the context every framed module is sent. A
-     * file that will not read is answered as no marks — the context is what
-     * modules draw from, and a broken file is not a reason to draw nothing —
-     * and a write to it is refused instead, in `setDisposition`.
-     */
-    if (url.pathname === '/host/dispositions' && request.method === 'GET') {
-      const asked = Number(url.searchParams.get('project') ?? '')
-      const project = Number.isInteger(asked) ? projectById(db, asked) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      return json({ dispositions: marksOf(project.path) })
-    }
+    /* One project's epics, spaces and parts, and the marks on its refs. `spaceRoutes.ts`. */
+    const spaceAnswer = await spaceRoutes.route(request, url)
+    if (spaceAnswer) return spaceAnswer
 
     /* A project's tracker reading, its sources, and Refresh all. `trackerRoutes.ts`. */
     const trackersAnswer = await trackerRoutes.route(request, url)
@@ -5272,188 +4857,6 @@ async function answerRequest(request: Request): Promise<Response> {
      */
     if (url.pathname === AGENT_SETUP_CARRIED_PATH && request.method === 'GET') {
       return json({ ok: true, values: carriedValues(db) })
-    }
-
-    /*
-     * What one epic is CALLED, changed. What it IS does not move.
-     *
-     * The one write this host makes into a project’s `.kehikot/host/`, and the only one
-     * it will: `.kehikot/host/epics/<slug>.json` is a document somebody wrote, under
-     * their name in that repository's history, and this changes one field of it
-     * and leaves every other byte alone. `retitleEpic` has the essay on why the
-     * OTHER rename — the slug — is a migration across six programs rather than
-     * a control in a dropdown, and is not here.
-     *
-     * Every check on what arrived is in that function, the way `addProject`
-     * holds its own. This end reads a project id and turns it into a folder,
-     * which is the one thing the function cannot do for itself.
-     */
-    if (url.pathname === '/host/epics' && request.method === 'PATCH') {
-      const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; slug?: unknown; title?: unknown }
-        | null
-      if (!body || typeof body.project !== 'number') {
-        return json({ error: 'A retitle names one project, one epic, and what it is to be called.' }, 400)
-      }
-      const project = projectById(db, body.project)
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-
-      const said = retitleEpic(project.path, body.slug as string, body.title as string)
-      if (!said.ok) return json({ error: said.why }, said.status)
-      /* The title is part of what `epic.get` answers, so a container showing
-         this epic reads it again. */
-      epicWritten(project.path, said.epic.slug)
-      return json({ epic: said.epic })
-    }
-
-    /*
-     * A new epic, from the `+` beside the epic select.
-     *
-     * The second write this host makes into a project’s `.kehikot/host/` — the first
-     * was the retitle above — and it is a file that did not exist rather than
-     * a field of one that did. `createEpic` decides everything: the slug rule,
-     * the title rule, the refusal to overwrite, and that a project with no
-     * `.kehikot/host/epics` gets one made. This end turns a project id into a folder,
-     * as the retitle does, and says so to every page standing in that
-     * project — `epicsChanged` in `wake.ts` — because a second window's
-     * dropdown would otherwise not have the new row until it switched project
-     * and back. The door's `create_epic` in `mcp.ts` is the same function and
-     * the same wake; the page's own re-read after this answer is the one
-     * redundant read, and it is redundant rather than racing.
-     */
-    if (url.pathname === '/host/epics' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as
-        | { project?: unknown; slug?: unknown; title?: unknown }
-        | null
-      if (!body || typeof body.project !== 'number') {
-        return json({ error: 'A new epic names one project and what it is to be called.' }, 400)
-      }
-      const project = projectById(db, body.project)
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-
-      const made = createEpic(project.path, { slug: body.slug, title: body.title })
-      if (!made.ok) return json({ error: made.why }, made.status)
-      wakes.epicsChanged(project.id)
-      epicWritten(project.path, made.epic.slug)
-      return json({ epic: made.epic, madeDirectory: made.madeDirectory }, 201)
-    }
-
-    /*
-     * One edit of an epic's list of parts, from the picker in the bar.
-     *
-     * The body is the protocol's own `parts.set` — `{ epic, add | rename |
-     * move | remove }` — and is parsed by the protocol's schema, so the page
-     * and a module are refused for the same things. `editParts` decides and
-     * writes; the answer is the protocol's result and the epic's row as it
-     * now reads, so the page that pressed replaces its row rather than
-     * waiting to be told what it just did.
-     */
-    if (url.pathname === '/host/parts' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as ({ project?: unknown } & Record<string, unknown>) | null
-      if (!body || typeof body.project !== 'number') {
-        return json({ error: 'An edit of an epic’s parts names one project, one epic and one change.' }, 400)
-      }
-      const project = projectById(db, body.project)
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      const { project: _project, ...asked } = body
-      const parsed = methodParams['parts.set'].safeParse(asked)
-      const edit = parsed.success ? editIn(parsed.data) : null
-      if (!parsed.success || !edit) {
-        return json({ error: parsed.success ? 'One change at a time.' : (parsed.error.issues[0]?.message ?? 'That is not an edit of an epic’s parts.') }, 400)
-      }
-      const done = partsEdited(project.path, parsed.data.epic, edit)
-      return json({ result: done.result, epic: done.epic })
-    }
-
-    /*
-     * An epic, deleted, from the armed X on its row in the epic menu.
-     *
-     * `deleteEpic` removes the one file and nothing a module filed under the
-     * slug. Every page standing in the project is told, as for a create.
-     */
-    if (url.pathname === '/host/epics' && request.method === 'DELETE') {
-      const body = (await request.json().catch(() => null)) as { project?: unknown; slug?: unknown } | null
-      if (!body || typeof body.project !== 'number') {
-        return json({ error: 'A delete names one project and one epic.' }, 400)
-      }
-      const project = projectById(db, body.project)
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-
-      const gone = deleteEpic(project.path, body.slug as string)
-      if (!gone.ok) return json({ error: gone.why }, gone.status)
-      /* A project about a file that is gone is about nothing. Said here, by the
-         owner of the subject, rather than left to whichever page pressed it. */
-      if (readSubject(db, project.id)?.epic === body.slug) {
-        setSubject(db, project.id, { epic: null })
-        keep(db, project.id)
-      }
-      wakes.epicsChanged(project.id)
-      epicWritten(project.path, body.slug as string)
-      return json({ deleted: body.slug })
-    }
-
-    /*
-     * The person's switches of the connections between a kehikko's modules (`src/host/connections.ts`):
-     * the whole setting, held to its schema, written with the kehikko into `kehikot.json`. In
-     * `PAGE_ONLY`: the person decides how their modules affect each other, and no program — no agent,
-     * no module — may change it. A PATCH of the canvas does not carry it.
-     */
-    if (url.pathname === '/host/connections' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { kehikko?: unknown; connections?: unknown } | null
-      const read = connectionsSettingSchema.safeParse(body?.connections)
-      if (!body || typeof body.kehikko !== 'number' || !read.success) {
-        return json({ error: 'A change of connections names one kehikko and the whole setting: { off, only }.' }, 400)
-      }
-      const edited = editCanvas(db, body.kehikko, { connections: read.data })
-      if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)
-      keep(db, edited.project)
-      return json({ canvas: edited })
-    }
-
-    const canvas = canvasId(url.pathname)
-    if (canvas !== null) {
-      if (request.method === 'PATCH') {
-        const body = (await request.json().catch(() => null)) as CanvasEdit | null
-        if (!body || typeof body !== 'object') {
-          return json({ error: 'A change to a canvas is an object.' }, 400)
-        }
-        /* Only the fields named here, picked out one at a time. Handing the
-           parsed body straight to the store would make every future column
-           writable by anything that can POST — which is how an id becomes
-           editable. */
-        const edited = editCanvas(db, canvas, {
-          ...(body.name !== undefined ? { name: String(body.name) } : {}),
-          /* A project id, or nothing. It used to be `String(body.project)` —
-             a name typed onto a canvas — and that is the field this whole
-             change replaces; see the essay on `project` in `canvases.ts`. */
-          ...(body.project !== undefined
-            ? { project: typeof body.project === 'number' ? body.project : null }
-            : {}),
-          ...(Array.isArray(body.placements) ? { placements: body.placements } : {}),
-        })
-        if (!edited) return json({ error: 'There is no canvas with that id.' }, 404)
-        keep(db, edited.project)
-        return json({ canvas: edited })
-      }
-
-      if (request.method === 'DELETE') {
-        /* Read before the delete, because afterwards there is no row to say
-           which project's file has to lose a kehikko. */
-        const project = listCanvases(db).find((one) => one.id === canvas)?.project ?? null
-        const outcome = deleteCanvas(db, canvas)
-        if (outcome === 'no-such-canvas') return json({ error: 'There is no canvas with that id.' }, 404)
-        /* Refused, and said as a sentence rather than a status code, because
-           the page shows this to a person who just pressed delete and is owed
-           the reason. */
-        if (outcome === 'the-last-one') {
-          return json(
-            { error: 'This is the only canvas. Make another one before removing this one.' },
-            409,
-          )
-        }
-        keep(db, project)
-        return json({ deleted: canvas })
-      }
     }
 
     /* Whether the host and the modules are behind GitHub, catching them up, and how far each job has got. `updateRoutes.ts`. */

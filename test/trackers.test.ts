@@ -827,10 +827,12 @@ describe('a project removed from the list', () => {
   })
 
   test('the route that removes a project tells the reading, and the watch, after it is forgotten', () => {
-    const server = readFileSync(join(import.meta.dir, '..', 'server', 'server.ts'), 'utf8')
-    const route = server.indexOf("url.pathname === '/host/projects' && request.method === 'DELETE'")
+    /* `DELETE /host/projects` is `forget` in the projects desk. */
+    const desk = readFileSync(join(import.meta.dir, '..', 'server', 'projectRoutes.ts'), 'utf8')
+    expect(desk).toContain("forget: { method: 'DELETE', path: '/host/projects' }")
+    const route = desk.indexOf('    forget: async (request) => {')
     expect(route).toBeGreaterThan(-1)
-    const body = server.slice(route, server.indexOf('\n    }\n', route))
+    const body = desk.slice(route, desk.indexOf('\n    },\n', route))
     const forgotten = body.indexOf('forgetProject(db, body.id)')
     expect(forgotten).toBeGreaterThan(-1)
     expect(body.indexOf('trackers.forget(said.project.path)')).toBeGreaterThan(forgotten)
