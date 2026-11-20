@@ -256,7 +256,7 @@ function saveReading(projectPath: string, stored: Stored): void {
 /** A row's identity: one item however it is spelled. GitHub numbers are shared by issues and PRs. */
 const identity = (s: Pick<Source, 'tracker' | 'host' | 'repo'>, kind: 'issue' | 'change' | null, number: number) =>
   `${sourceKey(s)}|${s.tracker === 'github' ? 'n' : (kind ?? 'issue')}|${number}`
-const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
+export const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
 
 /**
  * Give each issue the changes in the reading that declare it, and say it was
@@ -335,6 +335,40 @@ function closedByDeclarers(rows: TrackerRow[], within: (row: TrackerRow, ref: st
 
 /** A sentence cut to what a reason may be. */
 const clip = (text: string) => (text.length > LIMITS.REASON ? `${text.slice(0, LIMITS.REASON - 1)}…` : text)
+
+/**
+ * The refs somebody asked for that a read still did not settle — no row, not said to be gone, their
+ * source not failed — each as a log line saying how the read went at its source, so a ref that stays
+ * "pending" read after read shows where it falls through (#407).
+ */
+export function unsettledLines(r: {
+  refs: readonly string[]
+  sources: readonly Source[]
+  rows: readonly TrackerRow[]
+  notFound: readonly string[]
+  failed: (key: string) => boolean
+  listed: (key: string) => boolean
+  how: (key: string) => { since: boolean } | undefined
+  askedByName: (key: string, id: string) => boolean
+  by: string
+}): string[] {
+  const rowIds = new Set(r.rows.map(rowIdentity))
+  const gone = new Set(r.notFound)
+  const out: string[] = []
+  for (const ref of r.refs) {
+    const name = readTrackerRef(ref)
+    if (!name) continue
+    const source = sourceFor([...r.sources], ref)
+    if (!source) continue
+    const id = identity(source, name.kind, name.number)
+    const key = sourceKey(source)
+    if (rowIds.has(id) || gone.has(id) || r.failed(key)) continue
+    const how = r.how(key)
+    const listing = !r.listed(key) ? 'not listed' : how ? (how.since ? 'listed what changed' : 'listed whole') : 'listing not finished'
+    out.push(`tracker: ${ref} is still unread after a ${r.by} read of ${key} (${listing}; ${r.askedByName(key, id) ? 'asked by name' : 'not asked by name'})`)
+  }
+  return out
+}
 
 /**
  * The rows a reading keeps, at most `TRACKER_ROWS`: every row somebody names, then the rest newest
@@ -1518,6 +1552,17 @@ export class Trackers {
       boards,
       branches,
     }
+    for (const line of unsettledLines({
+      refs: [...new Set([...refs, ...held.stored.asked])],
+      sources,
+      rows: held.stored.rows,
+      notFound: held.stored.notFound,
+      failed: (key) => Boolean(errors.get(key)),
+      listed: (key) => Boolean(plan.get(key)?.list),
+      how: (key) => listedHow.get(key),
+      askedByName: (key, id) => Boolean(plan.get(key)?.wanted.has(id)),
+      by,
+    })) this.#log(line)
     try {
       this.#save(root, held)
     } catch {
