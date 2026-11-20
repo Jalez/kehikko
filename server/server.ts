@@ -15,8 +15,11 @@ import { projectsMine } from './projectsMine.ts'
 import { deliveryKnocker } from './doorMessages.ts'
 import { providersOf } from './services.ts'
 import { epicPlacesByRef, epicRefs, epicsByRef, Trackers } from './trackers/reading.ts'
-import { spell } from './trackers/edit.ts'
-import { trackerEditSchema } from '../src/host/trackerSources.ts'
+import { json, moduleIn } from './routes.ts'
+import { logDesk } from './logRoutes.ts'
+import { trackerDesk } from './trackerRoutes.ts'
+import { updateDesk, type Phase, type UpdateStep } from './updateRoutes.ts'
+import { restartDesk } from './restartRoutes.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { connectionsSettingSchema, runsAgents, type ConnectionModule } from '../src/host/connections.ts'
@@ -161,7 +164,7 @@ import { TrackerNotices } from './trackerNotices.ts'
 import { TRACKER_NOTICES_MODULE } from '../src/host/trackerNotices.ts'
 import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
-import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, topLevels, update, type Place, type Reading } from './updates.ts'
+import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
 import { bundleDesk, isBundle, type Swapped } from './moduleBundles.ts'
 import { describeFolder, readMine } from './myModules.ts'
@@ -172,9 +175,7 @@ import { mentionsDesk, releasesIn } from './whatsNewMentions.ts'
 import { APP_ITEM } from '../src/host/whatsNew.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
-import { fromThePage } from './traffic.ts'
-import { PageLog, BODY_MAX as PAGE_LOG_BODY_MAX } from './pageLog.ts'
-import { diagnostics, readLogs } from './readLogs.ts'
+import { PageLog } from './pageLog.ts'
 import { logsDir } from './machineDirs.ts'
 import { because, needsLookup, noteFree, noteHeld, reasonNow, receivedRow, recordThisProcess, routeReason, SWEEP_REASON, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
@@ -998,12 +999,6 @@ const proposals = proposalDesk({
   },
   remembered: (id) => known(db).get(id) ?? null,
 })
-
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-  })
 
 /**
  * Sweep the registry and ask every registered program what it is.
@@ -4090,10 +4085,6 @@ const stopModuleDoor = stopModuleDesk({
   },
 })
 
-/** `applying` is the checkout having moved: from there nothing is cancelled. */
-type UpdateStep = 'updating' | 'applying' | 'installing' | 'preparing' | 'restarting'
-type Phase = (now: UpdateStep) => void
-
 /** How long a module the host may not stop is given to end by itself after its server files changed. */
 const ENDS_ITSELF_WITHIN_MS = 4_000
 
@@ -4320,11 +4311,6 @@ function canvasId(pathname: string): number | null {
   return match ? Number(match[1]) : null
 }
 
-/** The module id out of a request, bounded before it is looked at. */
-function moduleIn(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : null
-}
-
 /*
  * Modules at stable addresses on this host (`moduleProxy.ts`, `src/host/moduleAddress.ts`): a
  * frame's at `<label>.kehikot.localhost:<port>`, a program's at `/m/<id>/…`, and a pinned
@@ -4412,6 +4398,56 @@ function patient(request: Request): void {
     }
   }
 }
+
+/* The page's routes, desk by desk (`routes.ts`): each declares its methods and paths, and which are the page's alone. */
+const logRoutes = logDesk({
+  addresses: ADDRESSES,
+  addressCheck: ADDRESS_CHECK,
+  pageLog,
+  origins: OWN.origins,
+  diagnosticFacts,
+})
+const trackerRoutes = trackerDesk({
+  trackers,
+  projectById: (id) => projectById(db, id),
+  startup,
+})
+const updateRoutes = updateDesk({
+  updatePlaces,
+  placeOf,
+  official,
+  appProtocols,
+  auto,
+  judgeStaleness,
+  restartable: RESTART_FILE !== null,
+  progress,
+  staleness,
+  updatePreviews,
+  pinned: () => pinSummary(listCanvases(db)),
+  keptAndRunning,
+  holds: () => [...registered.keys()].filter((id) => holdsShells({ id, holds: holdsSaid.get(id) })),
+  builds,
+  registrationOf,
+  isInstalled,
+  buildOf,
+  jobSteps,
+  updateCancels,
+  patient,
+  updateHost,
+  updateModule,
+})
+const restartRoutes = restartDesk({
+  db,
+  restartFile: RESTART_FILE,
+  restartHold,
+  restartChanged: () => wakes.restartChanged(),
+  restartFor,
+  takeRestartGo: () => {
+    const go = restartGo
+    restartGo = null
+    return go
+  },
+})
 
 const serving = {
   /* Long enough for a module that is slow to answer its manifest, short enough
@@ -4504,49 +4540,9 @@ async function answerRequest(request: Request): Promise<Response> {
     const refused = refusal({ method: request.method, pathname: url.pathname, headers: request.headers }, OWN)
     if (refused) return json({ ok: false, error: refused.why, why: refused.why }, refused.status)
 
-    /* Whether modules are at stable addresses here, and whether a frame may be given one (`moduleAddresses.ts`). */
-    if (url.pathname === '/host/module-addresses' && request.method === 'GET') return json(moduleAddresses.said(ADDRESSES, ADDRESS_CHECK))
-    /* The page's self-check did not reach this host at a frame's address: why, for the log. Its frames keep their ports. */
-    if (url.pathname === '/host/module-addresses/check' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { ok?: unknown; why?: unknown } | null
-      moduleAddresses.checked(body?.ok === true, typeof body?.why === 'string' ? body.why : null)
-      return json({ ok: true })
-    }
-
-    /* The page's log (`pageLog.ts`): its console warnings and errors and its decisions, batched. The page's alone. */
-    if (url.pathname === '/host/log' && request.method === 'POST') {
-      if (!fromThePage(request, OWN.origins)) return json({ ok: false, error: 'Only this host’s own page writes its log. Nothing was written.' }, 403)
-      if (Number(request.headers.get('content-length') ?? '0') > PAGE_LOG_BODY_MAX) return json({ ok: false, error: `At most ${PAGE_LOG_BODY_MAX} bytes a request.` }, 413)
-      const taken = pageLog.take(await request.text())
-      return taken.ok ? json(taken) : json({ ok: false, error: taken.why }, taken.status)
-    }
-    /* "Copy recent diagnostics" (Settings › About): versions and the last lines of the host's and the page's logs, scrubbed (`readLogs.ts`). */
-    if (url.pathname === '/host/diagnostics' && request.method === 'GET') {
-      const text = diagnostics(diagnosticFacts())
-      return new Response(text, { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } })
-    }
-    /* The last lines of one log, for the page (the same reading as `read_logs`). */
-    if (url.pathname === '/host/logs' && request.method === 'GET') {
-      const read = readLogs({
-        which: url.searchParams.get('which') ?? 'host',
-        module: url.searchParams.get('module') ?? undefined,
-        since: url.searchParams.get('since') ?? undefined,
-        grep: url.searchParams.get('grep') ?? undefined,
-        lines: url.searchParams.has('lines') ? Number(url.searchParams.get('lines')) : undefined,
-      })
-      return read.ok ? json({ ok: true, file: read.file, lines: read.lines }) : json({ ok: false, error: read.why }, 400)
-    }
-    /* "Open logs folder" (Settings › About): the folder, in the system's file browser. The page's alone. */
-    if (url.pathname === '/host/logs/open' && request.method === 'POST') {
-      const dir = logsDir()
-      try {
-        mkdirSync(dir, { recursive: true })
-        Bun.spawn(process.platform === 'darwin' ? ['open', dir] : ['xdg-open', dir], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
-        return json({ ok: true, dir })
-      } catch (error) {
-        return json({ ok: false, error: `The logs folder could not be opened (${(error as Error).message}). It is ${dir}.`, dir }, 500)
-      }
-    }
+    /* The host's logs and self-checks: module addresses, the page's log, diagnostics. `logRoutes.ts`. */
+    const logsAnswer = await logRoutes.route(request, url)
+    if (logsAnswer) return logsAnswer
 
     /* What is registered, and what the host made of each of them. The page asks
        for this on load and whenever the person asks it to look again; there is
@@ -5215,50 +5211,9 @@ async function answerRequest(request: Request): Promise<Response> {
       return json({ dispositions: marksOf(project.path) })
     }
 
-    /*
-     * The open project's tracker reading, as the bar shows it: when it last
-     * changed, whether a read is running, and how each source fared. Asking
-     * is somebody looking, so the first ask for a project starts its first
-     * read and keeps its schedule running — see `Trackers.signal`.
-     */
-    if (url.pathname === '/host/tracker' && request.method === 'GET') {
-      const asked = Number(url.searchParams.get('project') ?? '')
-      const project = Number.isInteger(asked) ? projectById(db, asked) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      startup.mark('page asked for the tracker')
-      const signal = trackers.signal(project.path)
-      const reading = trackers.get(project.path, { refs: [] })
-      const listing = await trackers.describe(project.path)
-      return json({ ...signal, sources: 'refused' in reading ? [] : reading.sources, listing })
-    }
-
-    /*
-     * One edit of the project's tracker sources — add, remove, switch a flag,
-     * the schedule, the remotes switch — or a one-off "Check" of a source
-     * before it is added. The page's alone (`PAGE_ONLY`): it writes
-     * `.kehikot/host/trackers.json` and spends the person's rate limit.
-     * Answered with the sources as they now stand; a write has the host read
-     * again, and every container is told as for any read.
-     */
-    if (url.pathname === '/host/trackers' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { project?: unknown; edit?: unknown } | null
-      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      const asked = trackerEditSchema.safeParse(body?.edit)
-      if (!asked.success) return json({ error: 'That is not an edit of the tracker sources.' }, 400)
-      const edit = asked.data
-      if (edit.kind === 'check') {
-        const spelled = spell(edit.input, edit.tracker, edit.host)
-        if (!spelled.ok) return json({ outcome: 'declined', why: spelled.why, needs: spelled.needs ?? null, said: '' })
-        const found = await trackers.check(project.path, { tracker: spelled.tracker, host: spelled.host, repo: spelled.repo, default: false, listed: false })
-        return json(
-          found.ok
-            ? { outcome: 'read', why: '', said: `${spelled.repo} on ${spelled.host}: ${found.issues}${found.capped ? '+' : ''} issue${found.issues === 1 && !found.capped ? '' : 's'}, ${found.changes}${found.capped ? '+' : ''} change${found.changes === 1 && !found.capped ? '' : 's'} found.`, issues: found.issues, changes: found.changes, source: spelled }
-            : { outcome: 'failed', why: found.why, said: '', source: spelled },
-        )
-      }
-      return json(await trackers.edit(project.path, edit))
-    }
+    /* A project's tracker reading, its sources, and Refresh all. `trackerRoutes.ts`. */
+    const trackersAnswer = await trackerRoutes.route(request, url)
+    if (trackersAnswer) return trackersAnswer
 
     /*
      * The storage overview, for the page's Storage view: every project's
@@ -5323,18 +5278,6 @@ async function answerRequest(request: Request): Promise<Response> {
      */
     if (url.pathname === AGENT_SETUP_CARRIED_PATH && request.method === 'GET') {
       return json({ ok: true, values: carriedValues(db) })
-    }
-
-    /*
-     * "Refresh all": read every source of the project again, and answer when
-     * it lands. Every page standing in the project hears it start and land
-     * through `/host/watch`, and every module through `context.tracker`.
-     */
-    if (url.pathname === '/host/tracker/refresh' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { project?: unknown } | null
-      const project = typeof body?.project === 'number' ? projectById(db, body.project) : null
-      if (!project) return json({ error: 'There is no project with that id.' }, 404)
-      return json(await trackers.refresh(project.path, { project: true }, 'press'))
     }
 
     /*
@@ -5519,238 +5462,13 @@ async function answerRequest(request: Request): Promise<Response> {
       }
     }
 
-    /*
-     * Whether the host and the modules are behind GitHub, and catching them up.
-     *
-     * The places come from this process — its own checkout, and the `dir` of
-     * each registration — never from the request. What arrives over the wire
-     * is an id, as with Start, and an id that names nothing is a refusal.
-     * `server/updates.ts` has the rules about what an update will touch.
-     */
-    if (url.pathname === '/host/updates' && request.method === 'GET') {
-      const { places, unreadable } = await topLevels(updatePlaces())
-      const fetch = url.searchParams.get('fetch') === '1'
-      /* `quiet=1`: the page's automatic check, not a press. Each checkout's remote is compared
-         with `git ls-remote` and fetched only when it moved — and never a checkout somebody edits;
-         that waits for Check now. See `readCheckout`. */
-      const quiet = fetch && url.searchParams.get('quiet') === '1'
-      const app = url.searchParams.get('app')
-      const runningApp = app && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(app) ? app : null
-      /* Somebody asked what is new: that includes which modules exist. Not
-         waited for — the answer here is about checkouts. */
-      if (fetch) void official.refresh()
-      /* And which Kehikot each release works with: read at most daily, so
-         this is nearly always instant; never waited for long. */
-      if (fetch) await appProtocols.settled(4_000, runningApp)
-      const checkouts = await Promise.all(places.map((place) => readCheckout(place, quiet ? 'compare' : fetch, request.signal)))
-      /* A check: "Keep modules up to date automatically" takes what it found (`autoUpdates.ts`).
-         Queued before the answer, so the answer already says what waits. Never awaited. */
-      if (fetch) void auto.found(checkouts)
-      await judgeStaleness(fetch && !quiet)
-      return json({
-        checked: new Date().toISOString(),
-        checkouts: [...checkouts, ...unreadable],
-        restartable: RESTART_FILE !== null,
-        /* What only this server knows, so a page that reloads still reads it:
-           an update still running, and a module left on old code. */
-        progress: Object.fromEntries(progress),
-        stale: staleness.all(),
-        /* And the ones whose own build identity says they are behind their
-           checkout — a fact, where `stale` is what the host could not rule out. */
-        older: staleness.older(),
-        /* What each update would do to its module if pressed now, so the row
-           can say so first. From the upstream as already fetched and the last
-           sweep: no second round to the remote, and no asking of ports. */
-        previews: await updatePreviews(checkouts),
-        /* Which modules have containers pinned to a version, so the panel can
-           say so and the header does not count them as waiting. */
-        pins: pinSummary(listCanvases(db)),
-        /* Which running modules are kept: the ones whose row offers "Restart
-           anyway" where an ordinary restart would only be refused. */
-        kept: await keptAndRunning(),
-        /* Which modules a restart ends live sessions in (`holdsShells`): their row's restart says so. */
-        holds: [...registered.keys()].filter((id) => holdsShells({ id, holds: holdsSaid.get(id) })),
-        /* The protocol package this host has: what "you have" is compared
-           with when the page does not know the app's version. */
-        protocol: PACKAGE_VERSION,
-        /* Installed copies being built ("Preparing Terminal…"), and the ones
-           whose build did not finish and run from source. See `moduleBuilds.ts`. */
-        builds: builds.said(),
-        /* "Keep modules up to date automatically": the switch, what waits and why, and what it updated. */
-        auto: auto.said(),
-      })
-    }
+    /* Whether the host and the modules are behind GitHub, catching them up, and how far each job has got. `updateRoutes.ts`. */
+    const updatesAnswer = await updateRoutes.route(request, url)
+    if (updatesAnswer) return updatesAnswer
 
-    /*
-     * One installed module's releases, for its details in the modules list:
-     * the one it runs, the newest, and which Kehikot each works with. Read
-     * from the copy's own tags — nothing is asked of the remote. The id names
-     * a registration; the directory is the registration's, never the request's.
-     */
-    if (url.pathname === '/host/module-release' && request.method === 'GET') {
-      const id = moduleIn(url.searchParams.get('id'))
-      if (!id) return json({ error: 'Name a module: /host/module-release?id=…' }, 400)
-      const registration = await registrationOf(id)
-      if (!registration?.dir || !isInstalled(registration.dir)) {
-        /* A checkout somebody registered is never built here; what it runs is still said. */
-        return json({ release: null, protocol: PACKAGE_VERSION, ...(registration?.dir ? { build: await buildOf(id, registration.dir, false) } : {}) })
-      }
-      await appProtocols.settled(2_000)
-      const reading = await readCheckout(placeOf(id, registration.dir), false, request.signal)
-      return json({ release: 'error' in reading ? null : (reading.release ?? null), protocol: PACKAGE_VERSION, build: await buildOf(id, registration.dir, true) })
-    }
-
-    /*
-     * Restart the whole app, so a server that was just updated actually runs.
-     *
-     * Only the desktop shell can do it, and only for a host it started: it gives
-     * that host `KEHIKKO_RESTART_FILE` and watches for the file. This writes
-     * it; the shell stops this process group and relaunches itself, which starts
-     * a fresh host. Without the variable — a host run from a terminal, or one the
-     * shell adopted — nothing would bring this back, so it is a refusal.
-     */
-    /*
-     * An app restart that waits for queued work (protocol 2.110.0, `restartHold.ts`). The page's
-     * "Restart to update" asks here first: held by the work queue, it waits (the page says so, with
-     * Restart now); not held, it goes now — saved for the next host, applied by the page for an update.
-     */
-    if (url.pathname === '/host/restart/queue' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { reason?: unknown; version?: unknown } | null
-      const reason = body?.reason === 'app-restart' ? 'app-restart' : body?.reason === 'app-update' ? 'app-update' : null
-      if (!reason) return json({ error: 'say the reason: app-update or app-restart' }, 400)
-      const version = typeof body?.version === 'string' ? body.version : null
-      const label = reason === 'app-update' ? `Restart Kehikot to update${version ? ` to ${version}` : ''}` : 'Restart Kehikot'
-      const asked = await restartHold.ask({ reason, version, label })
-      if (asked.held) {
-        wakes.restartChanged()
-        return json({ held: true, restart: asked.restart })
-      }
-      const went = restartFor({ reason, version: version && /^\d+\.\d+\.\d+/.test(version) ? version : null })
-      return went.ok ? json({ held: false, page: went.page, why: asked.why }) : json({ error: went.why }, 409)
-    }
-    /* Restart now, past a hold: what was held is let go (the queue's row says the host went another way). */
-    if (url.pathname === '/host/restart/now' && request.method === 'POST') {
-      const was = restartHold.drop()
-      const body = (await request.json().catch(() => null)) as { reason?: unknown; version?: unknown } | null
-      const reason = was?.reason ?? (body?.reason === 'app-restart' ? 'app-restart' : 'app-update')
-      const version = was?.version ?? (typeof body?.version === 'string' && /^\d+\.\d+\.\d+/.test(body.version) ? body.version : null)
-      const went = restartFor({ reason, version })
-      wakes.restartChanged()
-      return went.ok ? json({ ok: true, page: went.page }) : json({ error: went.why }, 409)
-    }
-    /* What is held, and whether an update the queue let go is the page's to apply now (read once). */
-    if (url.pathname === '/host/restart/state' && request.method === 'GET') {
-      const go = restartGo
-      restartGo = null
-      return json({ held: restartHold.state(), go: go ? { version: go.version } : null })
-    }
-
-    if (url.pathname === '/host/restart' && request.method === 'POST') {
-      if (!RESTART_FILE) {
-        return json({ error: 'This host was not started by the Kehikot app, so nothing here can restart it. Quit and reopen it yourself.' }, 409)
-      }
-      try {
-        /* Saved for the next host, so the modules it starts say why (protocol 2.110.0). */
-        writeRestartReason(db, { reason: 'app-restart', version: null })
-        writeFileSync(RESTART_FILE, new Date().toISOString())
-      } catch (error) {
-        return json({ error: `The restart could not be asked for: ${(error as Error).message}` }, 500)
-      }
-      return json({ ok: true })
-    }
-
-    /*
-     * How far each install and update has got, step by step (`jobSteps.ts`), and Cancel for one of
-     * them: it stops the processes that job started, by pid, and nothing else. Cancel is the page's
-     * alone (`PAGE_ONLY`).
-     */
-    if (url.pathname === '/host/steps' && request.method === 'GET') {
-      return json({ jobs: jobSteps.said(), active: jobSteps.active() })
-    }
-    if (url.pathname === '/host/steps/cancel' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
-      const id = moduleIn(body?.id)
-      if (!id) return json({ error: 'A cancel names one module.' }, 400)
-      return json({ cancelled: jobSteps.cancel(id) })
-    }
-
-    /* Cancel: the only way to stop an update a page started. Before the merge it
-       leaves the checkout as it was; after it, nothing is cancelled (`updates.ts`). */
-    if (url.pathname === '/host/updates/cancel' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { id?: unknown } | null
-      if (!body || typeof body.id !== 'string') return json({ error: 'A cancel names one checkout.' }, 400)
-      const running = updateCancels.get(body.id)
-      running?.abort()
-      return json({ cancelled: running !== undefined })
-    }
-
-    /*
-     * `/host/updates/step-back` is the person's press of "Step back to …?" on an installed copy
-     * whose release needs a newer Kehikot, where moving it back on its own was not safe enough
-     * (`back.ask`, `moduleReleases.ts`). It allows that one move and then runs the same update.
-     * The page's alone (`PAGE_ONLY`): no program decides to risk a person's data.
-     */
-    if ((url.pathname === '/host/updates' || url.pathname === '/host/updates/step-back') && request.method === 'POST') {
-      const stepping = url.pathname === '/host/updates/step-back'
-      const body = (await request.json().catch(() => null)) as { id?: unknown; to?: unknown } | null
-      if (!body || typeof body.id !== 'string') return json({ error: 'An update names one checkout.' }, 400)
-      const { places } = await topLevels(updatePlaces())
-      const place = places.find((one) => one.id === body.id)
-      if (!place) return json({ error: `There is no checkout called ${body.id} to update.` }, 404)
-      if (progress.has(place.id)) return json({ error: `${place.name} is already being updated.` }, 409)
-      if (stepping) {
-        if (typeof body.to !== 'string' || !place.releases?.allow) return json({ error: 'A step back names an installed module and the release it moves to.' }, 400)
-        const before = await readCheckout(place, false, request.signal)
-        if ('error' in before) return json({ error: before.error }, 409)
-        if (before.release?.back?.to !== body.to) return json({ error: `${place.name} has no step back to ${body.to} waiting.` }, 409)
-        place.releases.allow(place.id, body.to)
-      }
-      /* An install and a restart outlast the idle timeout, and a line is only
-         written when something changes. */
-      patient(request)
-      /* The update is the server's, not the request's: it runs to its end when
-         the page closes the panel, reloads, or drops the connection. */
-      const own = new AbortController()
-      updateCancels.set(place.id, own)
-      /* One JSON object per line: `{phase}` as the update moves, then `{done}`
-         or `{error}`. It is finished whether or not anybody is still reading —
-         see "Cancelling" in `updates.ts`. */
-      const encoder = new TextEncoder()
-      return new Response(
-        new ReadableStream({
-          async start(controller) {
-            const say = (line: unknown) => {
-              try {
-                controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
-              } catch {
-                /* Nobody is reading any more. */
-              }
-            }
-            const phase: Phase = (now) => {
-              progress.set(place.id, now)
-              say({ phase: now })
-            }
-            try {
-              phase('updating')
-              say(place.id === 'host' ? await updateHost(place, own.signal, phase) : await updateModule(place, own.signal, phase))
-              /* A press took it: whatever the switch had read or was waiting for is out of date. */
-              if (place.id !== 'host') auto.settled(place.id)
-            } catch (error) {
-              say({ error: (error as Error).message })
-            } finally {
-              progress.delete(place.id)
-              updateCancels.delete(place.id)
-              try {
-                controller.close()
-              } catch {
-                /* Already closed by the reader going away. */
-              }
-            }
-          },
-        }),
-        { headers: { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' } },
-      )
-    }
+    /* Restarting the whole app, now or once queued work lets it. `restartRoutes.ts`. */
+    const restartAnswer = await restartRoutes.route(request, url)
+    if (restartAnswer) return restartAnswer
 
     /* The issues this person opened on a module, and a new one. `feedback.ts`. */
     const feedbackAnswer = await feedback.route(request, url)
