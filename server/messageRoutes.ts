@@ -21,6 +21,7 @@ import { issuerOf, type Here } from './doorPlaces.ts'
 import type { Database } from 'bun:sqlite'
 import { MessageMutes, MUTED_SAYS } from './messageMutes.ts'
 import { TRACKER_NEWS_FROM } from '../src/host/trackerNews.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * Messages between agent sessions (protocol 2.41.0): who may send and read,
@@ -125,6 +126,14 @@ const clip = (text: string): string => (text.length > LIMITS.REASON ? `${text.sl
 export function readerOf(here: Here, token: string): Reader {
   return { module: here.module ?? '', session: sessionIdOf(here.conversation, token), epic: here.epic, kehikko: here.key, parts: here.parts, space: here.space ?? null }
 }
+
+/** What `route` answers (`routes.ts`): the person's view of the messages, and their acts on it. */
+export const MESSAGE_ROUTES = {
+  say: { method: 'POST', path: '/host/messages/say', pageOnly: true },
+  messages: { method: 'GET', path: '/host/messages' },
+  mute: { method: 'POST', path: '/host/messages/mute', pageOnly: true },
+  clear: { method: 'POST', path: '/host/messages/clear', pageOnly: true },
+} as const satisfies RouteTable
 
 export function messageDesk(deps: MessageDeps) {
   const { messages, db } = deps
@@ -424,8 +433,8 @@ export function messageDesk(deps: MessageDeps) {
   }
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname === '/host/messages/say' && request.method === 'POST') return say(request)
-    if (url.pathname === '/host/messages' && request.method === 'GET') {
+    if (at(MESSAGE_ROUTES.say, request, url)) return say(request)
+    if (at(MESSAGE_ROUTES.messages, request, url)) {
       const project = Number(url.searchParams.get('project'))
       if (!Number.isInteger(project) || project <= 0) return reply({ ok: false, error: 'project is a project’s number.' }, 400)
       const limit = Number(url.searchParams.get('limit') ?? LIMITS.MESSAGES_KEPT)
@@ -433,7 +442,7 @@ export function messageDesk(deps: MessageDeps) {
       return reply({ ok: true, count: messages.count(project), messages: all, muted: mutes.muted(project) })
     }
     /* The person's "Messages to agents" switch, one module in one project. `PAGE_ONLY`. */
-    if (url.pathname === '/host/messages/mute' && request.method === 'POST') {
+    if (at(MESSAGE_ROUTES.mute, request, url)) {
       const body = (await request.json().catch(() => null)) as { project?: unknown; module?: unknown; muted?: unknown } | null
       const project = body?.project
       if (typeof project !== 'number' || !Number.isInteger(project) || project <= 0 || !(deps.hasProject?.(project) ?? true)) {
@@ -446,7 +455,7 @@ export function messageDesk(deps: MessageDeps) {
       if (out.changed) deps.changed(project)
       return reply({ ok: true, changed: out.changed, muted: mutes.muted(project) })
     }
-    if (url.pathname === '/host/messages/clear' && request.method === 'POST') {
+    if (at(MESSAGE_ROUTES.clear, request, url)) {
       const body = (await request.json().catch(() => null)) as { project?: unknown } | null
       const project = body?.project
       if (typeof project !== 'number' || !Number.isInteger(project) || project <= 0) return reply({ ok: false, error: 'project is a project’s number.' }, 400)

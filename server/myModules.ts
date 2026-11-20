@@ -13,6 +13,7 @@ import { splitRemote } from './trackers/sources.ts'
 import type { Runner as GitRunner } from './versions.ts'
 import { protocolPin } from './moduleReleases.ts'
 import { firstAppWith, installRefusedSaid, type AppProtocol } from '../src/host/worksWith.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * "My modules": modules a person installs from a repository they can read,
@@ -405,6 +406,16 @@ function real(path: string): string {
   }
 }
 
+/** What `route` answers (`routes.ts`): the list, and every write, which is the page's alone. */
+export const MINE_ROUTES = {
+  mine: { method: 'GET', path: '/host/mine' },
+  check: { method: 'POST', path: '/host/mine/check', pageOnly: true },
+  add: { method: 'POST', path: '/host/mine/add', pageOnly: true },
+  install: { method: 'POST', path: '/host/mine/install', pageOnly: true },
+  remove: { method: 'POST', path: '/host/mine/remove', pageOnly: true },
+  adopt: { method: 'POST', path: '/host/mine/adopt', pageOnly: true },
+} as const satisfies RouteTable
+
 export function myModulesDesk(deps: Deps) {
   const have = deps.protocol ?? PACKAGE_VERSION
   const today = () => (deps.now?.() ?? new Date()).toISOString().slice(0, 10)
@@ -663,8 +674,8 @@ export function myModulesDesk(deps: Deps) {
 
   /** `/host/mine` and its writes; null for any other request. Every write is in `PAGE_ONLY`. */
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (!url.pathname.startsWith('/host/mine')) return null
-    if (url.pathname === '/host/mine' && request.method === 'GET') return reply(await list())
+    if (!url.pathname.startsWith(MINE_ROUTES.mine.path)) return null
+    if (at(MINE_ROUTES.mine, request, url)) return reply(await list())
     if (request.method !== 'POST') return null
     const body = (await request.json().catch(() => null)) as { repo?: unknown; module?: unknown } | null
     const repo = typeof body?.repo === 'string' && body.repo.length <= 300 ? body.repo : null
@@ -672,19 +683,19 @@ export function myModulesDesk(deps: Deps) {
     const answer = (out: { ok: true } | { ok: false; why: string; status: number }, status = 200) =>
       out.ok ? reply(out, status) : reply({ error: out.why }, out.status)
     switch (url.pathname) {
-      case '/host/mine/check':
+      case MINE_ROUTES.check.path:
         if (repo === null) return reply({ error: 'Say which repository: a link to it, or owner/repo.' }, 400)
         return answer(await check(repo))
-      case '/host/mine/add':
+      case MINE_ROUTES.add.path:
         if (repo === null) return reply({ error: 'Say which repository: a link to it, or owner/repo.' }, 400)
         return answer(await add(repo), 202)
-      case '/host/mine/install':
+      case MINE_ROUTES.install.path:
         if (module === null) return reply({ error: 'An install names one of your modules.' }, 400)
         return answer(await install(module), 202)
-      case '/host/mine/remove':
+      case MINE_ROUTES.remove.path:
         if (module === null) return reply({ error: 'A removal names one of your modules.' }, 400)
         return answer(await remove(module))
-      case '/host/mine/adopt':
+      case MINE_ROUTES.adopt.path:
         if (module === null) return reply({ error: 'Name the module to keep.' }, 400)
         return answer(await adopt(module))
       default:

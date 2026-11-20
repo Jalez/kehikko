@@ -1,5 +1,6 @@
 import type { Runnable, Startable } from './launch.ts'
 import type { Registration } from './registrations.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * "Restart module": a row of every container's Container menu, drawn by the host.
@@ -66,12 +67,17 @@ export interface RestartModuleDeps {
 }
 
 /** `POST /host/restart-module`: `{ module }`. */
+/** What this desk answers (`routes.ts`): a press on a module's Run menu, the page's alone. */
+export const RESTART_MODULE_ROUTES = {
+  restartModule: { method: 'POST', path: '/host/restart-module', pageOnly: true },
+} as const satisfies RouteTable
+
 export function restartModuleDesk(deps: RestartModuleDeps) {
   /** The modules a restart from this door is in hand for. */
   const claimed = new Set<string>()
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname !== '/host/restart-module' || request.method !== 'POST') return null
+    if (!at(RESTART_MODULE_ROUTES.restartModule, request, url)) return null
     const body = (await request.json().catch(() => null)) as { module?: unknown } | null
     if (!body || typeof body.module !== 'string' || body.module.length === 0 || body.module.length > 64) {
       return reply({ ok: false, why: 'A restart names one module.' }, 400)

@@ -4,6 +4,7 @@ import { WELL_KNOWN } from 'kehikot-module-protocol'
 import type { Runnable, Startable, Stopped } from './launch.ts'
 import type { Registration } from './registrations.ts'
 import { proveListener, stopProven, type Processes } from './takeover.ts'
+import { at, type RouteTable } from './routes.ts'
 
 /**
  * Restarting a module whose registration says to keep it, because a person
@@ -243,9 +244,14 @@ export interface AnywayDeps {
 }
 
 /** `POST /host/restart-anyway`: `{ module, press: 'arm' }`, then `{ module, press: 'confirm', token }`. */
+/** What this desk answers (`routes.ts`): the person's two presses, the page's alone. */
+export const ANYWAY_ROUTES = {
+  restartAnyway: { method: 'POST', path: '/host/restart-anyway', pageOnly: true },
+} as const satisfies RouteTable
+
 export function anywayDesk(deps: AnywayDeps) {
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (url.pathname !== '/host/restart-anyway' || request.method !== 'POST') return null
+    if (!at(ANYWAY_ROUTES.restartAnyway, request, url)) return null
     const body = (await request.json().catch(() => null)) as { module?: unknown; press?: unknown; token?: unknown } | null
     const press = body?.press
     if (

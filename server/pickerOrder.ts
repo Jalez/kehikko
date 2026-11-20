@@ -12,6 +12,7 @@ import {
   type Visit,
   type Visits,
 } from '../src/host/pickerOrder.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * How the project, epic and kehikko pickers are ordered, and when each place was
@@ -101,10 +102,16 @@ export function visitOf(body: unknown): Visit | null {
 
 const json = (body: unknown, status = 200) => Response.json(body, { status })
 
+/** What `visitsRoute` answers (`routes.ts`); any other method on its path is a 405. The POST is the page's alone. */
+export const VISIT_ROUTES = {
+  visits: { method: 'GET', path: '/host/visits' },
+  visit: { method: 'POST', path: '/host/visits', pageOnly: true },
+} as const satisfies RouteTable
+
 /** `GET /host/visits` (when each place was last visited) and `POST /host/visits` (a visit, at the host's clock). */
 export function visitsRoute(deps: { db: Database; now?: () => number }) {
   return async (request: Request, url: URL): Promise<Response | null> => {
-    if (url.pathname !== '/host/visits') return null
+    if (url.pathname !== VISIT_ROUTES.visits.path) return null
     if (request.method === 'GET') return json({ ok: true, visits: readVisits(deps.db) })
     if (request.method !== 'POST') return json({ ok: false, why: 'GET or POST.' }, 405)
     const raw = await request.text()

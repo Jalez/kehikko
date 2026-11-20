@@ -537,7 +537,11 @@ describe('the list goes nowhere', () => {
       .filter((name) => name.endsWith('.ts'))
       .filter((name) => /myModulesFile|my-modules\.json|from '\.\/myModules\.ts'/.test(readFileSync(join(server, name), 'utf8')))
       .sort()
-    expect(readers).toEqual(['machineDirs.ts', 'myModules.ts', 'server.ts'])
+    expect(readers).toEqual(['machineDirs.ts', 'myModules.ts', 'routeTables.ts', 'server.ts'])
+    /* The route tables take the desk's table of routes and nothing else of it (`PAGE_ONLY` is built from it). */
+    const tables = readFileSync(join(server, 'routeTables.ts'), 'utf8')
+    expect(tables.match(/^import .* from '\.\/myModules\.ts'$/gm)).toEqual(["import { MINE_ROUTES } from './myModules.ts'"])
+    expect(tables).not.toMatch(/myModulesFile|my-modules\.json/)
     expect(myModulesFile()).toBe(process.env.KEHIKOT_MY_MODULES!)
   })
 

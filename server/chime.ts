@@ -13,6 +13,7 @@ import {
   type SoundFile,
 } from '../src/host/chime.ts'
 import { soundsDir } from './machineDirs.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * The Inbox chime's settings and the person's own sounds. The rules and the
@@ -147,15 +148,28 @@ export function importSound(deps: SoundsDeps, sent: { name?: unknown; data?: unk
   return { ok: true, sound, chime }
 }
 
+/**
+ * The writes `soundsRoute` answers (`routes.ts`), every one the page's alone. Beside them it serves
+ * `GET /host/sounds/<id>` — one sound by an id this host made, matched by `SOUND_FILES` — and answers
+ * any other method under the prefix with a 405.
+ */
+export const SOUND_ROUTES = {
+  add: { method: 'POST', path: '/host/sounds', pageOnly: true },
+  rename: { method: 'POST', path: '/host/sounds/rename', pageOnly: true },
+  remove: { method: 'POST', path: '/host/sounds/remove', pageOnly: true },
+} as const satisfies RouteTable
+/** Where one sound is read: `GET /host/sounds/<id>`. */
+const SOUND_FILES = `${SOUND_ROUTES.add.path}/`
+
 /** `GET /host/sounds/<id>`, `POST /host/sounds`, `/host/sounds/rename`, `/host/sounds/remove`. Null for any other request. */
 export function soundsRoute(deps: SoundsDeps) {
   const dir = () => (deps.dir ?? soundsDir)()
   return async (request: Request, url: URL): Promise<Response | null> => {
     const path = url.pathname
-    if (path !== '/host/sounds' && !path.startsWith('/host/sounds/')) return null
+    if (path !== SOUND_ROUTES.add.path && !path.startsWith(SOUND_FILES)) return null
 
     if (request.method === 'GET') {
-      const id = path.slice('/host/sounds/'.length)
+      const id = path.slice(SOUND_FILES.length)
       /* Only an id this host made, and only one the settings still name: never a path. */
       if (!FILE_ID.test(id)) return json({ ok: false, why: 'There is no such sound.' }, 404)
       const file = readChime(deps.db).files.find((one) => one.id === id)
@@ -178,7 +192,7 @@ export function soundsRoute(deps: SoundsDeps) {
       return json({ ok: false, why: 'The body is a JSON object.' }, 400)
     }
 
-    if (path === '/host/sounds') {
+    if (path === SOUND_ROUTES.add.path) {
       const done = importSound(deps, body)
       return done.ok ? json(done) : json(done, 400)
     }
@@ -186,14 +200,14 @@ export function soundsRoute(deps: SoundsDeps) {
     const id = typeof body.id === 'string' ? body.id : ''
     const file = was.files.find((one) => one.id === id)
     if (!file) return json({ ok: false, why: 'There is no such sound.' }, 404)
-    if (path === '/host/sounds/rename') {
+    if (path === SOUND_ROUTES.rename.path) {
       const label = labelOf(body.name)
       if (!label) return json({ ok: false, why: 'That is not a name for a sound.' }, 400)
       const chime = { ...was, files: was.files.map((one) => (one.id === id ? { ...one, name: label } : one)) }
       writeChime(deps.db, chime)
       return json({ ok: true, chime })
     }
-    if (path === '/host/sounds/remove') {
+    if (path === SOUND_ROUTES.remove.path) {
       const out = withoutFile(was, id)
       writeChime(deps.db, out.settings)
       rmSync(join(dir(), `${file.id}.${file.ext}`), { force: true })

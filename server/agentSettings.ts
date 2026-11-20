@@ -25,6 +25,7 @@ import { shareChange } from '../src/host/githubShare.ts'
 import { inboxColourChange, readInboxColour, writeInboxColour } from './inboxCount.ts'
 import { readAppearance, writeAppearance } from './appearance.ts'
 import { appearancePatched } from '../src/host/appearance.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * The copy of the agent setup choice (`src/host/agentSettings.ts` has the shape
@@ -232,6 +233,12 @@ export interface SettingsDeps {
  * changes them through `/host/module-settings/set`, and a `{ settings }` or
  * `{ except }` change here is refused.
  */
+/** What `settingsRoute` answers (`routes.ts`); any other method on its path is a 405. The POST is the page's alone. */
+export const AGENT_SETTINGS_ROUTES = {
+  settings: { method: 'GET', path: '/host/settings' },
+  editSettings: { method: 'POST', path: '/host/settings', pageOnly: true },
+} as const satisfies RouteTable
+
 export function settingsRoute(deps: SettingsDeps) {
   const answer = (): SettingsAnswer => ({
     ok: true,
@@ -252,7 +259,7 @@ export function settingsRoute(deps: SettingsDeps) {
   })
 
   return async (request: Request, url: URL): Promise<Response | null> => {
-    if (url.pathname !== '/host/settings') return null
+    if (url.pathname !== AGENT_SETTINGS_ROUTES.settings.path) return null
     if (request.method === 'GET') return json(answer())
     if (request.method !== 'POST') return json({ ok: false, why: 'GET or POST.' }, 405)
 

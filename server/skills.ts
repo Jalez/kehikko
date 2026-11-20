@@ -8,6 +8,7 @@ import { isKehikkoBound, isSkillName, LIMITS, skillPath, skillTextIssue, type Ev
 import { machineDir, modulesDir } from './machineDirs.ts'
 import { agentSays, boundSays, nameFromId, SKILL_STATUS_SAYS, type SkillRow, type SkillStatus } from '../src/host/skills.ts'
 import { LOADED_SOMEWHERE, loadedWhere } from '../src/host/providers.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * Agent skills a module offers (protocol 2.5.0), installed by the PERSON into
@@ -447,6 +448,12 @@ export async function skillRows(
  * `POST /host/skills` `{ module, name, press: 'install' | 'update' | 'remove', sha256? }`: one press.
  * The POST is in `PAGE_ONLY`.
  */
+/** What `skillsRoute` answers (`routes.ts`); any other method on its path is a 405. The POST is the page's alone. */
+export const SKILL_ROUTES = {
+  skills: { method: 'GET', path: '/host/skills' },
+  editSkills: { method: 'POST', path: '/host/skills', pageOnly: true },
+} as const satisfies RouteTable
+
 export function skillsRoute(deps: SkillDeps) {
   const fetcher = deps.fetcher ?? fetch
   const root = deps.root ?? (() => claudeSkillsDir())
@@ -454,7 +461,7 @@ export function skillsRoute(deps: SkillDeps) {
   const loaded = () => (deps.loaders ? loadedWhere(deps.loaders()) : LOADED_SOMEWHERE)
 
   return async (request: Request, url: URL): Promise<Response | null> => {
-    if (url.pathname !== '/host/skills') return null
+    if (url.pathname !== SKILL_ROUTES.skills.path) return null
 
     if (request.method === 'GET') {
       const module = moduleOf(url.searchParams.get('module'))

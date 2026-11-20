@@ -7,6 +7,7 @@ import { answerFor, isHostModule, type Entry, type Present, type Scope } from '.
 import { itemsIn } from './inbox.ts'
 import { HOST_ID } from './kehikot.ts'
 import type { NoticeLink } from '../src/host/trackerNotices.ts'
+import type { RouteTable } from './routes.ts'
 
 /**
  * The Inbox's routes: what the page says its modules are doing, and what the
@@ -142,8 +143,25 @@ function narrowingIn(scope: unknown, epic: unknown, kehikko: unknown): Narrowing
   return { scope: 'here' as Scope, at: { epic: text(epic), kehikko: text(kehikko) } }
 }
 
-/** The POSTs this desk answers. Every other `/host/inbox/…` POST is another desk's, and its body is left unread. */
-export const INBOX_POSTS = ['/host/inbox/use', '/host/inbox/report', '/host/inbox/notice', '/host/inbox/act', '/host/inbox/answer', '/host/inbox/migrate'] as const
+/**
+ * What this desk answers (`routes.ts`). A GET under `/host/inbox` is read for a project first, as it
+ * always was. The POSTs are the page's alone; every other `/host/inbox/…` POST is another desk's,
+ * and its body is left unread.
+ */
+export const INBOX_ROUTES = {
+  inbox: { method: 'GET', path: '/host/inbox' },
+  log: { method: 'GET', path: '/host/inbox/log' },
+  link: { method: 'GET', path: '/host/inbox/link' },
+  use: { method: 'POST', path: '/host/inbox/use', pageOnly: true },
+  report: { method: 'POST', path: '/host/inbox/report', pageOnly: true },
+  notice: { method: 'POST', path: '/host/inbox/notice', pageOnly: true },
+  act: { method: 'POST', path: '/host/inbox/act', pageOnly: true },
+  answer: { method: 'POST', path: '/host/inbox/answer', pageOnly: true },
+  migrate: { method: 'POST', path: '/host/inbox/migrate', pageOnly: true },
+} as const satisfies RouteTable
+export const INBOX_POSTS = Object.values(INBOX_ROUTES)
+  .filter((one) => one.method === 'POST')
+  .map((one) => one.path)
 
 export function inboxDesk(deps: InboxDeps) {
   const { inbox } = deps
@@ -158,17 +176,17 @@ export function inboxDesk(deps: InboxDeps) {
   }
 
   async function route(request: Request, url: URL): Promise<Response | null> {
-    if (!url.pathname.startsWith('/host/inbox')) return null
+    if (!url.pathname.startsWith(INBOX_ROUTES.inbox.path)) return null
     if (request.method === 'GET') {
       const project = projectIn(Number(url.searchParams.get('project')))
       if (project === null || deps.pathOf(project) === undefined) {
         return reply({ ok: false, why: 'An inbox is read for a project: ?project=<id>.' }, 400)
       }
-      if (url.pathname === '/host/inbox') {
+      if (url.pathname === INBOX_ROUTES.inbox.path) {
         present(project)
         return reply({ ok: true, ...inbox.snapshot(project) })
       }
-      if (url.pathname === '/host/inbox/log') {
+      if (url.pathname === INBOX_ROUTES.log.path) {
         const narrowing = narrowingIn(
           url.searchParams.get('scope'),
           url.searchParams.get('epic'),
@@ -178,7 +196,7 @@ export function inboxDesk(deps: InboxDeps) {
         const limit = Math.min(LOG_PAGE_MAX, Math.max(1, Math.floor(Number(url.searchParams.get('limit')) || 20)))
         return reply({ ok: true, ...inbox.log(project, narrowing, offset, limit) })
       }
-      if (url.pathname === '/host/inbox/link') {
+      if (url.pathname === INBOX_ROUTES.link.path) {
         const module = url.searchParams.get('module') ?? ''
         const id = url.searchParams.get('id') ?? ''
         if (!module || !id || module.length > 64 || id.length > 128) return reply({ ok: false, why: 'A link is read for one item: &module=&id=.' }, 400)
@@ -203,7 +221,7 @@ export function inboxDesk(deps: InboxDeps) {
     if (!body) return reply({ ok: false, why: 'The body is a JSON object.' }, 400)
 
     /* The person's switch is about a module, not a project: answered before a project is asked for. */
-    if (url.pathname === '/host/inbox/use') {
+    if (url.pathname === INBOX_ROUTES.use.path) {
       const module = typeof body.module === 'string' && body.module.length > 0 && body.module.length <= 64 ? body.module : null
       if (module === null) return reply({ ok: false, why: 'Use inbox names the module.' }, 400)
       if (typeof body.use !== 'boolean') return reply({ ok: false, why: 'use is true (show it in the Inbox) or false (do not).' }, 400)
@@ -219,7 +237,7 @@ export function inboxDesk(deps: InboxDeps) {
     const module = typeof body.module === 'string' && body.module.length > 0 && body.module.length <= 64 ? body.module : null
     const name = typeof body.name === 'string' ? body.name.slice(0, NAME_MAX) : ''
 
-    if (url.pathname === '/host/inbox/report') {
+    if (url.pathname === INBOX_ROUTES.report.path) {
       if (module === null) return reply({ ok: false, why: 'A report names the module.' }, 400)
       const silent = body.silent === true
       const unreported = !silent && body.unreported === true
@@ -240,7 +258,7 @@ export function inboxDesk(deps: InboxDeps) {
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier, news: out.news })
     }
 
-    if (url.pathname === '/host/inbox/notice') {
+    if (url.pathname === INBOX_ROUTES.notice.path) {
       if (module === null) return reply({ ok: false, why: 'A notice names the module.' }, 400)
       const line = lineSchema.safeParse(body.line)
       if (!line.success) return reply({ ok: false, why: 'That is not a notification line.' }, 400)
@@ -250,7 +268,7 @@ export function inboxDesk(deps: InboxDeps) {
       return reply({ ok: true, rev: out.rev, open: out.open, earlier: out.earlier })
     }
 
-    if (url.pathname === '/host/inbox/act') {
+    if (url.pathname === INBOX_ROUTES.act.path) {
       const act = body.do
       const narrowing = narrowingIn(body.scope, body.epic, body.kehikko)
       const keys = body.keys === undefined ? null : keysSchema.safeParse(body.keys)
@@ -281,7 +299,7 @@ export function inboxDesk(deps: InboxDeps) {
      * person, and only this page reaches the route (`PAGE_ONLY`). The page sends it only on their
      * fresh press (`pressFresh`) and says so; without that it is refused. No MCP tool answers.
      */
-    if (url.pathname === '/host/inbox/answer') {
+    if (url.pathname === INBOX_ROUTES.answer.path) {
       if (body.pressed !== true) return reply({ ok: false, why: ANSWER_SAYS.noPress }, 403)
       if (module === null) return reply({ ok: false, why: 'An answer names the module.' }, 400)
       const id = typeof body.item === 'string' && body.item.length > 0 && body.item.length <= 128 ? body.item : null
@@ -308,7 +326,7 @@ export function inboxDesk(deps: InboxDeps) {
       return reply({ ok: true, message: sent.id, ...inbox.snapshot(project) })
     }
 
-    if (url.pathname === '/host/inbox/migrate') {
+    if (url.pathname === INBOX_ROUTES.migrate.path) {
       const migrated = inbox.migrate(project, body.seen, body.told)
       deps.changed(project, migrated.rev)
       return reply({ ok: true, ...inbox.snapshot(project) })
