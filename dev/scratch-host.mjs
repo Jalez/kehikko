@@ -10,7 +10,7 @@
  *
  * `KEEP=1` keeps the directory, with every process's log in it.
  */
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -39,7 +39,10 @@ const BUN = process.env.BUN ?? 'bun'
  * The claims are dropped in `stop`.
  */
 const PORTS_DIR = process.env.KEHIKOT_SCRATCH_PORTS ?? '/tmp/kehikko-scratch-ports'
-const PORTS_FROM = 20000
+/* Above the app's own module band (`MODULE_PORTS`, 20000–21999) and below every system's temporary
+   range: a scratch port never lands where the person's modules are registered. A drive once left a
+   module on 20360, the person's Source module's port, and Source could not start. */
+const PORTS_FROM = 22000
 const PORTS_SPAN = 10000
 const claimed = []
 const alive = (pid) => {
@@ -105,6 +108,49 @@ const pairOfPorts = () => claimPorts(2)
 let ROOT = ''
 const at = (path) => join(ROOT, path)
 const children = []
+/* Folders a drive made itself, beside the scratch root: what runs inside them is stopped too. */
+const owned = new Set()
+
+/**
+ * A folder of the drive's own (`mkdtemp`), whose processes `stop` stops with the rest: the modules a
+ * scratch host starts run detached, in their own process groups, from folders under it, and outlived
+ * every drive until this — eighty of them were found still running, two days on, holding ports.
+ */
+export function owns(dir) {
+  if (dir) owned.add(dir)
+  return dir
+}
+
+/** Every process whose working folder is inside one of `roots`, by its own pid (and its group). */
+export function stopInside(roots) {
+  const inside = [...roots].filter(Boolean)
+  if (!inside.length) return 0
+  let listed = ''
+  try {
+    listed = execFileSync('lsof', ['-a', '-d', 'cwd', '-Fpn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch (error) {
+    listed = typeof error?.stdout === 'string' ? error.stdout : ''
+  }
+  let pid = 0
+  let stopped = 0
+  for (const line of listed.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1)) || 0
+    else if (line.startsWith('n') && pid && pid !== process.pid) {
+      const cwd = line.slice(1)
+      if (!inside.some((root) => cwd === root || cwd.startsWith(`${root}/`))) continue
+      try {
+        process.kill(-pid, 'SIGTERM')
+      } catch {
+        try {
+          process.kill(pid, 'SIGTERM')
+        } catch {}
+      }
+      stopped += 1
+    }
+  }
+  return stopped
+}
+
 export function stop() {
   for (const child of children) {
     try {
@@ -112,6 +158,9 @@ export function stop() {
     } catch {}
   }
   children.length = 0
+  /* And whatever the scratch host started: modules run detached, from folders under these. */
+  stopInside([ROOT, ...owned])
+  owned.clear()
   for (const file of claimed.splice(0)) rmSync(file, { force: true })
   if (ROOT && !KEEP) rmSync(ROOT, { recursive: true, force: true })
   else if (ROOT) console.log(`scratch host kept at ${ROOT}`)

@@ -56,7 +56,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { bootHost, freePort, scratch, stop } from './scratch-host.mjs'
+import { owns, bootHost, freePort, scratch, stop } from './scratch-host.mjs'
 
 const pw = await import('playwright-core')
 
@@ -96,7 +96,7 @@ function paperCheckout() {
   const ref = process.env.PAPER_REF ?? 'main'
   if (!/^[A-Za-z0-9._/-]+$/.test(ref)) throw new Error(`not a ref: ${ref}`)
   const repo = process.env.PAPER_REPO ?? 'https://github.com/Jalez/kehikko-paper.git'
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'paper-checkout-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'paper-checkout-'))))
   const log = join(dir, 'paper-build.log')
   const step = (cmd, args) => {
     appendFileSync(log, `$ ${cmd} ${args.join(' ')}\n`)
