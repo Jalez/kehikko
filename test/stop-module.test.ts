@@ -166,8 +166,10 @@ describe('what a person stopped stays stopped', () => {
 
   test('the host wires it: its own start refuses a stopped module, and a press on Start or Restart clears it', () => {
     const source = readFileSync(join(import.meta.dir, '../server/server.ts'), 'utf8')
-    expect(source).toContain('failed: failures.has(presence.id) || stoppedByPerson.has(presence.id)')
-    expect(source).toMatch(/function begin\(id: string(?:, why = [^)]*)?\): void \{[\s\S]*?if \(stoppedByPerson\.has\(id\)\) return/)
+    /* The supervisor's own rules — its standings and its start — are `supervisor/supervisor.ts`. */
+    const supervisor = readFileSync(join(import.meta.dir, '../server/supervisor/supervisor.ts'), 'utf8')
+    expect(supervisor).toContain('failed: failures.has(presence.id) || stoppedByPerson.has(presence.id)')
+    expect(supervisor).toMatch(/\n  begin\(id: string(?:, why = [^)]*)?\): void \{[\s\S]*?if \(stoppedByPerson\.has\(id\)\) return/)
     /* Start is `POST /host/start` in the modules desk, handed this host's own record. */
     const modules = readFileSync(join(import.meta.dir, '../server/moduleRoutes.ts'), 'utf8')
     expect(modules).toContain('stoppedByPerson.pressed(named)')
