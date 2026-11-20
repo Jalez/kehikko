@@ -25,6 +25,7 @@ import { kehikkoDesk } from './kehikkoRoutes.ts'
 import { projectDesk } from './projectRoutes.ts'
 import { spaceDesk } from './spaceRoutes.ts'
 import { ModuleStates } from './supervisor/state.ts'
+import { Processes } from './supervisor/processes.ts'
 import { moduleDesk } from './moduleRoutes.ts'
 import { callDesk } from './callRoutes.ts'
 import { personDesk } from './personRoutes.ts'
@@ -61,10 +62,9 @@ import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
 import { RestartEnv, RestartHold, takeRestartReason, writeRestartReason, type RestartWhy } from './restartHold.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache, probe } from './manifests.ts'
-import { answered, gone, hostEnv, leaving, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, hostEnv, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
-import { portToHand } from './modulePorts.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
 import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
@@ -118,7 +118,7 @@ import {
   type Lifecycle,
   type Standing,
 } from './lifecycle.ts'
-import { installing, logFile, openRun, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
+import { installing, logFile, readyLog, startOfRun, tail, trim } from './moduleLog.ts'
 import { ensureKeepRunning, keepingOf } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
@@ -1818,6 +1818,21 @@ const staleness = new Staleness()
 let going = false
 
 /**
+ * The module processes this host runs (`supervisor/processes.ts`): the only place a module's script
+ * is run, and the only writer of the nursery's children. An end that is news goes to `ended`.
+ */
+const processes = new Processes({
+  states,
+  nursery,
+  addresses: () => ADDRESSES,
+  namedPorts,
+  startup,
+  manifests,
+  staleness,
+  onEnded: (id, at, code) => void ended(id, at, code),
+})
+
+/**
  * Ask once a second whether a module that somebody else was running has come
  * back, and when it has — or when its time is up — look properly, decide, and
  * tell the pages. After the time is up the deciding is the ordinary rule: a
@@ -2487,55 +2502,14 @@ async function whileStopped(id: string, url: string): Promise<void> {
   }
 }
 
-/**
- * Run one module's script. The only place this host does.
- *
- * Its output goes to the module's log, the child goes into the nursery, and
- * the host is told when it ends — see `ended`. Whatever was believed about the
- * module before (asleep, failed, behind its checkout) stops being believed: a
- * process started now runs the checkout as it is now.
- */
+/** Run one module's script: `Processes.run`, the only place this host does (`supervisor/processes.ts`). */
 function run(id: string, runnable: Runnable): Started {
-  const log = logFile(id)
-  let logged = true
-  try {
-    openRun(log)
-  } catch {
-    /* A log that cannot be written is not a reason to refuse to start. */
-    logged = false
-  }
-  const at = Date.now()
-  /* Run now — by a press, an update, or the ordinary rule — so no longer waited for. */
-  theirs.delete(id)
-  /* Any free port (protocol 2.65.0) for a module that reads `PORT=0` so, while nothing names its
-     port: it registers where it went (`anyPort.ts`). Any other keeps its port and the drift rules.
-     The port handed is one of the protocol's band, never 0, which the system fills from the range
-     other programs' servers are given theirs from (`modulePorts.ts`). */
-  const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
-  if (anyPort) {
-    const port = portToHand(namedPorts()) ?? 0
-    runnable = { ...runnable, port, command: `PORT=${port} ${runnable.script}` }
-  }
-  const ran = start(logged ? { ...runnable, log } : runnable, (code) => {
-    exits.set(id, code)
-    void ended(id, at, code)
-  })
-  if (!ran.ok || !ran.child) return ran
-  /* Whoever started it — the open kehikko, an update, a press: the timeline's start of it. */
-  startup.mark(`started ${id}`)
-  nursery.keep(id, { child: ran.child, at, url: runnable.url, ...(ran.token ? { token: ran.token } : {}) })
-  if (anyPort) ran.anyPort = true
-  manifests.forget(id)
-  states.ran(id, at)
-  staleness.fresh(id)
-  return ran
+  return processes.run(id, runnable)
 }
 
-/** Stop a module this host holds, on purpose: its exit is not news. */
+/** Stop a module this host holds, on purpose: its exit is not news (`Processes.halt`). */
 function halt(id: string): ReturnType<Nursery['stop']> {
-  runs.delete(id)
-  manifests.forget(id)
-  return nursery.stop(id)
+  return processes.halt(id)
 }
 
 /*
@@ -2559,21 +2533,15 @@ if (RESTART_FILE) {
   const leave = (signal: NodeJS.Signals) => {
     if (going) return
     going = true
-    const stopping = nursery.ids.filter((id) => registered.get(id)?.keep !== true)
-    /* Their exits are this host's doing, not news to act on. */
-    for (const id of stopping) runs.delete(id)
-    console.log(
-      `kehikko: ${signal} — the app is stopping this host`
-        + (stopping.length ? `; stopping the modules it started: ${stopping.join(', ')}` : '; it holds no modules to stop'),
-    )
-    void leaving(stopping.map((id) => nursery.release(id)).filter((held) => held !== null)).finally(() => process.exit(0))
+    void processes.leave(signal, (id) => registered.get(id)?.keep === true).finally(() => process.exit(0))
   }
   process.on('SIGTERM', () => leave('SIGTERM'))
   process.on('SIGHUP', () => leave('SIGHUP'))
 }
 
 /**
- * A process this host started has ended.
+ * A process this host started has ended, and it is news (`Processes` hands over only the run the
+ * host was still waiting on, and has forgotten what that process served).
  *
  * This is how a dead module stops looking alive without waiting for the
  * thirty-second watch: the runtime says so, once, and the host looks. Nothing
@@ -2588,10 +2556,6 @@ if (RESTART_FILE) {
  * it again if a kehikko still has it.
  */
 async function ended(id: string, at: number, code: number | null): Promise<void> {
-  if (runs.get(id) !== at) return
-  runs.delete(id)
-  /* What it served was that process's. */
-  manifests.forget(id)
   /* An update or a restart in hand already knows, and decides for itself. */
   if (working.has(id) || inHand.has(id)) return
   try {
