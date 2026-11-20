@@ -11,7 +11,6 @@ import {
   type TrackerColumns,
   type TrackerImage,
   type TrackerImageRefusal,
-  type TrackerDetailFacts,
   type TrackerMissing,
   type TrackerReading,
   type TrackerRefreshResult,
@@ -25,7 +24,7 @@ import type { Runner } from '../feedback.ts'
 import { epicsIn, listEpics, readEpic, readParts } from '../holdings.ts'
 import type { EpicPlace } from '../../src/host/trackerNews.ts'
 import { makeUnderRoot } from '../projectRoot.ts'
-import { closerLink, UNKNOWN, withContributors, type Adapter, type BoardsRead, type HeldBoard, type ListHow, type Me, type Probe, type Read, type Wanted } from './common.ts'
+import { closerLink, withContributors, type Adapter, type Me } from './common.ts'
 import { githubAdapter } from './github.ts'
 import { BRANCH_PAGES, branchesOn, columnsOn, gitlabAdapter } from './gitlab.ts'
 import { editTrackers, nextStep, startFresh, type Edit, type Edited } from './edit.ts'
@@ -35,13 +34,13 @@ import { detailCurrent, detailVersion } from './itemDetail.ts'
 import { EVERY_DEFAULT, listSources, readConfig, remotesNamed, remotesOf, sourceFor, sourceKey, sourcesOf, type Source } from './sources.ts'
 import { MODE_REFUSED, trackerModeOf, type TrackerListing, type TrackerMode } from '../../src/host/trackerSources.ts'
 import { hostPath } from '../hostData.ts'
-import { inScope, READS_DEFAULT, readsKey, writtenReads } from '../../src/host/trackerReads.ts'
+import { writtenReads } from '../../src/host/trackerReads.ts'
 import { basename } from 'node:path'
 import { because } from '../traffic.ts'
-
-/** An open change whose CI was still running when it was read: its checks finishing moves no `updatedAt`. */
-const checking = (row: TrackerRow): boolean =>
-  row.kind === 'change' && row.state === 'open' && (row.pipeline === 'running' || row.pipeline === 'pending')
+import { identity, rowIdentity } from './identity.ts'
+import { boardKey, boardsAfter, branchesAfter, keptRows, mergeRows, notFoundAfter, readOutcome, sourcesAfter, trimToReads, wantedIdentities } from './merge.ts'
+import { detailFor, planRead, WHOLE_EVERY_MS, type ReadPlan } from './readPlan.ts'
+import { readBoards, readBranches, readDetail, readSources, type Fetched } from './readSources.ts'
 
 /** Why a tracker read is made, for the record of traffic: whose project and how much of it. */
 export function trackerReason(root: string, scope: Scope): string {
@@ -151,14 +150,7 @@ const LOOKED_AT_MS = 30 * 60_000
 const ME_KNOWN_MS = 12 * 60 * 60_000
 /** How long a failure to say who they are is believed before asking again. */
 const ME_UNKNOWN_MS = 30 * 60_000
-/**
- * A source that reads only what changed is still listed whole this often: an
- * item deleted or moved away says nothing in a list of changes, and the held
- * rows are trimmed back to what a whole listing holds (Jalez/kehikko#318).
- */
-export const WHOLE_EVERY_MS = 24 * 60 * 60_000
-/** A read of only what changed asks from this long before the last one started, so nothing between falls through. */
-const SINCE_OVERLAP_MS = 2 * 60_000
+export { WHOLE_EVERY_MS }
 
 const storedSource = trackerSourceSchema.omit({ refreshing: true }).extend({
   /** When its last listing that read cleanly started: what a read of only what changed asks from (#318). */
@@ -181,14 +173,14 @@ const storedBoards = z.object({
   /** Why the boards could not be read, in the sentence a person is told; null when they were. */
   unreadable: z.string().max(LIMITS.REASON).nullable().default(null),
 })
-type StoredBoards = z.infer<typeof storedBoards>
+export type StoredBoards = z.infer<typeof storedBoards>
 /** A source's branch names, for an issue's related branches on a tracker that does not say them (GitLab). */
 const storedBranches = z.object({
   /** `sourceKey` of the source these are the branches of. */
   source: z.string(),
   names: z.array(z.string().min(1).max(LIMITS.BRANCH)).max(BRANCH_PAGES * 100),
 })
-type StoredBranches = z.infer<typeof storedBranches>
+export type StoredBranches = z.infer<typeof storedBranches>
 const fileSchema = z.object({
   version: z.literal(VERSION),
   at: z.string().nullable(),
@@ -207,7 +199,7 @@ const fileSchema = z.object({
   /** Each GitLab source's branch names, as last read (2.19.0). Absent in an older file: none known. */
   branches: z.array(storedBranches).max(LIMITS.TRACKER_SOURCES).default([]),
 })
-type Stored = z.infer<typeof fileSchema>
+export type Stored = z.infer<typeof fileSchema>
 
 const empty = (): Stored => ({ version: VERSION, at: null, fullAt: null, sources: [], rows: [], asked: [], detailed: [], notFound: [], boards: [], branches: [] })
 
@@ -253,10 +245,7 @@ function saveReading(projectPath: string, stored: Stored): void {
   renameSync(`${file}.tmp`, file)
 }
 
-/** A row's identity: one item however it is spelled. GitHub numbers are shared by issues and PRs. */
-const identity = (s: Pick<Source, 'tracker' | 'host' | 'repo'>, kind: 'issue' | 'change' | null, number: number) =>
-  `${sourceKey(s)}|${s.tracker === 'github' ? 'n' : (kind ?? 'issue')}|${number}`
-export const rowIdentity = (row: TrackerRow) => identity(row, row.kind, row.number)
+export { rowIdentity }
 
 /**
  * Give each issue the changes in the reading that declare it, and say it was
@@ -368,43 +357,6 @@ export function unsettledLines(r: {
     out.push(`tracker: ${ref} is still unread after a ${r.by} read of ${key} (${listing}; ${r.askedByName(key, id) ? 'asked by name' : 'not asked by name'})`)
   }
   return out
-}
-
-/**
- * The rows a reading keeps, at most `TRACKER_ROWS`: every row somebody names, then the rest newest
- * updated first, in the order they came. A ref read by name and then cut for room would be missing
- * at the next question and read again on every one (Jalez/kehikko#384).
- */
-function keptRows(rows: TrackerRow[], named: ReadonlySet<string>): TrackerRow[] {
-  if (rows.length <= LIMITS.TRACKER_ROWS) return rows
-  const unnamed = rows.filter((row) => !named.has(rowIdentity(row)))
-  const room = Math.max(0, LIMITS.TRACKER_ROWS - (rows.length - unnamed.length))
-  const roomFor = new Set(
-    unnamed
-      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-      .slice(0, room)
-      .map(rowIdentity),
-  )
-  return rows.filter((row) => named.has(rowIdentity(row)) || roomFor.has(rowIdentity(row))).slice(0, LIMITS.TRACKER_ROWS)
-}
-
-/** A board's identity across sources: one GitHub project may hold several repositories' items. */
-const boardKey = (b: Pick<HeldBoard, 'board' | 'boardUrl'>) => `${b.board}|${b.boardUrl ?? ''}`
-
-/** Boards `fresh` over `was`, by identity, fresh ones winning and first. */
-function unionBoards(was: readonly HeldBoard[], fresh: readonly HeldBoard[]): HeldBoard[] {
-  const out = new Map<string, HeldBoard>()
-  for (const b of [...fresh, ...was]) if (!out.has(boardKey(b))) out.set(boardKey(b), b)
-  return [...out.values()].slice(0, LIMITS.TRACKER_BOARDS)
-}
-
-/** Two reads of one source's boards as one: unreadable wins, since then none of them were seen. */
-function joinBoards(a: BoardsRead | undefined, b: BoardsRead | undefined): BoardsRead | undefined {
-  if (!a) return b
-  if (!b) return a
-  if ('unreadable' in a) return a
-  if ('unreadable' in b) return b
-  return { boards: unionBoards(a.boards, b.boards) }
 }
 
 /**
@@ -1167,9 +1119,16 @@ export class Trackers {
     return run
   }
 
+  /**
+   * One read, in its phases: what to ask (`planRead`), asking it (`readSources`, then the boards,
+   * branch names and detail a whole read reads apart), what that comes to beside what was held
+   * (`merge.ts`), and the roles, the log and the file.
+   */
   async #read(root: string, scope: Scope, by: ReadBy): Promise<TrackerRefreshResult> {
     const held = this.#of(root)
     const now = this.#now().toISOString()
+    const nowMs = Date.parse(now)
+    const whole = 'project' in scope
     const config = readConfig(root)
     const named = allEpicRefs(root)
 
@@ -1200,351 +1159,51 @@ export class Trackers {
       }
     }
 
-    /* What each source is asked: its listing on a whole read, and the named
-       refs the listing will not cover. */
-    const plan = new Map<string, { source: Source; list: boolean; wanted: Map<string, Wanted & { refs: string[] }> }>()
-    for (const source of sources) {
-      plan.set(sourceKey(source), { source, list: 'project' in scope && source.listed, wanted: new Map() })
-    }
-    for (const ref of refs) {
-      const source = sourceFor(sources, ref)
-      const name = readTrackerRef(ref)
-      if (!source || !name) continue
-      const id = identity(source, name.kind, name.number)
-      const entry = plan.get(sourceKey(source))!
-      const was = entry.wanted.get(id)
-      entry.wanted.set(id, { number: name.number, kind: name.kind, refs: [...(was?.refs ?? []), ref] })
-    }
+    const plan = planRead(sources, refs, whole)
+    const fetched = await readSources(plan, this.#adapters, {
+      whole,
+      by,
+      now,
+      nowMs,
+      held: new Map(held.stored.rows.map((row) => [rowIdentity(row), row])),
+      listedBefore: new Map(held.stored.sources.map((s) => [sourceKey(s), s])),
+      listLimit: this.#listLimit,
+    })
+    if (whole) await readBoards(sources, this.#adapters, fetched)
+    const branchesRead = whole ? await readBranches(sources, this.#adapters, fetched.failedOutright) : new Map<string, string[]>()
+    const { errors, listedHow, listedNow, fresh } = fetched
 
-    /* What each listed source's listing asks (#318): its `reads`, and, when it reads only what
-       changed and the last clean listing read the same, the instant to ask from. The person's
-       Refresh all is always whole. */
-    const storedWas = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
-    const nowMs = Date.parse(now)
-    const howOf = (source: Source): ListHow => {
-      const was = storedWas.get(sourceKey(source))
-      const reads = source.reads ?? READS_DEFAULT
-      const same = was?.readsKey === readsKey(source.reads)
-      const wholeRecently = was?.wholeAt ? nowMs - Date.parse(was.wholeAt) < WHOLE_EVERY_MS : false
-      const since = by !== 'press' && reads.since && same && was?.listedAt && wholeRecently
-        ? new Date(Date.parse(was.listedAt) - SINCE_OVERLAP_MS).toISOString()
-        : null
-      return { reads, since }
-    }
-    /**
-     * Whether a ref somebody names, held from an earlier read, is read again by name on this one.
-     * Everything is on the person's Refresh all, and on a read of a few refs (the item somebody has
-     * open). On the schedule, a held row is not read again when its source said what changed since
-     * (`covered`: a clean listing of only what changed, or a probe that found nothing updated) —
-     * except an open change whose CI is still running, since a check finishing moves no item's
-     * `updatedAt` — nor when it is a closed item older than the source reads (read once, then on
-     * demand: reopening it moves `updatedAt`, which the next listing of what changed sees).
-     */
-    const heldRows = new Map(held.stored.rows.map((row) => [rowIdentity(row), row]))
-    const readAgain = (source: Source, id: string, covered: boolean): boolean => {
-      if (!('project' in scope) || by === 'press') return true
-      const row = heldRows.get(id)
-      if (!row) return true
-      if (checking(row)) return true
-      if (covered) return false
-      return inScope(row, source.reads ?? READS_DEFAULT, nowMs)
-    }
-    /** Per source listed cleanly: whether it asked only for what changed. */
-    const listedHow = new Map<string, { since: boolean }>()
-
-    const errors = new Map<string, string | null>()
-    /** Sources whose read failed outright, as against one that read with a sentence (part of it unread). */
-    const failedOutright = new Set<string>()
-    const boardsRead = new Map<string, BoardsRead>()
-    /** Per source read: the sentence when it would not say who reviews, or null when it did. */
-    const peopleRead = new Map<string, string | null>()
-    const fresh: TrackerRow[] = []
-    const gone = new Set<string>()
-    const listedNow = new Set<string>()
-    /** Identities a read handed back without everything (`unread`): what was held of them is kept under the new fields. */
-    const thin = new Set<string>()
-    await Promise.all(
-      [...plan.values()].map(async ({ source, list, wanted }) => {
-        const adapter = this.#adapters[source.tracker]
-        const key = sourceKey(source)
-        if (!list && !wanted.size) return
-        let got: TrackerRow[] = []
-        let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
-        let partial: string | undefined
-        /* Whether this read knows everything in the source that changed since the last one. */
-        let covered = false
-        /* Asked before anything is read, so that what it keeps predates what is read after it. On
-           every whole-project read of a source with something to read, so the next one can skip. */
-        const probe: Probe = 'project' in scope && adapter.changed && (list || [...wanted.keys()].some((id) => heldRows.has(id)))
-          ? await adapter.changed(source).catch(() => UNKNOWN)
-          : UNKNOWN
-        if (list) {
-          const how = howOf(source)
-          if (how.since && probe.changed === false) {
-            /* Nothing in the source was updated since the last listing: there is nothing to list. */
-            covered = true
-            listedHow.set(key, { since: true })
-          } else {
-            const read = await adapter.list(source, this.#listLimit, now, how)
-            if (!read.ok) {
-              failedOutright.add(key)
-              return errors.set(key, read.why)
-            }
-            got = read.rows
-            /* A listing that stopped part way did not see everything recent: the rows it did not reach
-               stay. So do a listing of only what changed: the rest did not change. */
-            if (read.partial) partial = read.partial
-            else {
-              listedHow.set(key, { since: Boolean(how.since) })
-              if (!how.since) listedNow.add(key)
-              covered = Boolean(how.since) && !read.unread
-              if (!read.unread) probe.keep()
-            }
-            unread = read.unread
-            if (read.boards) boardsRead.set(key, read.boards)
-            peopleRead.set(key, read.people?.unreadable ?? null)
-          }
-        } else if (probe.changed === false) covered = true
-        const have = new Set(got.map(rowIdentity))
-        const rest = [...wanted.entries()].filter(([id]) => !have.has(id) && readAgain(source, id, covered)).map(([id, w]) => ({ ...w, id }))
-        /* And the source's open changes whose CI was still running at the last read, named or not:
-           their checks finishing is news no listing of what changed carries. Batched with the rest. */
-        if ('project' in scope) {
-          for (const [id, row] of heldRows) {
-            if (sourceKey(row) !== key || have.has(id) || wanted.has(id) || !checking(row)) continue
-            rest.push({ number: row.number, kind: source.tracker === 'github' ? null : row.kind, refs: [row.ref], id })
-          }
-        }
-        if (rest.length) {
-          const read: Read = await adapter.refs(source, rest, now)
-          if (!read.ok) {
-            failedOutright.add(key)
-            return errors.set(key, read.why)
-          }
-          got = [...got, ...read.rows]
-          if (read.unread) unread = unread ? { why: unread.why, refs: [...unread.refs, ...read.unread.refs] } : read.unread
-          if (read.people || !peopleRead.has(key)) peopleRead.set(key, read.people?.unreadable ?? null)
-          const joined = joinBoards(boardsRead.get(key), read.boards)
-          if (joined) boardsRead.set(key, joined)
-        }
-        const refused = new Set((unread?.refs ?? []).map((r) => identity(source, r.kind, r.number)))
-        errors.set(key, unread?.why ?? partial ?? null)
-        /* An unlisted source read cleanly by name: the probe it was asked after stands. */
-        if (!list && !unread && probe.changed) probe.keep()
-        for (const id of refused) thin.add(id)
-        fresh.push(...got)
-        /* Asked for, answered for, and not among the rows: either the tracker
-           said so, or what it said would not make a row. Either way it is not
-           asked again until something names it afresh, so no question and no
-           read can chase each other. Only what was asked: a held row this read
-           did not ask again is not gone. */
-        const made = new Set(got.map(rowIdentity))
-        const askedNow = new Set([...have, ...rest.map((w) => w.id)])
-        for (const [id] of wanted) if (askedNow.has(id) && !made.has(id) && !refused.has(id)) gone.add(id)
-      }),
-    )
-
-    /* A whole read asks a tracker that reads its boards apart (GitLab) for
-       them: one call per source that read cleanly. A failure keeps the boards
-       held before, and fails nothing. */
-    if ('project' in scope) {
-      await Promise.all(
-        sources.map(async (source) => {
-          const key = sourceKey(source)
-          const boards = this.#adapters[source.tracker].boards
-          /* Boards move rarely: read on a whole listing (the first, the daily one, Refresh all), not on one of what changed. */
-          if (!boards || failedOutright.has(key) || boardsRead.has(key) || listedHow.get(key)?.since) return
-          const got = await boards(source).catch(() => null)
-          if (got) boardsRead.set(key, got)
-        }),
-      )
-    }
-
-    /* And its branch names, for an issue's related branches (GitLab, 2.19.0):
-       a listing of them per source that read cleanly, never a request per
-       issue. A failure keeps the names held before. */
-    const branchesRead = new Map<string, string[]>()
-    if ('project' in scope) {
-      await Promise.all(
-        sources.map(async (source) => {
-          const key = sourceKey(source)
-          const read = this.#adapters[source.tracker].branches
-          if (!read || failedOutright.has(key)) return
-          const got = await read(source).catch(() => null)
-          if (got) branchesRead.set(key, got)
-        }),
-      )
-    }
-
-    /* Merge: fresh rows replace their identities; a listed source's rows that
-       neither its new listing nor anybody's ref still names are dropped, so
-       the reading does not grow forever. Rows of a failed source stay. */
-    const wantedIds = new Set<string>()
-    for (const { wanted } of plan.values()) for (const id of wanted.keys()) wantedIds.add(id)
-    for (const ref of [...named, ...held.stored.asked]) {
-      const source = sourceFor(sources, ref)
-      const name = readTrackerRef(ref)
-      if (source && name) wantedIds.add(identity(source, name.kind, name.number))
-    }
-    const byId = new Map<string, TrackerRow>()
-    const stillRead = new Set(sources.map(sourceKey))
-    for (const row of held.stored.rows) {
-      const key = sourceKey(row)
-      /* A source that is no longer read (removed, or turned off) takes its rows with it. */
-      if (!stillRead.has(key)) continue
-      if (listedNow.has(key) && !wantedIds.has(rowIdentity(row))) continue
-      byId.set(rowIdentity(row), row)
-    }
-    for (const fromRead of fresh) {
-      const was = byId.get(rowIdentity(fromRead))
-      /* Read, but not everything of it (a deeper query timed out): what it says wins, what it did not say stays. */
-      const row = was && thin.has(rowIdentity(fromRead)) ? { ...was, ...fromRead } : fromRead
-      /* A detail read earlier survives a summary read, unless the ref moved since (`detailCurrent`). */
-      const detail = was?.detail && detailCurrent(row, was.detail) ? was.detail : undefined
-      byId.set(rowIdentity(row), detail ? { ...row, detail } : row)
-    }
-
-    /* A source's rows its `reads` leave out go, unless somebody names them; and one that reads
-       only what changed is trimmed to what a whole listing of it would hold, newest updated
-       first, so the held rows do not grow without end (#318). Only for a source that listed
-       cleanly this time: one that failed keeps everything it had. */
-    {
-      const nowAt = Date.parse(now)
-      const bySource = new Map(sources.map((s) => [sourceKey(s), s]))
-      const counts = new Map<string, number>()
-      const newestFirst = [...byId.values()].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-      for (const row of newestFirst) {
-        const key = sourceKey(row)
-        const source = bySource.get(key)
-        const how = listedHow.get(key)
-        if (!source || !how) continue
-        const id = rowIdentity(row)
-        if (wantedIds.has(id)) continue
-        if (!inScope(row, source.reads ?? READS_DEFAULT, nowAt)) {
-          byId.delete(id)
-          continue
-        }
-        if (!how.since) continue
-        const per = `${key}|${row.kind}`
-        const n = (counts.get(per) ?? 0) + 1
-        counts.set(per, n)
-        if (n > this.#listLimit) byId.delete(id)
-      }
-    }
+    const wantedIds = wantedIdentities(plan, [...named, ...held.stored.asked], sources)
+    const byId = trimToReads(mergeRows(held.stored.rows, fresh, { sources, listedNow, wanted: wantedIds, thin: fetched.thin }), {
+      sources,
+      listedHow,
+      wanted: wantedIds,
+      nowMs,
+      listLimit: this.#listLimit,
+    })
 
     /* Detail, for the refs somebody asked the detail of and that this read covers. */
     const detailed = new Set([...held.stored.detailed, ...[...held.queuedDetail].filter((r) => refs.includes(r))])
     held.queuedDetail = new Set([...held.queuedDetail].filter((r) => !refs.includes(r)))
-    const needDetail = new Map<string, { source: Source; rows: TrackerRow[] }>()
-    for (const ref of detailed) {
-      if (!refs.includes(ref) && !('project' in scope)) continue
-      const source = sourceFor(sources, ref)
-      const name = readTrackerRef(ref)
-      if (!source || !name || errors.get(sourceKey(source))) continue
-      const row = byId.get(identity(source, name.kind, name.number))
-      if (!row || detailCurrent(row)) continue
-      const entry = needDetail.get(sourceKey(source)) ?? { source, rows: [] }
-      entry.rows.push(row)
-      needDetail.set(sourceKey(source), entry)
-    }
-    await Promise.all(
-      [...needDetail.values()].map(async ({ source, rows }) => {
-        const got = await this.#adapters[source.tracker].detail(source, rows.slice(0, LIMITS.TRACKER_ASK), now)
-        if (!(got instanceof Map)) return errors.set(sourceKey(source), got.why)
-        for (const row of rows) {
-          const facts: TrackerDetailFacts | undefined = got.get(row.ref)
-          if (facts) byId.set(rowIdentity(row), { ...row, detail: facts })
-        }
-      }),
-    )
+    const needDetail = detailFor(detailed, { refs, whole, sources, rows: byId, failed: (key) => Boolean(errors.get(key)) })
+    await readDetail(needDetail, this.#adapters, byId, errors, now)
 
-    const stored = new Map(held.stored.sources.map((s) => [sourceKey(s), s]))
-    const notFound = new Set([...held.stored.notFound].filter((id) => !fresh.some((r) => rowIdentity(r) === id)))
-    for (const id of gone) notFound.add(id)
+    const notFound = notFoundAfter(held.stored.notFound, fresh, fetched.gone)
     const asked = 'refs' in scope ? [...new Set([...held.stored.asked, ...scope.refs])] : held.stored.asked
+    const boards = boardsAfter(sources, held.stored.boards, fetched.boardsRead, listedNow)
+    const branches = branchesAfter(sources, held.stored.branches, branchesRead)
 
-    const boardsWas = new Map(held.stored.boards.map((b) => [b.source, b]))
-    const boards: StoredBoards[] = []
-    for (const source of sources) {
-      const key = sourceKey(source)
-      const was = boardsWas.get(key)
-      const got = boardsRead.get(key)
-      if (!got) {
-        if (was) boards.push(was)
-        continue
-      }
-      if ('unreadable' in got) {
-        boards.push({ source: key, boards: [], unreadable: got.unreadable.slice(0, LIMITS.REASON) })
-        continue
-      }
-      /* A listing saw everything recent, so it replaces; a read by name saw a few, so it adds. */
-      const whole = listedNow.has(key) || source.tracker !== 'github'
-      boards.push({ source: key, boards: whole ? got.boards.slice(0, LIMITS.TRACKER_BOARDS) : unionBoards(was?.boards ?? [], got.boards), unreadable: null })
-    }
-
-    const branchesWas = new Map(held.stored.branches.map((b) => [b.source, b]))
-    const branches: StoredBranches[] = []
-    for (const source of sources) {
-      const key = sourceKey(source)
-      const got = branchesRead.get(key)
-      if (got) branches.push({ source: key, names: got.slice(0, BRANCH_PAGES * 100) })
-      else if (branchesWas.has(key)) branches.push(branchesWas.get(key)!)
-    }
-
-    /* Who the person is on each host read, and their roles over the whole reading. */
-    const meBy = new Map<string, string>()
-    for (const source of sources) {
-      const key = sourceKey(source)
-      /* A source not read, or whose read failed, has its own sentence already. */
-      if ((!plan.get(key)?.list && !plan.get(key)?.wanted.size) || errors.get(key)) continue
-      const me = await this.#whoAmI(source)
-      if (!me) continue
-      if ('login' in me) {
-        meBy.set(`${source.tracker}|${source.host}`, me.login)
-        const note = peopleRead.get(key)
-        if (note) held.peopleNotes.set(key, { about: 'reviewers', said: note })
-        else if (note === null || held.peopleNotes.get(key)?.about === 'me') held.peopleNotes.delete(key)
-      } else {
-        held.peopleNotes.set(key, { about: 'me', said: clip(`My role needs to know who you are on ${source.host}: ${me.why}`) })
-      }
-    }
+    const meBy = await this.#meBy(sources, plan, fetched, held)
     const roled = [...byId.values()].map((row) => {
       const me = meBy.get(`${row.tracker}|${row.host}`)
       return me ? withRoles(row, me) : row
     })
 
-    /** When each source last listed cleanly, whole or only what changed, and what it read. */
-    const listedSaid = (key: string, was: (typeof held.stored.sources)[number] | undefined) => {
-      const how = listedHow.get(key)
-      const source = sources.find((s) => sourceKey(s) === key)
-      if (!how || !source) {
-        return {
-          ...(was?.listedAt !== undefined ? { listedAt: was.listedAt } : {}),
-          ...(was?.wholeAt !== undefined ? { wholeAt: was.wholeAt } : {}),
-          ...(was?.readsKey !== undefined ? { readsKey: was.readsKey } : {}),
-        }
-      }
-      return { listedAt: now, wholeAt: how.since ? (was?.wholeAt ?? null) : now, readsKey: readsKey(source.reads) }
-    }
     held.stored = {
       version: VERSION,
       at: now,
-      fullAt: 'project' in scope ? now : held.stored.fullAt,
-      sources: sources.map((s) => {
-        const was = stored.get(sourceKey(s))
-        const key = sourceKey(s)
-        const error = errors.has(key) ? errors.get(key)! : (was?.error ?? null)
-        return {
-          tracker: s.tracker,
-          host: s.host,
-          repo: s.repo,
-          default: s.default,
-          listed: s.listed,
-          at: errors.has(key) && errors.get(key) === null ? now : (was?.at ?? null),
-          error: error === null ? null : error.slice(0, LIMITS.REASON),
-          ...listedSaid(key, was),
-        }
-      }),
+      fullAt: whole ? now : held.stored.fullAt,
+      sources: sourcesAfter(sources, held.stored.sources, { errors, listedHow, now }),
       rows: keptRows(withBranches(placedOnBoards(withStacks(backLinked(roled)), boards), branches), wantedIds),
       asked: asked.slice(-LIMITS.TRACKER_ROWS),
       detailed: [...detailed].slice(-LIMITS.TRACKER_ROWS),
@@ -1575,19 +1234,31 @@ export class Trackers {
     } catch {
       /* A notice that could not be worked out is not a reason to fail the read. */
     }
+    return readOutcome(errors, now)
+  }
 
-    const failed = [...errors.entries()].filter(([, why]) => why !== null)
-    if (failed.length) {
-      return {
-        outcome: 'failed',
-        at: now,
-        why: failed
-          .map(([key, why]) => `${key.split('|').slice(1).join('/')}: ${why}`)
-          .join(' ')
-          .slice(0, LIMITS.REASON),
+  /**
+   * Who the person is on each host read, by `tracker|host`, for their roles over the whole reading;
+   * and each source's `peopleNotes`: why who they are, or who reviews, could not be said.
+   */
+  async #meBy(sources: readonly Source[], plan: ReadPlan, fetched: Fetched, held: Held): Promise<Map<string, string>> {
+    const meBy = new Map<string, string>()
+    for (const source of sources) {
+      const key = sourceKey(source)
+      /* A source not read, or whose read failed, has its own sentence already. */
+      if ((!plan.get(key)?.list && !plan.get(key)?.wanted.size) || fetched.errors.get(key)) continue
+      const me = await this.#whoAmI(source)
+      if (!me) continue
+      if ('login' in me) {
+        meBy.set(`${source.tracker}|${source.host}`, me.login)
+        const note = fetched.peopleRead.get(key)
+        if (note) held.peopleNotes.set(key, { about: 'reviewers', said: note })
+        else if (note === null || held.peopleNotes.get(key)?.about === 'me') held.peopleNotes.delete(key)
+      } else {
+        held.peopleNotes.set(key, { about: 'me', said: clip(`My role needs to know who you are on ${source.host}: ${me.why}`) })
       }
     }
-    return { outcome: 'read', at: now, why: '' }
+    return meBy
   }
 
   /**

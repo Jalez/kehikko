@@ -2,6 +2,7 @@ import { LayoutGrid, Settings as Gear } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button.tsx'
+import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { chordSaid, onMac, openSettings } from '@/host/agentSettings.ts'
@@ -9,10 +10,10 @@ import type { Canvas } from '@/host/canvases.ts'
 import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
 import type { Part, PartsEdit } from '@/host/parts.ts'
-import { attention } from '@/host/moduleMenu.ts'
+import { modulesButton } from '@/host/moduleMenu.ts'
 import { onOpenModuleList, type ModuleListAsk } from '@/host/moduleList.ts'
 import type { RegistryView } from '@/host/registry.ts'
-import { InboxCount, type InboxCountView } from './InboxCount.tsx'
+import { ATTENTION, InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
 import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
@@ -174,7 +175,7 @@ export function Bar({
 }) {
   const presences = registry?.presences ?? []
   const onCanvas = new Set(placed)
-  const needing = presences.filter((p) => attention(p) !== null).length
+  const modules = modulesButton(presences)
 
   return (
     /* One provider for the strip. Every `Hint` inside it brings its own as a
@@ -322,19 +323,6 @@ export function Bar({
         {/* The project's shared tracker reading: its age, and "Refresh all". */}
         {tracker ? <TrackerReading tracker={tracker} onRefresh={onRefreshTrackers} /> : null}
 
-        {/* The one number worth putting on the frame itself: how many modules
-            need something from a person. Not how many are not running — modules
-            sleep when nothing needs them, so that number was most of the list
-            most of the time and said nothing. See `attention`. */}
-        {needing > 0 ? (
-          <Hint label="modules that need something from you — open Kehikko modules to see which, and what to do">
-            <span className="cursor-default text-[11px] text-amber-600 dark:text-amber-400">
-              {needing}
-              <span className="max-[640px]:sr-only"> {needing === 1 ? 'needs' : 'need'} attention</span>
-            </span>
-          </Hint>
-        ) : null}
-
         {/*
          * There were two buttons here: Headers (whether every container's
          * header and footer hide until the pointer is over it) and light/dark.
@@ -405,17 +393,40 @@ export function Bar({
          * registered, which are the two moments somebody would have pressed it.
          */}
 
+        {/*
+         * The module list. When a module needs something from the person
+         * (`attention`), the button carries it: a "!" in the warning colour
+         * on its corner, and the label says how many and which. That used to
+         * be a sentence of its own in the strip ("1 needs attention"), away
+         * from the list it was about; on the button, it is where pressing
+         * leads to them, and the list draws them first ("Needs you"). Not how
+         * many are not running — modules sleep when nothing needs them, so
+         * that number was most of the list most of the time and said nothing.
+         */}
         <ModuleListPopover>
-          <Hint label="Kehikko modules" align="end">
+          <Hint label={modules.label} align="end">
             <PopoverTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Kehikko modules"
+                aria-label={modules.label}
                 data-tour="modules"
-                className="text-muted-foreground hover:text-foreground size-6"
+                data-needing={modules.needing > 0 ? modules.needing : undefined}
+                className={cn(
+                  'hover:text-foreground relative size-6',
+                  modules.needing > 0 ? ATTENTION : 'text-muted-foreground',
+                )}
               >
                 <LayoutGrid className="size-3" />
+                {modules.needing > 0 ? (
+                  <span
+                    aria-hidden="true"
+                    data-modules-mark=""
+                    className="absolute -top-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full bg-amber-500 text-[9px] leading-none font-bold text-white dark:bg-amber-400 dark:text-black"
+                  >
+                    !
+                  </span>
+                ) : null}
               </Button>
             </PopoverTrigger>
           </Hint>

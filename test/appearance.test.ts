@@ -21,6 +21,7 @@ import {
 } from '../src/host/appearance.ts'
 import { AppearanceStore, adoptAppearance, paint } from '../src/host/appearanceStore.ts'
 import { SETTINGS_SECTIONS, SETTINGS_TARGETS, settingsLinkOf } from '../src/host/agentSettings.ts'
+import { doorSource } from './doorSource.ts'
 
 /*
  * Settings › Appearance (`src/host/appearance.ts`): one setting for every
@@ -175,7 +176,7 @@ describe('kept on this machine, changed only by the page', () => {
   })
 
   test('no MCP tool reads or changes it', () => {
-    const mcp = readFileSync(join(ROOT, 'server/mcp.ts'), 'utf8')
+    const mcp = doorSource()
     expect(mcp).not.toMatch(/appearance/i)
   })
 })

@@ -43,6 +43,17 @@ describe('which modules take any port', () => {
     expect(takesAnyPort(checkout(null))).toBe(false)
     expect(takesAnyPort(undefined)).toBe(false)
   })
+
+  test('a ready-built bundle, which has no node_modules, is read from its bundle.json', () => {
+    const bundle = (protocol: string) => {
+      const dir = mkdtempSync(join(tmpdir(), 'kehikot-anyport-bundle-'))
+      writeFileSync(join(dir, 'bundle.json'), JSON.stringify({ id: 'kehikot.source', version: '1.5.6', protocol }))
+      return dir
+    }
+    expect(installedProtocol(bundle('2.106.0'))).toBe('2.106.0')
+    expect(takesAnyPort(bundle('2.106.0'))).toBe(true)
+    expect(takesAnyPort(bundle('2.64.0'))).toBe(false)
+  })
 })
 
 describe('found where it registered, as the process this host started', () => {

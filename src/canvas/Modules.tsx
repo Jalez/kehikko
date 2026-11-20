@@ -117,7 +117,7 @@ export function ModuleList({
    * on every row, installed or not; the introduction is read without running the module.
    */
   onIntro?(id: string, about: IntroAbout): void
-  /** The rows open when the menu opens; none by default. A test opens them. */
+  /** The rows open when the menu opens; by default, the ones that need the person. A test opens them. */
   openAtFirst?: readonly string[] | 'all'
 }) {
   const [query, setQuery] = useState('')
@@ -130,8 +130,13 @@ export function ModuleList({
   const official = useOfficial(onLookAgain)
   /* Where each official module runs from (Kehikko development): said on its row when it matters. */
   const development = useDevelopment()
-  /* Which rows are open: kept for as long as the menu is (the popover unmounts this on close), never stored. */
-  const [opened, setOpened] = useState<ReadonlySet<string> | 'all'>(() => (openAtFirst === 'all' ? 'all' : new Set(openAtFirst ?? [])))
+  /* Which rows are open: kept for as long as the menu is (the popover unmounts this on close), never stored.
+     A module that needs the person opens with the list, so its sentence (what to do) is the first thing read. */
+  const [opened, setOpened] = useState<ReadonlySet<string> | 'all'>(() =>
+    openAtFirst === 'all'
+      ? 'all'
+      : new Set(openAtFirst ?? (registry?.presences ?? []).filter((presence) => attention(presence) !== null).map((presence) => presence.id)),
+  )
   const isOpen = (id: string) => opened === 'all' || opened.has(id)
   const setRow = (id: string, to: boolean, every: readonly string[]) =>
     setOpened((was) => {

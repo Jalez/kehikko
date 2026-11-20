@@ -14,6 +14,7 @@ import { inside, moduleSettingsDesk, Passes, relativeFile, type SettingsModule }
 import { Openness } from '../server/open.ts'
 import { addProject } from '../server/projects.ts'
 import { controlFor, linesOf, listOf, numberOf, savedSaid, settingsPlaceFor, settingsText, valueSaid } from '../src/host/moduleSettings.ts'
+import { doorSource } from './doorSource.ts'
 
 /**
  * A module's settings from the host's side (protocol 2.15.0): the person's pass — minted only on
@@ -106,7 +107,7 @@ describe('the pass', () => {
     expect(at - route).toBeGreaterThan(0)
     expect(at - route).toBeLessThan(400)
     /* And the door is never handed a way to change one. */
-    const mcpSource = readFileSync(join(import.meta.dir, '..', 'server', 'mcp.ts'), 'utf8')
+    const mcpSource = doorSource()
     expect(mcpSource.includes('moduleSettings.set')).toBe(false)
   })
 })

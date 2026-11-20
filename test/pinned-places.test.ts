@@ -27,6 +27,7 @@ import {
   type PinTarget,
   type StoredPin,
 } from '../src/host/pinnedPlaces.ts'
+import { doorSource } from './doorSource.ts'
 
 /*
  * Pinned places: the rules (`src/host/pinnedPlaces.ts`) and the store
@@ -312,7 +313,7 @@ describe('the door', () => {
   })
 
   test('no door tool pins or unpins: the door never reaches the store’s writer', async () => {
-    const source = await Bun.file(join(import.meta.dir, '../server/mcp.ts')).text()
+    const source = doorSource()
     expect(source).not.toMatch(/editPinnedPlaces/)
   })
 })
