@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path'
 import { PROJECT_FILE, projectFile, readProjectFile, withProjectFileIgnored } from 'kehikot-module-protocol'
 
 import { makeUnderRoot, projectRootExists } from './projectRoot.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 
 /**
  * A project's permanent id, and the one file this host writes at the top of a
@@ -115,6 +116,7 @@ function keepOutOfGit(root: string): void {
 export function projectFileTracked(root: string): boolean {
   try {
     const run = Bun.spawnSync(['git', '-C', root, 'ls-files', '--error-unmatch', `.kehikot/${PROJECT_FILE}`], {
+      env: QUIET_ENV,
       stdout: 'ignore',
       stderr: 'ignore',
     })

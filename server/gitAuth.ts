@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 
+import { QUIET_ENV } from './quietEnv.ts'
+
 /**
  * Why a git command that talked to a remote failed, in words a person can act
  * on. The host never prompts (`QUIET_ENV`: no terminal prompt, ssh in
@@ -207,7 +209,7 @@ function remoteOfCheckout(argv: readonly string[]): string | null {
   if (!dir) return null
   const name = argv.includes('upstream') ? 'upstream' : 'origin'
   try {
-    const run = Bun.spawnSync(['git', '-C', dir, 'remote', 'get-url', name], { stdout: 'pipe', stderr: 'ignore', stdin: 'ignore', timeout: 3_000 })
+    const run = Bun.spawnSync(['git', '-C', dir, 'remote', 'get-url', name], { env: QUIET_ENV, stdout: 'pipe', stderr: 'ignore', stdin: 'ignore', timeout: 3_000 })
     return run.exitCode === 0 ? run.stdout.toString().trim() || null : null
   } catch {
     return null
