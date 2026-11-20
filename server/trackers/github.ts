@@ -12,7 +12,7 @@ import {
   type TrackerRow,
 } from 'kehikot-module-protocol'
 
-import type { Runner } from '../feedback.ts'
+import type { Ran, Runner } from '../feedback.ts'
 import {
   chunks,
   clip,
@@ -42,6 +42,7 @@ import {
   type Me,
   type Probe,
   type Read,
+  type Wanted,
   UNKNOWN,
 } from './common.ts'
 import { closedSince } from '../../src/host/trackerReads.ts'
@@ -726,240 +727,289 @@ export function lacksProjectScope(answer: unknown, ran: { err: string; out: stri
   return /read:project/.test(`${ran.err}\n${ran.out}`) && !Object.keys(obj(obj(answer).data)).length
 }
 
-export function githubAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
-  /* Each call is given the host's learned limit, and teaches it (Jalez/kehikko#317). */
-  const timed = pace.runner(run, clock)
-  const gh = (args: string[], source: Source) => timed(['gh', ...args], source.host).then((ran) => ({ ran, source }))
+/**
+ * What every call of one GitHub adapter goes through: its runner, paced per host (each call is
+ * given the host's learned limit, and teaches it, Jalez/kehikko#317), the clock, the pace, the
+ * ETags of its conditional requests, and what it learned of each host. The adapter's parts below
+ * each take one; `githubAdapter` makes it and puts them together.
+ */
+interface GithubClient {
+  clock: () => number
+  pace: Pace
+  timed: (argv: string[], host: string) => Promise<Ran>
+  probes: ReturnType<typeof etags>
   /** Hosts that refused `read:project`, until when that is believed. */
-  const noScope = new Map<string, number>()
+  noScope: Map<string, number>
   /** Hosts that have no `linkedBranches` (an older Enterprise Server), until when that is believed. */
-  const noBranches = new Map<string, number>()
-  const believedNot = (map: Map<string, number>, host: string) => {
-    const until = map.get(host)
-    return until !== undefined && clock() < until
-  }
+  noBranches: Map<string, number>
+}
 
-  /**
-   * One GraphQL query, with the boards when the host is believed to show them,
-   * and again without them when it refuses the scope; with linked branches
-   * unless the host is believed not to have them, and again without them when
-   * it says it has not. Says which boards it got.
-   */
-  async function graph(source: Source, build: (boards: boolean, branches: boolean) => string) {
-    const call = (query: string) => {
-      const args = ['api', 'graphql', '-f', `query=${query}`]
-      if (source.host !== 'github.com') args.push('--hostname', source.host)
-      return gh(args, source).then(({ ran }) => ({ ran, answer: parsed(ran) }))
+function githubClient(run: Runner, clock: () => number, pace: Pace): GithubClient {
+  return { clock, pace, timed: pace.runner(run, clock), probes: etags(), noScope: new Map(), noBranches: new Map() }
+}
+
+const gh = (hub: GithubClient, args: string[], source: Source) => hub.timed(['gh', ...args], source.host).then((ran) => ({ ran, source }))
+const believedNot = (hub: GithubClient, map: Map<string, number>, host: string) => {
+  const until = map.get(host)
+  return until !== undefined && hub.clock() < until
+}
+const notOwnerRepo = (source: Source) => source.repo.split('/').length !== 2
+
+/**
+ * One GraphQL query, with the boards when the host is believed to show them,
+ * and again without them when it refuses the scope; with linked branches
+ * unless the host is believed not to have them, and again without them when
+ * it says it has not. Says which boards it got.
+ */
+async function graph(hub: GithubClient, source: Source, build: (boards: boolean, branches: boolean) => string) {
+  const call = (query: string) => {
+    const args = ['api', 'graphql', '-f', `query=${query}`]
+    if (source.host !== 'github.com') args.push('--hostname', source.host)
+    return gh(hub, args, source).then(({ ran }) => ({ ran, answer: parsed(ran) }))
+  }
+  /* The branches first: a host without the field refuses every query that names it, boards or not. */
+  const ask = async (boards: boolean) => {
+    const branches = !believedNot(hub, hub.noBranches, source.host)
+    const got = await call(build(boards, branches))
+    if (!branches || !lacksLinkedBranches(got.answer, got.ran)) return got
+    hub.noBranches.set(source.host, hub.clock() + SCOPE_RECHECK_MS)
+    return call(build(boards, false))
+  }
+  if (!believedNot(hub, hub.noScope, source.host)) {
+    const first = await ask(true)
+    if (!lacksProjectScope(first.answer, first.ran)) {
+      hub.noScope.delete(source.host)
+      return { ...first, boards: true }
     }
-    /* The branches first: a host without the field refuses every query that names it, boards or not. */
-    const ask = async (boards: boolean) => {
-      const branches = !believedNot(noBranches, source.host)
-      const got = await call(build(boards, branches))
-      if (!branches || !lacksLinkedBranches(got.answer, got.ran)) return got
-      noBranches.set(source.host, clock() + SCOPE_RECHECK_MS)
-      return call(build(boards, false))
+    hub.noScope.set(source.host, hub.clock() + SCOPE_RECHECK_MS)
+  }
+  return { ...(await ask(false)), boards: false }
+}
+
+const boardsRead = (boards: boolean, items: readonly unknown[]): BoardsRead =>
+  boards ? { boards: boardsSeen(items) } : { unreadable: NEEDS_PROJECT_SCOPE }
+
+/**
+ * The repository's newest updated issue or pull request (GitHub's issues list holds both), asked
+ * conditionally: 304, free of the rate limit, when nothing was updated since the probe kept.
+ */
+async function changed(hub: GithubClient, source: Source): Promise<Probe> {
+  if (notOwnerRepo(source)) return UNKNOWN
+  const path = `repos/${source.repo}/issues?state=all&sort=updated&direction=desc&per_page=1`
+  const args = ['gh', 'api', path, ...(source.host !== 'github.com' ? ['--hostname', source.host] : [])]
+  return hub.probes.ask((argv) => hub.timed(argv, source.host), args, `${source.host}|${path}`)
+}
+
+async function me(hub: GithubClient, host: string): Promise<Me> {
+  const args = ['gh', 'api', 'user']
+  if (host !== 'github.com') args.push('--hostname', host)
+  const ran = await hub.timed(args, host)
+  const who = ran.code === 0 ? login(parsed(ran)) : ''
+  if (who) return { login: who }
+  return { why: ran.code === 0 ? `gh did not say who is logged in to ${host}.` : trouble(ran, 'gh', host) }
+}
+
+/** What the passes of one listing have gathered: the items of each half, whether the boards were seen, and why it stopped part way. */
+interface Listed {
+  issues: unknown[]
+  pulls: unknown[]
+  boards: boolean
+  partial?: string
+}
+
+/**
+ * One half's page of a pass into `into`, and the cursor of its next page — or false when it is
+ * done: the half was not asked (`was` false), it has no next page, it reached an item updated
+ * before the pass's `updatedFrom`, or it read `limit` since the pass started (`from`).
+ */
+function nextCursor(connection: Record<string, unknown>, into: unknown[], was: string | null | false, from: number, pass: ListPass, limit: number): string | null | false {
+  if (was === false) return false
+  const got = nodes(connection)
+  const cutoff = pass.updatedFrom ? Date.parse(pass.updatedFrom) : null
+  /* An item without a time is kept: nothing says it is older. */
+  const fresh = cutoff === null ? got : got.filter((one) => !(Date.parse(str(obj(one).updatedAt)) < cutoff))
+  into.push(...fresh)
+  const info = obj(connection.pageInfo)
+  const cursor = str(info.endCursor)
+  const older = fresh.length < got.length
+  return info.hasNextPage === true && !older && into.length - from < limit && CURSOR.test(cursor) ? cursor : false
+}
+
+/**
+ * One listing pass, page by page, into `into`. With
+ * `updatedFrom`, newest updated first, and a half stops at the first
+ * item updated before it. A page that fails after the first item was
+ * read keeps what was read (`partial`). The sentence why when the pass failed outright.
+ */
+async function listPass(
+  hub: GithubClient,
+  source: Source,
+  limit: number,
+  want: { issues: boolean; pulls: boolean },
+  into: Listed,
+  pass: ListPass,
+): Promise<string | null> {
+  const { issues, pulls } = into
+  const start = { issues: issues.length, pulls: pulls.length }
+  let after: { issues: string | null | false; pulls: string | null | false } = {
+    issues: want.issues ? null : false,
+    pulls: want.pulls ? null : false,
+  }
+  let pages = 0
+  while (after.issues !== false || after.pulls !== false) {
+    /* As many a page as the host answers comfortably; a page that ran over is asked again smaller.
+       A pass from an instant starts small: GitHub filters pull requests by nothing but order, so a
+       full first page would bring fifty pull requests to find the two that changed. */
+    const size = Math.min(hub.pace.size(source.host, PAGE), pass.sinceLast && pages === 0 ? FIRST_SINCE_PAGE : PAGE)
+    pages += 1
+    const got = await graph(hub, source, (b, branches) => listQuery(source, after, b, size, branches, pass))
+    if (got.ran.timedOut && size > 1) continue
+    into.boards &&= got.boards
+    const repo = obj(obj(obj(got.answer).data).repository)
+    if (!Object.keys(repo).length) {
+      const why = got.ran.code === 0 && obj(got.answer).data
+        ? 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.'
+        : trouble(got.ran, 'gh', source.host)
+      /* The pages already read are kept; only a first page that fails fails the listing. */
+      if (!issues.length && !pulls.length) return why
+      into.partial = clip(`${why} The newest ${Math.min(issues.length, limit)} issues and ${Math.min(pulls.length, limit)} pull requests were read; the rest are as last read.`, LIMITS.REASON)
+      return null
     }
-    if (!believedNot(noScope, source.host)) {
-      const first = await ask(true)
-      if (!lacksProjectScope(first.answer, first.ran)) {
-        noScope.delete(source.host)
-        return { ...first, boards: true }
+    after = {
+      issues: nextCursor(obj(repo.issues), issues, after.issues, start.issues, pass, limit),
+      pulls: nextCursor(obj(repo.pullRequests), pulls, after.pulls, start.pulls, pass, limit),
+    }
+  }
+  return null
+}
+
+/* Which passes a source's `reads` take (Jalez/kehikko#318): what changed since, in every
+   state so a closing is seen; open only; open, and what closed inside the window; or all. */
+function passesFor(now: string, how?: ListHow): ListPass[] {
+  const reads = how?.reads
+  return how?.since
+    ? [{ updatedFrom: how.since, sinceLast: true }]
+    : !reads || reads.closed === true
+      ? [{}]
+      : reads.closed === false
+        ? [{ states: 'open' }]
+        : [{ states: 'open' }, { states: 'closed', updatedFrom: closedSince(reads, Date.parse(now))! }]
+}
+
+async function listSource(hub: GithubClient, source: Source, limit: number, now: string, how?: ListHow): Promise<Read> {
+  if (notOwnerRepo(source)) {
+    return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
+  }
+  const reads = how?.reads
+  const want = { issues: !reads || reads.kinds.includes('issues'), pulls: !reads || reads.kinds.includes('changes') }
+  const into: Listed = { issues: [], pulls: [], boards: true }
+  for (const one of passesFor(now, how)) {
+    const failed = await listPass(hub, source, limit, want, into, one)
+    if (failed) return { ok: false, why: failed }
+    if (into.partial) break
+  }
+  const { issues, pulls, boards, partial } = into
+  const items = [...issues, ...pulls]
+  const rows = [
+    ...issues.map((one) => issueRow(source, one, now)),
+    ...pulls.map((one) => pullRow(source, one, now)),
+  ].filter((one): one is TrackerRow => one !== null)
+  return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items), ...(partial ? { partial } : {}) }
+}
+
+async function refs(hub: GithubClient, source: Source, wanted: readonly Wanted[], now: string): Promise<Read> {
+  if (notOwnerRepo(source)) {
+    return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
+  }
+  const numbers = [...new Set(wanted.map((w) => w.number))]
+  const rows: TrackerRow[] = []
+  const items: unknown[] = []
+  const notFound: Array<{ number: number; kind: null }> = []
+  let boards = true
+  for (const group of chunks(numbers, 50)) {
+    const got = await graph(hub, source, (b, branches) => refsQuery(source, group, b, branches))
+    boards &&= got.boards
+    const data = obj(obj(obj(got.answer).data).repository)
+    /* Partly found is still an answer: GraphQL says NOT_FOUND for a
+       number that does not exist and exits 1 with the rest in `data`. */
+    if (!Object.keys(data).length) return { ok: false, why: trouble(got.ran, 'gh', source.host) }
+    for (const n of group) {
+      const node = data[`n${n}`]
+      if (node === null || node === undefined) {
+        notFound.push({ number: n, kind: null })
+        continue
       }
-      noScope.set(source.host, clock() + SCOPE_RECHECK_MS)
+      items.push(node)
+      const made = str(obj(node).__typename) === 'PullRequest' ? pullRow(source, node, now) : issueRow(source, node, now)
+      if (made) rows.push(made)
     }
-    return { ...(await ask(false)), boards: false }
   }
+  return { ok: true, rows, notFound, boards: boardsRead(boards, items) }
+}
 
-  const boardsRead = (boards: boolean, items: readonly unknown[]): BoardsRead =>
-    boards ? { boards: boardsSeen(items) } : { unreadable: NEEDS_PROJECT_SCOPE }
-  const probes = etags()
-
+/** The detail facts of one item from what `gh pr view` / `gh issue view` answered for it (`r`). */
+function detailFacts(one: TrackerRow, r: Record<string, unknown>, now: string): TrackerDetailFacts {
+  const body = str(r.body)
+  const files = list(r.files).map(obj)
   return {
-    /**
-     * The repository's newest updated issue or pull request (GitHub's issues list holds both), asked
-     * conditionally: 304, free of the rate limit, when nothing was updated since the probe kept.
-     */
-    async changed(source): Promise<Probe> {
-      if (source.repo.split('/').length !== 2) return UNKNOWN
-      const path = `repos/${source.repo}/issues?state=all&sort=updated&direction=desc&per_page=1`
-      const args = ['gh', 'api', path, ...(source.host !== 'github.com' ? ['--hostname', source.host] : [])]
-      return probes.ask((argv) => timed(argv, source.host), args, `${source.host}|${path}`)
-    },
-
-    async me(host): Promise<Me> {
-      const args = ['gh', 'api', 'user']
-      if (host !== 'github.com') args.push('--hostname', host)
-      const ran = await timed(args, host)
-      const who = ran.code === 0 ? login(parsed(ran)) : ''
-      if (who) return { login: who }
-      return { why: ran.code === 0 ? `gh did not say who is logged in to ${host}.` : trouble(ran, 'gh', host) }
-    },
-
-    async list(source, limit, now, how?: ListHow): Promise<Read> {
-      if (source.repo.split('/').length !== 2) {
-        return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
-      }
-      const reads = how?.reads
-      const want = { issues: !reads || reads.kinds.includes('issues'), pulls: !reads || reads.kinds.includes('changes') }
-      const issues: unknown[] = []
-      const pulls: unknown[] = []
-      let boards = true
-      let partial: string | undefined
-
-      /**
-       * One listing pass, page by page, into `issues` and `pulls`. With
-       * `updatedFrom`, newest updated first, and a half stops at the first
-       * item updated before it. A page that fails after the first item was
-       * read keeps what was read (`partial`).
-       */
-      const pass = async (how: ListPass): Promise<string | null> => {
-        const start = { issues: issues.length, pulls: pulls.length }
-        let after: { issues: string | null | false; pulls: string | null | false } = {
-          issues: want.issues ? null : false,
-          pulls: want.pulls ? null : false,
+    body: clip(body, LIMITS.TRACKER_BODY),
+    bodyClipped: body.length > LIMITS.TRACKER_BODY,
+    files: files
+      .slice(0, LIMITS.TRACKER_FILES)
+      .filter((f) => str(f.path))
+      .map((f) => ({
+        path: clip(str(f.path), LIMITS.PATH),
+        ...(typeof f.additions === 'number' ? { additions: f.additions } : {}),
+        ...(typeof f.deletions === 'number' ? { deletions: f.deletions } : {}),
+      })),
+    filesClipped: files.length > LIMITS.TRACKER_FILES,
+    ...(one.kind === 'change'
+      ? {
+          headSha: str(r.headRefOid) ? clip(str(r.headRefOid), LIMITS.TRACKER_WORD) : null,
+          approvedBy: list(r.latestReviews)
+            .map(obj)
+            .filter((review) => str(review.state).toUpperCase() === 'APPROVED')
+            .map((review) => who(review.author))
+            .filter(Boolean)
+            .slice(0, LIMITS.TRACKER_PEOPLE),
         }
-        let pages = 0
-        while (after.issues !== false || after.pulls !== false) {
-          /* As many a page as the host answers comfortably; a page that ran over is asked again smaller.
-             A pass from an instant starts small: GitHub filters pull requests by nothing but order, so a
-             full first page would bring fifty pull requests to find the two that changed. */
-          const size = Math.min(pace.size(source.host, PAGE), how.sinceLast && pages === 0 ? FIRST_SINCE_PAGE : PAGE)
-          pages += 1
-          const got = await graph(source, (b, branches) => listQuery(source, after, b, size, branches, how))
-          if (got.ran.timedOut && size > 1) continue
-          boards &&= got.boards
-          const repo = obj(obj(obj(got.answer).data).repository)
-          if (!Object.keys(repo).length) {
-            const why = got.ran.code === 0 && obj(got.answer).data
-              ? 'gh answered with something that is not a listing. A version of gh answering GraphQL differently.'
-              : trouble(got.ran, 'gh', source.host)
-            /* The pages already read are kept; only a first page that fails fails the listing. */
-            if (!issues.length && !pulls.length) return why
-            partial = clip(`${why} The newest ${Math.min(issues.length, limit)} issues and ${Math.min(pulls.length, limit)} pull requests were read; the rest are as last read.`, LIMITS.REASON)
-            return null
-          }
-          const next = (half: 'issues' | 'pullRequests', into: unknown[], was: string | null | false, from: number): string | null | false => {
-            if (was === false) return false
-            const connection = obj(repo[half])
-            const got = nodes(connection)
-            const cutoff = how.updatedFrom ? Date.parse(how.updatedFrom) : null
-            /* An item without a time is kept: nothing says it is older. */
-            const fresh = cutoff === null ? got : got.filter((one) => !(Date.parse(str(obj(one).updatedAt)) < cutoff))
-            into.push(...fresh)
-            const info = obj(connection.pageInfo)
-            const cursor = str(info.endCursor)
-            const older = fresh.length < got.length
-            return info.hasNextPage === true && !older && into.length - from < limit && CURSOR.test(cursor) ? cursor : false
-          }
-          after = {
-            issues: next('issues', issues, after.issues, start.issues),
-            pulls: next('pullRequests', pulls, after.pulls, start.pulls),
-          }
-        }
-        return null
-      }
+      : {}),
+    readAt: now,
+  }
+}
 
-      /* Which passes a source's `reads` take (Jalez/kehikko#318): what changed since, in every
-         state so a closing is seen; open only; open, and what closed inside the window; or all. */
-      const passes: ListPass[] = how?.since
-        ? [{ updatedFrom: how.since, sinceLast: true }]
-        : !reads || reads.closed === true
-          ? [{}]
-          : reads.closed === false
-            ? [{ states: 'open' }]
-            : [{ states: 'open' }, { states: 'closed', updatedFrom: closedSince(reads, Date.parse(now))! }]
-      for (const one of passes) {
-        const failed = await pass(one)
-        if (failed) return { ok: false, why: failed }
-        if (partial) break
-      }
-      const items = [...issues, ...pulls]
-      const rows = [
-        ...issues.map((one) => issueRow(source, one, now)),
-        ...pulls.map((one) => pullRow(source, one, now)),
-      ].filter((one): one is TrackerRow => one !== null)
-      return { ok: true, rows: linkClosers(rows), notFound: [], boards: boardsRead(boards, items), ...(partial ? { partial } : {}) }
-    },
+async function detail(hub: GithubClient, source: Source, rows: readonly TrackerRow[], now: string): Promise<Map<string, TrackerDetailFacts> | { why: string }> {
+  const out = new Map<string, TrackerDetailFacts>()
+  for (const one of rows) {
+    const args =
+      one.kind === 'change'
+        ? ['pr', 'view', String(one.number), '--repo', repoArg(source), '--json', 'body,files,headRefOid,latestReviews']
+        : ['issue', 'view', String(one.number), '--repo', repoArg(source), '--json', 'body']
+    const { ran } = await gh(hub, args, source)
+    if (ran.code !== 0) return { why: trouble(ran, 'gh', source.host) }
+    out.set(one.ref, detailFacts(one, obj(parsed(ran)), now))
+    /* What a person reads the item for (protocol 2.98.0), one GraphQL query. One that fails
+       leaves those fields absent and keeps the rest of the detail. */
+    if (!notOwnerRepo(source)) {
+      const args = ['api', 'graphql', '-f', `query=${githubItemQuery(source, one.number)}`]
+      if (source.host !== 'github.com') args.push('--hostname', source.host)
+      const item = await gh(hub, args, source)
+      const node = obj(obj(obj(parsed(item.ran)).data).repository).issueOrPullRequest
+      const facts = out.get(one.ref)
+      if (facts && node) out.set(one.ref, { ...facts, ...githubItemFacts(node, source.host) })
+    }
+  }
+  return out
+}
 
-    async refs(source, wanted, now): Promise<Read> {
-      if (source.repo.split('/').length !== 2) {
-        return { ok: false, why: `${source.repo} is not an owner/repo name GitHub can have.` }
-      }
-      const numbers = [...new Set(wanted.map((w) => w.number))]
-      const rows: TrackerRow[] = []
-      const items: unknown[] = []
-      const notFound: Array<{ number: number; kind: null }> = []
-      let boards = true
-      for (const group of chunks(numbers, 50)) {
-        const got = await graph(source, (b, branches) => refsQuery(source, group, b, branches))
-        boards &&= got.boards
-        const data = obj(obj(obj(got.answer).data).repository)
-        /* Partly found is still an answer: GraphQL says NOT_FOUND for a
-           number that does not exist and exits 1 with the rest in `data`. */
-        if (!Object.keys(data).length) return { ok: false, why: trouble(got.ran, 'gh', source.host) }
-        for (const n of group) {
-          const node = data[`n${n}`]
-          if (node === null || node === undefined) {
-            notFound.push({ number: n, kind: null })
-            continue
-          }
-          items.push(node)
-          const made = str(obj(node).__typename) === 'PullRequest' ? pullRow(source, node, now) : issueRow(source, node, now)
-          if (made) rows.push(made)
-        }
-      }
-      return { ok: true, rows, notFound, boards: boardsRead(boards, items) }
-    },
-
-    async detail(source, rows, now) {
-      const out = new Map<string, TrackerDetailFacts>()
-      for (const one of rows) {
-        const args =
-          one.kind === 'change'
-            ? ['pr', 'view', String(one.number), '--repo', repoArg(source), '--json', 'body,files,headRefOid,latestReviews']
-            : ['issue', 'view', String(one.number), '--repo', repoArg(source), '--json', 'body']
-        const { ran } = await gh(args, source)
-        if (ran.code !== 0) return { why: trouble(ran, 'gh', source.host) }
-        const r = obj(parsed(ran))
-        const body = str(r.body)
-        const files = list(r.files).map(obj)
-        out.set(one.ref, {
-          body: clip(body, LIMITS.TRACKER_BODY),
-          bodyClipped: body.length > LIMITS.TRACKER_BODY,
-          files: files
-            .slice(0, LIMITS.TRACKER_FILES)
-            .filter((f) => str(f.path))
-            .map((f) => ({
-              path: clip(str(f.path), LIMITS.PATH),
-              ...(typeof f.additions === 'number' ? { additions: f.additions } : {}),
-              ...(typeof f.deletions === 'number' ? { deletions: f.deletions } : {}),
-            })),
-          filesClipped: files.length > LIMITS.TRACKER_FILES,
-          ...(one.kind === 'change'
-            ? {
-                headSha: str(r.headRefOid) ? clip(str(r.headRefOid), LIMITS.TRACKER_WORD) : null,
-                approvedBy: list(r.latestReviews)
-                  .map(obj)
-                  .filter((review) => str(review.state).toUpperCase() === 'APPROVED')
-                  .map((review) => who(review.author))
-                  .filter(Boolean)
-                  .slice(0, LIMITS.TRACKER_PEOPLE),
-              }
-            : {}),
-          readAt: now,
-        })
-        /* What a person reads the item for (protocol 2.98.0), one GraphQL query. One that fails
-           leaves those fields absent and keeps the rest of the detail. */
-        if (source.repo.split('/').length === 2) {
-          const args = ['api', 'graphql', '-f', `query=${githubItemQuery(source, one.number)}`]
-          if (source.host !== 'github.com') args.push('--hostname', source.host)
-          const item = await gh(args, source)
-          const node = obj(obj(obj(parsed(item.ran)).data).repository).issueOrPullRequest
-          const facts = out.get(one.ref)
-          if (facts && node) out.set(one.ref, { ...facts, ...githubItemFacts(node, source.host) })
-        }
-      }
-      return out
-    },
+/** The GitHub adapter: the parts above, over one client. */
+export function githubAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
+  const hub = githubClient(run, clock, pace)
+  return {
+    changed: (source) => changed(hub, source),
+    me: (host) => me(hub, host),
+    list: (source, limit, now, how) => listSource(hub, source, limit, now, how),
+    refs: (source, wanted, now) => refs(hub, source, wanted, now),
+    detail: (source, rows, now) => detail(hub, source, rows, now),
   }
 }

@@ -12,7 +12,7 @@ import {
   type WorkItemType,
 } from 'kehikot-module-protocol'
 
-import type { Runner } from '../feedback.ts'
+import type { Ran, Runner } from '../feedback.ts'
 import {
   chunks,
   clip,
@@ -45,6 +45,7 @@ import {
   type ListHow,
   type Me,
   type Read,
+  type Wanted,
 } from './common.ts'
 import { closedSince, kindOf, type Reads } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
@@ -637,377 +638,425 @@ const PER_PAGE = 100
 export const partlyRead = (why: string, read: number) =>
   clip(`${why} The newest ${read} were read; the rest are as last read.`, LIMITS.REASON)
 
-export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
-  /* Each call is given the host's learned limit, and teaches it (Jalez/kehikko#317). */
-  const timed = pace.runner(run, clock)
-  const glab = (args: string[], source: Source) => timed(['glab', 'api', '--hostname', source.host, ...args], source.host)
-  const graph = (query: string, source: Source) => glab(['graphql', '-f', `query=${query}`], source)
-  const project = (source: Source) => `projects/${encodeURIComponent(source.repo)}`
+/**
+ * What every call of one GitLab adapter goes through: its runner, paced per host (each call is
+ * given the host's learned limit, and teaches it, Jalez/kehikko#317), the clock, the pace, the
+ * ETags of its conditional requests, and what it learned of each host. The adapter's parts below
+ * each take one; `gitlabAdapter` makes it and puts them together.
+ */
+interface GitlabClient {
+  clock: () => number
+  pace: Pace
+  timed: (argv: string[], host: string) => Promise<Ran>
+  probes: ReturnType<typeof etags>
   /** Hosts that refused the people fields, until when that is believed. */
-  const noPeople = new Map<string, number>()
-  const peopleAsked = (host: string) => {
-    const until = noPeople.get(host)
-    return until === undefined || clock() >= until
+  noPeople: Map<string, number>
+}
+
+function gitlabClient(run: Runner, clock: () => number, pace: Pace): GitlabClient {
+  return { clock, pace, timed: pace.runner(run, clock), probes: etags(), noPeople: new Map() }
+}
+
+const glab = (gl: GitlabClient, args: string[], source: Source) => gl.timed(['glab', 'api', '--hostname', source.host, ...args], source.host)
+const graph = (gl: GitlabClient, query: string, source: Source) => glab(gl, ['graphql', '-f', `query=${query}`], source)
+const project = (source: Source) => `projects/${encodeURIComponent(source.repo)}`
+const peopleAsked = (gl: GitlabClient, host: string) => {
+  const until = gl.noPeople.get(host)
+  return until === undefined || gl.clock() >= until
+}
+/** One conditional GET of a project's collection, newest updated first; its ETag kept per address. */
+const probe = (gl: GitlabClient, source: Source, path: string) =>
+  gl.probes.ask((argv) => gl.timed(argv, source.host), ['glab', 'api', '--hostname', source.host, path], `${source.host}|${path}`)
+
+/**
+ * One REST collection, newest first, page by page until it runs out or
+ * reaches `limit`. Pages are as large as the host answers comfortably
+ * (`Pace`). A page that fails after the first keeps the pages already read,
+ * with the sentence why (`partial`); only a first page that fails fails it.
+ */
+async function pages(
+  gl: GitlabClient,
+  source: Source,
+  what: 'issues' | 'merge_requests',
+  limit: number,
+  filter = 'state=all',
+): Promise<{ items: unknown[]; partial?: string } | string> {
+  const out: unknown[] = []
+  const size = gl.pace.size(source.host, PER_PAGE)
+  for (let page = 1; out.length < limit; page += 1) {
+    const ran = await glab(
+      gl,
+      [`${project(source)}/${what}?${filter}&order_by=updated_at&sort=desc&per_page=${size}&page=${page}`],
+      source,
+    )
+    const got = ran.code === 0 ? parsed(ran) : null
+    if (!Array.isArray(got)) {
+      const why = ran.code !== 0 ? trouble(ran, 'glab', source.host) : `${source.host} answered with something that is not a list.`
+      return out.length ? { items: out.slice(0, limit), partial: partlyRead(why, Math.min(out.length, limit)) } : why
+    }
+    out.push(...got)
+    if (got.length < size) break
   }
+  return { items: out.slice(0, limit) }
+}
 
-  /**
-   * One REST collection, newest first, page by page until it runs out or
-   * reaches `limit`. Pages are as large as the host answers comfortably
-   * (`Pace`). A page that fails after the first keeps the pages already read,
-   * with the sentence why (`partial`); only a first page that fails fails it.
-   */
-  async function pages(
-    source: Source,
-    what: 'issues' | 'merge_requests',
-    limit: number,
-    filter = 'state=all',
-  ): Promise<{ items: unknown[]; partial?: string } | string> {
-    const out: unknown[] = []
-    const size = pace.size(source.host, PER_PAGE)
-    for (let page = 1; out.length < limit; page += 1) {
-      const ran = await glab(
-        [`${project(source)}/${what}?${filter}&order_by=updated_at&sort=desc&per_page=${size}&page=${page}`],
-        source,
-      )
-      const got = ran.code === 0 ? parsed(ran) : null
-      if (!Array.isArray(got)) {
-        const why = ran.code !== 0 ? trouble(ran, 'glab', source.host) : `${source.host} answered with something that is not a list.`
-        return out.length ? { items: out.slice(0, limit), partial: partlyRead(why, Math.min(out.length, limit)) } : why
-      }
-      out.push(...got)
-      if (got.length < size) break
-    }
-    return { items: out.slice(0, limit) }
-  }
-
-  /**
-   * One collection as a source's `reads` narrow it (Jalez/kehikko#318): only
-   * what changed since, every state, so a closing is seen too; open only; or
-   * every open item and the ones updated inside the closed window (two
-   * listings, one answer); or every state, as before. Only tasks, when only
-   * tasks are read.
-   */
-  async function listing(
-    source: Source,
-    what: 'issues' | 'merge_requests',
-    limit: number,
-    now: string,
-    how?: ListHow,
-  ): Promise<{ items: unknown[]; partial?: string } | string> {
-    const reads: Reads | undefined = how?.reads
-    const only = what === 'issues' && reads && reads.kinds.includes('tasks') && !reads.kinds.includes('issues') ? '&issue_type=task' : ''
-    if (how?.since) return pages(source, what, limit, `state=all&updated_after=${encodeURIComponent(how.since)}${only}`)
-    if (!reads || reads.closed === true) return pages(source, what, limit, `state=all${only}`)
-    const open = await pages(source, what, limit, `state=opened${only}`)
-    if (reads.closed === false || typeof open === 'string') return open
-    const after = closedSince(reads, Date.parse(now))!
-    const closed = await pages(source, what, limit, `state=all&updated_after=${encodeURIComponent(after)}${only}`)
-    if (typeof closed === 'string') return { items: open.items, partial: open.partial ?? partlyRead(closed, open.items.length) }
-    const seen = new Set(open.items.map((one) => String(obj(one).iid)))
-    return {
-      items: [...open.items, ...closed.items.filter((one) => !seen.has(String(obj(one).iid)))],
-      ...(open.partial ?? closed.partial ? { partial: open.partial ?? closed.partial } : {}),
-    }
-  }
-
-  /**
-   * Read these iids by GraphQL, `BATCH` at a time. A batch GitLab refuses costs
-   * only that batch: the rows of the others are kept, and the refused refs are
-   * handed back as `unread` with GitLab's own words, so the source's error and
-   * those refs' `failed` say what happened without discarding the good rows.
-   * A complexity refusal ("Query has complexity of N, which exceeds max
-   * complexity of M") is retried with the batch halved, down to one reference;
-   * only then is that batch given up.
-   */
-  async function byIids(source: Source, issues: number[], merges: number[], now: string): Promise<Read> {
-    const rows: TrackerRow[] = []
-    const seenIssues = new Set<number>()
-    const seenMerges = new Set<number>()
-    const unread: Array<{ number: number; kind: 'issue' | 'change' }> = []
-    let why = ''
-    let withoutPeople = false
-
-    const take = (data: Record<string, unknown>) => {
-      for (const node of nodes(data.issues)) {
-        const made = issueRow(source, node, now)
-        if (made) {
-          rows.push(made)
-          seenIssues.add(made.number)
-        }
-      }
-      for (const node of nodes(data.mergeRequests)) {
-        const made = mergeRow(source, node, now)
-        if (made) {
-          rows.push(made)
-          seenMerges.add(made.number)
-        }
-      }
-    }
-
-    /**
-     * One batch; on a complexity refusal or a timeout, its two halves. A
-     * timeout is as much "too much at once" as a complexity refusal is: the
-     * halves are asked with the host's limit raised (`Pace`).
-     */
-    async function batch(i: number[], m: number[]): Promise<void> {
-      const people = peopleAsked(source.host)
-      if (!people) withoutPeople = true
-      const ran = await graph(refsQuery(source, i, m, people), source)
-      const answer = obj(parsed(ran))
-      const data = obj(obj(answer.data).project)
-      if (Object.keys(data).length) return take(data)
-      const first = ran.timedOut ? '' : list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
-      if (people && NO_FIELD.test(`${first} ${ran.err} ${ran.out}`)) {
-        /* An older GitLab: the same batch without the people fields. */
-        noPeople.set(source.host, clock() + PEOPLE_RECHECK_MS)
-        return batch(i, m)
-      }
-      const refusal = ran.timedOut === true || COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
-      const size = i.length + m.length
-      if (refusal && size > 1) {
-        const half = Math.ceil(size / 2)
-        const items = [...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const }))]
-        for (const part of [items.slice(0, half), items.slice(half)]) {
-          await batch(
-            part.filter((one) => one.kind === 'issue').map((one) => one.number),
-            part.filter((one) => one.kind === 'change').map((one) => one.number),
-          )
-        }
-        return
-      }
-      if (!why) why = first || trouble(ran, 'glab', source.host)
-      unread.push(...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const })))
-    }
-
-    /* As many at a time as the host answers comfortably: `BATCH` until it is slow. */
-    const per = pace.size(source.host, BATCH)
-    const groups = Math.max(Math.ceil(issues.length / per), Math.ceil(merges.length / per))
-    for (let g = 0; g < groups; g += 1) {
-      await batch(issues.slice(g * per, (g + 1) * per), merges.slice(g * per, (g + 1) * per))
-    }
-    const cannot = (n: number, kind: 'issue' | 'change') => unread.some((u) => u.number === n && u.kind === kind)
-    if (unread.length && !rows.length) return { ok: false, why }
-    if (merges.length && !withoutPeople && peopleAsked(source.host)) noPeople.delete(source.host)
-    return {
-      ok: true,
-      rows,
-      ...(withoutPeople ? { people: { unreadable: OLD_GITLAB_PEOPLE(source.host) } } : {}),
-      notFound: [
-        ...issues.filter((n) => !seenIssues.has(n) && !cannot(n, 'issue')).map((number) => ({ number, kind: 'issue' as const })),
-        ...merges.filter((n) => !seenMerges.has(n) && !cannot(n, 'change')).map((number) => ({ number, kind: 'change' as const })),
-      ],
-      ...(unread.length ? { unread: { why: clip(`${why} (${unread.length} of ${issues.length + merges.length} references not read)`, LIMITS.REASON), refs: unread } } : {}),
-    }
-  }
-
-  const probes = etags()
-  /** One conditional GET of a project's collection, newest updated first; its ETag kept per address. */
-  const probe = (source: Source, path: string) =>
-    probes.ask((argv) => timed(argv, source.host), ['glab', 'api', '--hostname', source.host, path], `${source.host}|${path}`)
-
+/**
+ * One collection as a source's `reads` narrow it (Jalez/kehikko#318): only
+ * what changed since, every state, so a closing is seen too; open only; or
+ * every open item and the ones updated inside the closed window (two
+ * listings, one answer); or every state, as before. Only tasks, when only
+ * tasks are read.
+ */
+async function listing(
+  gl: GitlabClient,
+  source: Source,
+  what: 'issues' | 'merge_requests',
+  limit: number,
+  now: string,
+  how?: ListHow,
+): Promise<{ items: unknown[]; partial?: string } | string> {
+  const reads: Reads | undefined = how?.reads
+  const only = what === 'issues' && reads && reads.kinds.includes('tasks') && !reads.kinds.includes('issues') ? '&issue_type=task' : ''
+  if (how?.since) return pages(gl, source, what, limit, `state=all&updated_after=${encodeURIComponent(how.since)}${only}`)
+  if (!reads || reads.closed === true) return pages(gl, source, what, limit, `state=all${only}`)
+  const open = await pages(gl, source, what, limit, `state=opened${only}`)
+  if (reads.closed === false || typeof open === 'string') return open
+  const after = closedSince(reads, Date.parse(now))!
+  const closed = await pages(gl, source, what, limit, `state=all&updated_after=${encodeURIComponent(after)}${only}`)
+  if (typeof closed === 'string') return { items: open.items, partial: open.partial ?? partlyRead(closed, open.items.length) }
+  const seen = new Set(open.items.map((one) => String(obj(one).iid)))
   return {
-    /**
-     * The project's newest updated issue and merge request, asked conditionally (two requests):
-     * 304 for both when nothing was updated since the probe kept.
-     */
-    async changed(source): Promise<Probe> {
-      const got = await Promise.all(
-        (['issues', 'merge_requests'] as const).map((what) => probe(source, `${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=1`)),
-      )
-      if (got.some((one) => one.changed === null)) return UNKNOWN
-      return { changed: got.some((one) => one.changed), keep: () => got.forEach((one) => one.keep()) }
-    },
-
-    async me(host): Promise<Me> {
-      const ran = await timed(['glab', 'api', '--hostname', host, 'user'], host)
-      const who = ran.code === 0 ? login(parsed(ran)) : ''
-      if (who) return { login: who }
-      return { why: ran.code === 0 ? `glab did not say who is logged in to ${host}.` : trouble(ran, 'glab', host) }
-    },
-
-    async list(source, limit, now, how?: ListHow): Promise<Read> {
-      const reads = how?.reads
-      const wantIssues = !reads || reads.kinds.includes('issues') || reads.kinds.includes('tasks')
-      const wantMerges = !reads || reads.kinds.includes('changes')
-      const none: { items: unknown[]; partial?: string } = { items: [] }
-      const [issues, merges] = await Promise.all([
-        wantIssues ? listing(source, 'issues', limit, now, how) : none,
-        wantMerges ? listing(source, 'merge_requests', limit, now, how) : none,
-      ])
-      if (typeof issues === 'string') return { ok: false, why: issues }
-      if (typeof merges === 'string') return { ok: false, why: merges }
-      const partial = issues.partial ?? merges.partial
-      const rows = [
-        ...issues.items.map((one) => issueRow(source, one, now)),
-        ...merges.items.map((one) => mergeRow(source, one, now)),
-      ]
-        .filter((one): one is TrackerRow => one !== null)
-        /* Tasks and plain issues come in one listing; the kind not read is left out here. */
-        .filter((one) => !reads || reads.kinds.includes(kindOf(one)))
-      /* The REST list has no pipeline, no approval and no notes; the open
-         merge requests are read again, batched, for all three, and the open
-         issues beside them in the same queries for their notes (the last
-         activity). A failure here keeps the rows and hands back the ones it
-         could not read again as `unread`, with the sentence why: the reading
-         keeps what it held of those fields rather than losing them. */
-      const open = rows.filter((one) => one.kind === 'change' && one.state === 'open').map((one) => one.number)
-      const openIssues = rows.filter((one) => one.kind === 'issue' && one.state === 'open').map((one) => one.number)
-      let people: { unreadable: string } | undefined
-      let unread: Extract<Read, { ok: true }>['unread']
-      if (open.length || openIssues.length) {
-        const again = await byIids(source, openIssues, open, now)
-        if (again.ok && again.people) people = again.people
-        if (again.ok) {
-          const fresh = new Map(again.rows.map((one) => [`${one.kind}:${one.number}`, one]))
-          for (let i = 0; i < rows.length; i += 1) {
-            const one = rows[i]!
-            const got = fresh.get(`${one.kind}:${one.number}`)
-            if (got) rows[i] = got
-          }
-          unread = again.unread
-        } else {
-          unread = {
-            why: again.why,
-            refs: [...openIssues.map((number) => ({ number, kind: 'issue' as const })), ...open.map((number) => ({ number, kind: 'change' as const }))],
-          }
-        }
-      }
-      return {
-        ok: true,
-        rows: linkDeclarers(rows),
-        notFound: [],
-        ...(people ? { people } : {}),
-        ...(unread ? { unread } : {}),
-        ...(partial ? { partial } : {}),
-      }
-    },
-
-    async boards(source): Promise<BoardsRead | null> {
-      const ran = await glab([`${project(source)}/boards?per_page=100`], source)
-      if (ran.code !== 0) return null
-      const got = parsed(ran)
-      if (!Array.isArray(got)) return null
-      return {
-        boards: got
-          .map((one) => boardOf(source, one))
-          .filter((one): one is HeldBoard => one !== null)
-          .slice(0, LIMITS.TRACKER_BOARDS),
-      }
-    },
-
-    async branches(source): Promise<string[] | null> {
-      /* The first page asked conditionally: 304 when no branch moved since it was last read, and
-         then the names held stay (null) without reading any page. */
-      const first = `${project(source)}/repository/branches?per_page=100&page=1`
-      const asked = await probe(source, first)
-      if (asked.changed === false) return null
-      const names: string[] = []
-      for (let page = 1; page <= BRANCH_PAGES; page += 1) {
-        const ran = page === 1 && asked.changed
-          ? { code: 0, out: asked.body ?? '', err: '' }
-          : await glab([`${project(source)}/repository/branches?per_page=100&page=${page}`], source)
-        if (ran.code !== 0) return page === 1 ? null : names
-        const got = parsed(ran)
-        if (!Array.isArray(got)) return page === 1 ? null : names
-        for (const one of got) {
-          const name = branchOf(obj(one).name)
-          if (name) names.push(name)
-        }
-        if (got.length < 100) {
-          /* Only a first page that holds every branch stands for them all: a new name on a later page leaves it as it was. */
-          if (page === 1) asked.keep()
-          break
-        }
-      }
-      return names
-    },
-
-    async refs(source, wanted, now): Promise<Read> {
-      const issues = [...new Set(wanted.filter((w) => w.kind !== 'change').map((w) => w.number))]
-      const merges = [...new Set(wanted.filter((w) => w.kind === 'change').map((w) => w.number))]
-      return byIids(source, issues, merges, now)
-    },
-
-    async detail(source, rows, now) {
-      const out = new Map<string, TrackerDetailFacts>()
-      for (const group of chunks(rows, 25)) {
-        const issues = group.filter((r) => r.kind === 'issue').map((r) => r.number)
-        const merges = group.filter((r) => r.kind === 'change').map((r) => r.number)
-        const ran = await graph(detailQuery(source, issues, merges), source)
-        const data = obj(obj(obj(parsed(ran)).data).project)
-        if (!Object.keys(data).length) return { why: trouble(ran, 'glab', source.host) }
-        const found = new Map<string, Record<string, unknown>>()
-        for (const node of nodes(data.issues)) found.set(`issue:${str(obj(node).iid)}`, obj(node))
-        for (const node of nodes(data.mergeRequests)) found.set(`change:${str(obj(node).iid)}`, obj(node))
-        for (const one of group) {
-          const r = found.get(`${one.kind}:${one.number}`)
-          if (!r) continue
-          const body = str(r.description)
-          const files = nodes(r.diffStats).map(obj)
-          out.set(one.ref, {
-            body: clip(body, LIMITS.TRACKER_BODY),
-            bodyClipped: body.length > LIMITS.TRACKER_BODY,
-            files: files
-              .slice(0, LIMITS.TRACKER_FILES)
-              .filter((f) => str(f.path))
-              .map((f) => ({
-                path: clip(str(f.path), LIMITS.PATH),
-                ...(typeof f.additions === 'number' ? { additions: f.additions } : {}),
-                ...(typeof f.deletions === 'number' ? { deletions: f.deletions } : {}),
-              })),
-            filesClipped: files.length > LIMITS.TRACKER_FILES,
-            ...(one.kind === 'change'
-              ? {
-                  headSha: str(r.diffHeadSha) ? clip(str(r.diffHeadSha), LIMITS.TRACKER_WORD) : null,
-                  approvedBy: people(r.approvedBy),
-                }
-              : {}),
-            readAt: now,
-          })
-        }
-      }
-      /* What a person reads the item for (protocol 2.98.0), a few REST calls per ref. One that
-         fails leaves its fields absent and keeps the rest of the detail. */
-      for (const one of rows) {
-        const facts = out.get(one.ref)
-        if (facts) out.set(one.ref, { ...facts, ...(await itemExtras(source, one)) })
-      }
-      return out
-    },
+    items: [...open.items, ...closed.items.filter((one) => !seen.has(String(obj(one).iid)))],
+    ...(open.partial ?? closed.partial ? { partial: open.partial ?? closed.partial } : {}),
   }
+}
 
-  /** The milestone, the people's notes and their count, a merge request's head pipeline jobs and its fork. */
-  async function itemExtras(source: Source, one: TrackerRow): Promise<Partial<TrackerDetailFacts>> {
-    const out: Partial<TrackerDetailFacts> = {}
-    const what = one.kind === 'change' ? 'merge_requests' : 'issues'
-    const [item, notes] = await Promise.all([
-      glab([`${project(source)}/${what}/${one.number}`], source),
-      glab([gitlabNotesPath(project(source), one.kind, one.number)], source),
-    ])
-    if (notes.code === 0) out.comments = gitlabComments(parsed(notes), one.url)
-    if (item.code !== 0) return out
-    const r = obj(parsed(item))
-    if (typeof r.user_notes_count === 'number') out.commentCount = r.user_notes_count
-    const milestone = milestoneOf({ title: obj(r.milestone).title, webUrl: obj(r.milestone).web_url, dueDate: obj(r.milestone).due_date }, source.host)
-    if (milestone) out.milestone = milestone
-    if (one.kind !== 'change') return out
-    const rule = await glab([`${project(source)}/merge_requests/${one.number}/approvals`], source)
-    if (rule.code === 0) Object.assign(out, gitlabApprovals(parsed(rule)))
-    const pipeline = obj(r.head_pipeline)
-    const pipelineId = typeof pipeline.id === 'number' ? pipeline.id : null
-    const pipelineProject = typeof pipeline.project_id === 'number' ? pipeline.project_id : null
-    if (pipelineId !== null) {
-      const where = pipelineProject !== null ? `projects/${pipelineProject}` : project(source)
-      const jobs = await glab([`${where}/pipelines/${pipelineId}/jobs?per_page=100`], source)
-      if (jobs.code === 0) Object.assign(out, gitlabChecks(parsed(jobs)))
+/** What the batches of one `byIids` have gathered so far. */
+interface Gathered {
+  rows: TrackerRow[]
+  seenIssues: Set<number>
+  seenMerges: Set<number>
+  unread: Array<{ number: number; kind: 'issue' | 'change' }>
+  why: string
+  withoutPeople: boolean
+}
+
+function take(into: Gathered, source: Source, data: Record<string, unknown>, now: string): void {
+  for (const node of nodes(data.issues)) {
+    const made = issueRow(source, node, now)
+    if (made) {
+      into.rows.push(made)
+      into.seenIssues.add(made.number)
     }
-    const from = r.source_project_id
-    const branch = str(r.source_branch)
-    if (typeof from === 'number' && typeof r.target_project_id === 'number' && from !== r.target_project_id && branch && branch.length <= LIMITS.BRANCH) {
-      const fork = await glab([`projects/${from}`], source)
-      const repo = fork.code === 0 ? str(obj(parsed(fork)).path_with_namespace) : ''
-      if (repo && repo.length <= LIMITS.TRACKER_REPO) out.fork = { repo, branch }
+  }
+  for (const node of nodes(data.mergeRequests)) {
+    const made = mergeRow(source, node, now)
+    if (made) {
+      into.rows.push(made)
+      into.seenMerges.add(made.number)
     }
-    return out
+  }
+}
+
+/**
+ * One batch; on a complexity refusal or a timeout, its two halves. A
+ * timeout is as much "too much at once" as a complexity refusal is: the
+ * halves are asked with the host's limit raised (`Pace`).
+ */
+async function batch(gl: GitlabClient, source: Source, now: string, into: Gathered, i: number[], m: number[]): Promise<void> {
+  const people = peopleAsked(gl, source.host)
+  if (!people) into.withoutPeople = true
+  const ran = await graph(gl, refsQuery(source, i, m, people), source)
+  const answer = obj(parsed(ran))
+  const data = obj(obj(answer.data).project)
+  if (Object.keys(data).length) return take(into, source, data, now)
+  const first = ran.timedOut ? '' : list(answer.errors).length ? clip(str(obj(list(answer.errors)[0]).message), LIMITS.REASON) : ''
+  if (people && NO_FIELD.test(`${first} ${ran.err} ${ran.out}`)) {
+    /* An older GitLab: the same batch without the people fields. */
+    gl.noPeople.set(source.host, gl.clock() + PEOPLE_RECHECK_MS)
+    return batch(gl, source, now, into, i, m)
+  }
+  const refusal = ran.timedOut === true || COMPLEXITY.test(`${first} ${ran.err} ${ran.out}`)
+  const size = i.length + m.length
+  if (refusal && size > 1) {
+    const half = Math.ceil(size / 2)
+    const items = [...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const }))]
+    for (const part of [items.slice(0, half), items.slice(half)]) {
+      await batch(
+        gl,
+        source,
+        now,
+        into,
+        part.filter((one) => one.kind === 'issue').map((one) => one.number),
+        part.filter((one) => one.kind === 'change').map((one) => one.number),
+      )
+    }
+    return
+  }
+  if (!into.why) into.why = first || trouble(ran, 'glab', source.host)
+  into.unread.push(...i.map((number) => ({ number, kind: 'issue' as const })), ...m.map((number) => ({ number, kind: 'change' as const })))
+}
+
+/**
+ * Read these iids by GraphQL, `BATCH` at a time. A batch GitLab refuses costs
+ * only that batch: the rows of the others are kept, and the refused refs are
+ * handed back as `unread` with GitLab's own words, so the source's error and
+ * those refs' `failed` say what happened without discarding the good rows.
+ * A complexity refusal ("Query has complexity of N, which exceeds max
+ * complexity of M") is retried with the batch halved, down to one reference;
+ * only then is that batch given up.
+ */
+async function byIids(gl: GitlabClient, source: Source, issues: number[], merges: number[], now: string): Promise<Read> {
+  const into: Gathered = { rows: [], seenIssues: new Set(), seenMerges: new Set(), unread: [], why: '', withoutPeople: false }
+  /* As many at a time as the host answers comfortably: `BATCH` until it is slow. */
+  const per = gl.pace.size(source.host, BATCH)
+  const groups = Math.max(Math.ceil(issues.length / per), Math.ceil(merges.length / per))
+  for (let g = 0; g < groups; g += 1) {
+    await batch(gl, source, now, into, issues.slice(g * per, (g + 1) * per), merges.slice(g * per, (g + 1) * per))
+  }
+  const { rows, seenIssues, seenMerges, unread, why, withoutPeople } = into
+  const cannot = (n: number, kind: 'issue' | 'change') => unread.some((u) => u.number === n && u.kind === kind)
+  if (unread.length && !rows.length) return { ok: false, why }
+  if (merges.length && !withoutPeople && peopleAsked(gl, source.host)) gl.noPeople.delete(source.host)
+  return {
+    ok: true,
+    rows,
+    ...(withoutPeople ? { people: { unreadable: OLD_GITLAB_PEOPLE(source.host) } } : {}),
+    notFound: [
+      ...issues.filter((n) => !seenIssues.has(n) && !cannot(n, 'issue')).map((number) => ({ number, kind: 'issue' as const })),
+      ...merges.filter((n) => !seenMerges.has(n) && !cannot(n, 'change')).map((number) => ({ number, kind: 'change' as const })),
+    ],
+    ...(unread.length ? { unread: { why: clip(`${why} (${unread.length} of ${issues.length + merges.length} references not read)`, LIMITS.REASON), refs: unread } } : {}),
+  }
+}
+
+/**
+ * The project's newest updated issue and merge request, asked conditionally (two requests):
+ * 304 for both when nothing was updated since the probe kept.
+ */
+async function changed(gl: GitlabClient, source: Source): Promise<Probe> {
+  const got = await Promise.all(
+    (['issues', 'merge_requests'] as const).map((what) => probe(gl, source, `${project(source)}/${what}?state=all&order_by=updated_at&sort=desc&per_page=1`)),
+  )
+  if (got.some((one) => one.changed === null)) return UNKNOWN
+  return { changed: got.some((one) => one.changed), keep: () => got.forEach((one) => one.keep()) }
+}
+
+async function me(gl: GitlabClient, host: string): Promise<Me> {
+  const ran = await gl.timed(['glab', 'api', '--hostname', host, 'user'], host)
+  const who = ran.code === 0 ? login(parsed(ran)) : ''
+  if (who) return { login: who }
+  return { why: ran.code === 0 ? `glab did not say who is logged in to ${host}.` : trouble(ran, 'glab', host) }
+}
+
+/**
+ * The REST list has no pipeline, no approval and no notes; the open
+ * merge requests are read again, batched, for all three, and the open
+ * issues beside them in the same queries for their notes (the last
+ * activity). A failure here keeps the rows and hands back the ones it
+ * could not read again as `unread`, with the sentence why: the reading
+ * keeps what it held of those fields rather than losing them. Each row read
+ * again takes its place in `rows`.
+ */
+async function readOpenAgain(
+  gl: GitlabClient,
+  source: Source,
+  rows: TrackerRow[],
+  now: string,
+): Promise<{ people?: { unreadable: string }; unread?: Extract<Read, { ok: true }>['unread'] }> {
+  const open = rows.filter((one) => one.kind === 'change' && one.state === 'open').map((one) => one.number)
+  const openIssues = rows.filter((one) => one.kind === 'issue' && one.state === 'open').map((one) => one.number)
+  if (!open.length && !openIssues.length) return {}
+  const again = await byIids(gl, source, openIssues, open, now)
+  if (!again.ok) {
+    return {
+      unread: {
+        why: again.why,
+        refs: [...openIssues.map((number) => ({ number, kind: 'issue' as const })), ...open.map((number) => ({ number, kind: 'change' as const }))],
+      },
+    }
+  }
+  const fresh = new Map(again.rows.map((one) => [`${one.kind}:${one.number}`, one]))
+  for (let i = 0; i < rows.length; i += 1) {
+    const one = rows[i]!
+    const got = fresh.get(`${one.kind}:${one.number}`)
+    if (got) rows[i] = got
+  }
+  return { ...(again.people ? { people: again.people } : {}), ...(again.unread ? { unread: again.unread } : {}) }
+}
+
+async function listSource(gl: GitlabClient, source: Source, limit: number, now: string, how?: ListHow): Promise<Read> {
+  const reads = how?.reads
+  const wantIssues = !reads || reads.kinds.includes('issues') || reads.kinds.includes('tasks')
+  const wantMerges = !reads || reads.kinds.includes('changes')
+  const none: { items: unknown[]; partial?: string } = { items: [] }
+  const [issues, merges] = await Promise.all([
+    wantIssues ? listing(gl, source, 'issues', limit, now, how) : none,
+    wantMerges ? listing(gl, source, 'merge_requests', limit, now, how) : none,
+  ])
+  if (typeof issues === 'string') return { ok: false, why: issues }
+  if (typeof merges === 'string') return { ok: false, why: merges }
+  const partial = issues.partial ?? merges.partial
+  const rows = [
+    ...issues.items.map((one) => issueRow(source, one, now)),
+    ...merges.items.map((one) => mergeRow(source, one, now)),
+  ]
+    .filter((one): one is TrackerRow => one !== null)
+    /* Tasks and plain issues come in one listing; the kind not read is left out here. */
+    .filter((one) => !reads || reads.kinds.includes(kindOf(one)))
+  const { people, unread } = await readOpenAgain(gl, source, rows, now)
+  return {
+    ok: true,
+    rows: linkDeclarers(rows),
+    notFound: [],
+    ...(people ? { people } : {}),
+    ...(unread ? { unread } : {}),
+    ...(partial ? { partial } : {}),
+  }
+}
+
+async function boards(gl: GitlabClient, source: Source): Promise<BoardsRead | null> {
+  const ran = await glab(gl, [`${project(source)}/boards?per_page=100`], source)
+  if (ran.code !== 0) return null
+  const got = parsed(ran)
+  if (!Array.isArray(got)) return null
+  return {
+    boards: got
+      .map((one) => boardOf(source, one))
+      .filter((one): one is HeldBoard => one !== null)
+      .slice(0, LIMITS.TRACKER_BOARDS),
+  }
+}
+
+async function branches(gl: GitlabClient, source: Source): Promise<string[] | null> {
+  /* The first page asked conditionally: 304 when no branch moved since it was last read, and
+     then the names held stay (null) without reading any page. */
+  const first = `${project(source)}/repository/branches?per_page=100&page=1`
+  const asked = await probe(gl, source, first)
+  if (asked.changed === false) return null
+  const names: string[] = []
+  for (let page = 1; page <= BRANCH_PAGES; page += 1) {
+    const ran = page === 1 && asked.changed
+      ? { code: 0, out: asked.body ?? '', err: '' }
+      : await glab(gl, [`${project(source)}/repository/branches?per_page=100&page=${page}`], source)
+    if (ran.code !== 0) return page === 1 ? null : names
+    const got = parsed(ran)
+    if (!Array.isArray(got)) return page === 1 ? null : names
+    for (const one of got) {
+      const name = branchOf(obj(one).name)
+      if (name) names.push(name)
+    }
+    if (got.length < 100) {
+      /* Only a first page that holds every branch stands for them all: a new name on a later page leaves it as it was. */
+      if (page === 1) asked.keep()
+      break
+    }
+  }
+  return names
+}
+
+async function refs(gl: GitlabClient, source: Source, wanted: readonly Wanted[], now: string): Promise<Read> {
+  const issues = [...new Set(wanted.filter((w) => w.kind !== 'change').map((w) => w.number))]
+  const merges = [...new Set(wanted.filter((w) => w.kind === 'change').map((w) => w.number))]
+  return byIids(gl, source, issues, merges, now)
+}
+
+/** The detail facts of one item from what the detail query answered for it (`r`). */
+function detailFacts(one: TrackerRow, r: Record<string, unknown>, now: string): TrackerDetailFacts {
+  const body = str(r.description)
+  const files = nodes(r.diffStats).map(obj)
+  return {
+    body: clip(body, LIMITS.TRACKER_BODY),
+    bodyClipped: body.length > LIMITS.TRACKER_BODY,
+    files: files
+      .slice(0, LIMITS.TRACKER_FILES)
+      .filter((f) => str(f.path))
+      .map((f) => ({
+        path: clip(str(f.path), LIMITS.PATH),
+        ...(typeof f.additions === 'number' ? { additions: f.additions } : {}),
+        ...(typeof f.deletions === 'number' ? { deletions: f.deletions } : {}),
+      })),
+    filesClipped: files.length > LIMITS.TRACKER_FILES,
+    ...(one.kind === 'change'
+      ? {
+          headSha: str(r.diffHeadSha) ? clip(str(r.diffHeadSha), LIMITS.TRACKER_WORD) : null,
+          approvedBy: people(r.approvedBy),
+        }
+      : {}),
+    readAt: now,
+  }
+}
+
+async function detail(gl: GitlabClient, source: Source, rows: readonly TrackerRow[], now: string): Promise<Map<string, TrackerDetailFacts> | { why: string }> {
+  const out = new Map<string, TrackerDetailFacts>()
+  for (const group of chunks(rows, 25)) {
+    const issues = group.filter((r) => r.kind === 'issue').map((r) => r.number)
+    const merges = group.filter((r) => r.kind === 'change').map((r) => r.number)
+    const ran = await graph(gl, detailQuery(source, issues, merges), source)
+    const data = obj(obj(obj(parsed(ran)).data).project)
+    if (!Object.keys(data).length) return { why: trouble(ran, 'glab', source.host) }
+    const found = new Map<string, Record<string, unknown>>()
+    for (const node of nodes(data.issues)) found.set(`issue:${str(obj(node).iid)}`, obj(node))
+    for (const node of nodes(data.mergeRequests)) found.set(`change:${str(obj(node).iid)}`, obj(node))
+    for (const one of group) {
+      const r = found.get(`${one.kind}:${one.number}`)
+      if (r) out.set(one.ref, detailFacts(one, r, now))
+    }
+  }
+  /* What a person reads the item for (protocol 2.98.0), a few REST calls per ref. One that
+     fails leaves its fields absent and keeps the rest of the detail. */
+  for (const one of rows) {
+    const facts = out.get(one.ref)
+    if (facts) out.set(one.ref, { ...facts, ...(await itemExtras(gl, source, one)) })
+  }
+  return out
+}
+
+/** The milestone, the people's notes and their count, a merge request's head pipeline jobs and its fork. */
+async function itemExtras(gl: GitlabClient, source: Source, one: TrackerRow): Promise<Partial<TrackerDetailFacts>> {
+  const out: Partial<TrackerDetailFacts> = {}
+  const what = one.kind === 'change' ? 'merge_requests' : 'issues'
+  const [item, notes] = await Promise.all([
+    glab(gl, [`${project(source)}/${what}/${one.number}`], source),
+    glab(gl, [gitlabNotesPath(project(source), one.kind, one.number)], source),
+  ])
+  if (notes.code === 0) out.comments = gitlabComments(parsed(notes), one.url)
+  if (item.code !== 0) return out
+  const r = obj(parsed(item))
+  if (typeof r.user_notes_count === 'number') out.commentCount = r.user_notes_count
+  const milestone = milestoneOf({ title: obj(r.milestone).title, webUrl: obj(r.milestone).web_url, dueDate: obj(r.milestone).due_date }, source.host)
+  if (milestone) out.milestone = milestone
+  if (one.kind !== 'change') return out
+  const rule = await glab(gl, [`${project(source)}/merge_requests/${one.number}/approvals`], source)
+  if (rule.code === 0) Object.assign(out, gitlabApprovals(parsed(rule)))
+  const pipeline = obj(r.head_pipeline)
+  const pipelineId = typeof pipeline.id === 'number' ? pipeline.id : null
+  const pipelineProject = typeof pipeline.project_id === 'number' ? pipeline.project_id : null
+  if (pipelineId !== null) {
+    const where = pipelineProject !== null ? `projects/${pipelineProject}` : project(source)
+    const jobs = await glab(gl, [`${where}/pipelines/${pipelineId}/jobs?per_page=100`], source)
+    if (jobs.code === 0) Object.assign(out, gitlabChecks(parsed(jobs)))
+  }
+  const from = r.source_project_id
+  const branch = str(r.source_branch)
+  if (typeof from === 'number' && typeof r.target_project_id === 'number' && from !== r.target_project_id && branch && branch.length <= LIMITS.BRANCH) {
+    const fork = await glab(gl, [`projects/${from}`], source)
+    const repo = fork.code === 0 ? str(obj(parsed(fork)).path_with_namespace) : ''
+    if (repo && repo.length <= LIMITS.TRACKER_REPO) out.fork = { repo, branch }
+  }
+  return out
+}
+
+/** The GitLab adapter: the parts above, over one client. */
+export function gitlabAdapter(run: Runner, clock: () => number = Date.now, pace: Pace = new Pace()): Adapter {
+  const gl = gitlabClient(run, clock, pace)
+  return {
+    changed: (source) => changed(gl, source),
+    me: (host) => me(gl, host),
+    list: (source, limit, now, how) => listSource(gl, source, limit, now, how),
+    boards: (source) => boards(gl, source),
+    branches: (source) => branches(gl, source),
+    refs: (source, wanted, now) => refs(gl, source, wanted, now),
+    detail: (source, rows, now) => detail(gl, source, rows, now),
   }
 }
