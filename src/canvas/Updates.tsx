@@ -1,5 +1,5 @@
 import { CloudDownload, ScrollText } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 
@@ -43,6 +43,7 @@ updateSets,
   type Reading,
 } from '@/host/updates.ts'
 import { watchApp, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
+import { openModuleList } from '@/host/moduleList.ts'
 import { askRestart, heldSaid, onRestartChanged, restartNow, restartState, type HeldRestart } from '@/host/restartQueue.ts'
 import {
   APP_ROW_ID,
@@ -208,7 +209,13 @@ export const DISARM_ANYWAY_AFTER_MS = 10_000
 const PROGRESS_EVERY_MS = 2_000
 
 /** `markMs` is how long a result waits for the mark; tests pass 0. `disarmMs` is how long an arm stands. */
-export function Updates({
+/**
+ * The update engine: the desktop app's updater and every module's checkout — what was checked, what
+ * is updating, what each update came to — held once for the page (`UpdatesProvider`) and read by the
+ * Updates menu and by the module list, which draws each module's update in its own row. One source,
+ * two views: the menu for the app and what moves the whole app, the list for each module.
+ */
+export function useUpdatesEngine({
   markMs = MARK_DRAWN_MS,
   disarmMs = DISARM_ANYWAY_AFTER_MS,
 }: { markMs?: number; disarmMs?: number } = {}) {
@@ -449,7 +456,8 @@ export function Updates({
   useEffect(() => {
     const onAsked = (event: Event) => {
       const module = askedModule(event)
-      setOpen(true)
+      /* A module's update is in its row of the module list: that opens, on its Updates, at the module. */
+      openModuleList({ filter: 'updates', module })
       setAsked(module)
       /* A module asked for by name is shown even when it is up to date. */
       setShowLevel(module !== null)
@@ -699,11 +707,15 @@ export function Updates({
      and given focus, so "Update <Module>" lands on that module's Update. */
   const askedDrawn = asked !== null && [...attention, ...level].some((one) => one.id === asked)
   useEffect(() => {
-    if (!open || !askedDrawn || asked === null) return
-    const row = document.querySelector<HTMLElement>(`[data-updates-id="${CSS.escape(asked)}"]`)
-    row?.scrollIntoView?.({ block: 'nearest' })
-    row?.focus({ preventScroll: true })
-  }, [open, askedDrawn, asked, showLevel])
+    if (!askedDrawn || asked === null) return
+    /* Drawn in the module list, which opens in the same moment: looked for once it is there. */
+    const timer = setTimeout(() => {
+      const row = document.querySelector<HTMLElement>(`[data-updates-id="${CSS.escape(asked)}"]`)
+      row?.scrollIntoView?.({ block: 'nearest' })
+      row?.focus({ preventScroll: true })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [askedDrawn, asked, showLevel])
   const sets = updateSets(attention)
   const ready = sets.ready
   const unfetchedOnes = sets.unfetched
@@ -719,6 +731,41 @@ export function Updates({
         ? updatingStatus(updating, (id) => nameOf(checkouts, id))
         : summaryOf(check, lastFailed, count, unfetched)
 
+  return { open, setOpen, onOpenChange, label, shown, restartWaiting, checking, updating, restarting, retryingIds, notesOpen, status, check, setAuto, autoTrouble, appOne, held, restartPastHold, applyApp, checkAll, notes, phase, cancel, notice, lastFailed, steps, attention, appCalm, now, outcomes, asked, setAsked, mine, pins, told, retry, armed, restartAnyway, restartApp, showModuleNotes, app, updateAll, level, showLevel, setShowLevel, setMoved, checkouts, ready, endsAll, skipped, everything, unfetchedOnes, moduleNotes, moved, movedOpen, setMovedOpen, count, run }
+}
+
+export type UpdatesEngine = ReturnType<typeof useUpdatesEngine>
+/** The page's one engine; a test hands the module list a stand-in through it. */
+export const UpdatesContext = createContext<UpdatesEngine | null>(null)
+
+/** The one update engine for everything under it: the bar's Updates menu and its module list. */
+export function UpdatesProvider({ children, markMs, disarmMs }: { children: ReactNode; markMs?: number; disarmMs?: number }) {
+  const engine = useUpdatesEngine({ ...(markMs !== undefined ? { markMs } : {}), ...(disarmMs !== undefined ? { disarmMs } : {}) })
+  return <UpdatesContext.Provider value={engine}>{children}</UpdatesContext.Provider>
+}
+
+/** The page's update engine, or null outside an `UpdatesProvider`. */
+export function useUpdates(): UpdatesEngine | null {
+  return useContext(UpdatesContext)
+}
+
+/** The Updates menu: the page's engine when there is one, else one of its own (a test that draws it alone). */
+export function Updates({ markMs, disarmMs }: { markMs?: number; disarmMs?: number } = {}) {
+  const shared = useUpdates()
+  if (shared) return <UpdatesMenu engine={shared} />
+  return (
+    <UpdatesProvider {...(markMs !== undefined ? { markMs } : {})} {...(disarmMs !== undefined ? { disarmMs } : {})}>
+      <UpdatesFromContext />
+    </UpdatesProvider>
+  )
+}
+
+function UpdatesFromContext() {
+  return <UpdatesMenu engine={useUpdates()!} />
+}
+
+function UpdatesMenu({ engine }: { engine: UpdatesEngine }) {
+  const { open, onOpenChange, label, shown, restartWaiting, checking, updating, restarting, retryingIds, notesOpen, status, check, setAuto, autoTrouble, appOne, held, restartPastHold, applyApp, checkAll, notes, phase, cancel, notice, lastFailed, steps, attention, appCalm, now, updateAll, setMoved, checkouts, ready, everything, unfetchedOnes, moved, movedOpen, setMovedOpen } = engine
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <Hint label={label} align="end">
@@ -821,7 +868,66 @@ export function Updates({
                 </div>
               ) : null}
 
-              {attention.map((one) => {
+              {/* The host's own checkout (a development host) stays here: it is the app's, not a module's. */}
+              <UpdateRows engine={engine} only={(id) => id === 'host'} />
+              {/* Each module's update is in its own row of the module list ("Kehikko modules"): said here, with Show. */}
+              <ModulesToUpdate engine={engine} onShow={() => onOpenChange(false)} />
+
+              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} onNotes={(one, opener) => setMoved({ one, repo: repoOf(checkouts, one.id), opener })} /> : null}
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={updating !== null}
+                  onClick={checkAll}
+                >
+                  Check now
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground mr-auto h-7 text-xs"
+                  data-testid="updates-whats-new"
+                  disabled={updating !== null}
+                  onClick={() => {
+                    onOpenChange(false)
+                    setTimeout(openWhatsNew, 0)
+                  }}
+                >
+                  What’s new
+                </Button>
+                {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
+                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
+                    Update all ({everything})
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
+        {notes.dialog}
+        {/* A module's "What's new" is opened from its row in the module list, which draws that dialog. */}
+        {moved ? (
+          <MovedNotesDialog key={`${moved.one.id}-${moved.one.at}`} repo={moved.repo} name={moved.one.name} from={moved.one.from} to={moved.one.to} open={movedOpen} onOpenChange={setMovedOpen} opener={moved.opener} />
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * Update rows as the menu always drew them — every state, every button (Update, step back, Cancel,
+ * Try again, Restart anyway, What's new, pins, staleness, what waits) — for the checkouts `only` picks:
+ * the host's own in the Updates menu, each module's in the module list.
+ */
+export function UpdateRows({ engine, only }: { engine: UpdatesEngine; only: (id: string) => boolean }) {
+  const { outcomes, asked, updating, mine, pins, told, steps, check, retryingIds, updateAll, cancel, retry, armed, restartAnyway, restartApp, showModuleNotes, app, attention } = engine
+  const shownRows = attention.filter((one) => only(one.id))
+  return (
+    <>
+              {shownRows.map((one) => {
                 const outcome = outcomes[one.id] ?? null
                 return (
                   <div
@@ -862,9 +968,58 @@ export function Updates({
                 )
               })}
 
-              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} onNotes={(one, opener) => setMoved({ one, repo: repoOf(checkouts, one.id), opener })} /> : null}
+    </>
+  )
+}
 
-              {(attention.length > 0 || asked !== null) && level.length > 0 ? (
+/** The modules with an update to see, as the Updates menu says them: names, and Show to open them in the module list. */
+function ModulesToUpdate({ engine, onShow }: { engine: UpdatesEngine; onShow(): void }) {
+  const modules = engine.attention.filter((one) => one.id !== 'host')
+  if (!modules.length) return null
+  const names = modules.map((one) => one.name)
+  const said = names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+  return (
+    <div className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs" data-testid="updates-modules">
+      <span className="min-w-0 flex-1">
+        {modules.length === 1 ? '1 module' : `${modules.length} modules`}: {said}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6 px-2 text-xs"
+        onClick={() => {
+          onShow()
+          setTimeout(() => openModuleList({ filter: 'updates' }), 0)
+        }}
+      >
+        Show
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * The module list's Updates: every module's update row, the ones up to date with their versions,
+ * what "Update all" restarts, what was not updated and why, Check now and Update all — what the Updates
+ * menu held for modules, now beside the modules themselves.
+ */
+export function ModuleUpdates({ engine }: { engine: UpdatesEngine }) {
+  const { attention, level: everyLevel, asked, showLevel, setShowLevel, pins, showModuleNotes, ready, updating, endsAll, skipped, everything, unfetchedOnes, updateAll, checkAll, check, now, phase, notice, lastFailed, moduleNotes } = engine
+  const modules = attention.filter((one) => one.id !== 'host')
+  /* The host's own checkout is the app's, not a module's: said in the Updates menu, not here. */
+  const level = everyLevel.filter((one) => one.id !== 'host')
+  return (
+    <div className="flex flex-col gap-2" data-testid="module-updates">
+      {phase.kind === 'checking' ? <p className="text-muted-foreground text-xs">Asking GitHub what is new for each module…</p> : null}
+      {notice ? <p className="text-muted-foreground text-xs">{notice}</p> : null}
+      {lastFailed ? <p className="text-destructive text-xs">{lastFailed.why}</p> : null}
+      {check && !lastFailed && modules.length === 0 && phase.kind !== 'checking' ? (
+        <p className="text-muted-foreground text-xs" data-testid="module-updates-calm">
+          Every module is up to date · last checked {ago(check.checked, now)}
+        </p>
+      ) : null}
+      <UpdateRows engine={engine} only={(id) => id !== 'host'} />
+              {level.length > 0 ? (
                 <div className="text-muted-foreground text-xs" data-testid="updates-level">
                   <div className="flex items-center gap-2 px-1">
                     <span className="flex-1">
@@ -931,45 +1086,18 @@ export function Updates({
                   </ul>
                 </div>
               ) : null}
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={updating !== null}
-                  onClick={checkAll}
-                >
-                  Check now
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground mr-auto h-7 text-xs"
-                  data-testid="updates-whats-new"
-                  disabled={updating !== null}
-                  onClick={() => {
-                    onOpenChange(false)
-                    setTimeout(openWhatsNew, 0)
-                  }}
-                >
-                  What’s new
-                </Button>
-                {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
-                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
-                    Update all ({everything})
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          )}
-        </div>
-        {notes.dialog}
-        {moduleNotes.dialog}
-        {moved ? (
-          <MovedNotesDialog key={`${moved.one.id}-${moved.one.at}`} repo={moved.repo} name={moved.one.name} from={moved.one.from} to={moved.one.to} open={movedOpen} onOpenChange={setMovedOpen} opener={moved.opener} />
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={updating !== null || phase.kind === 'checking'} onClick={checkAll}>
+          Check now
+        </Button>
+        {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
+          <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
+            Update all ({everything})
+          </Button>
         ) : null}
-      </PopoverContent>
-    </Popover>
+      </div>
+      {moduleNotes.dialog}
+    </div>
   )
 }
 

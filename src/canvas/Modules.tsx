@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import type { ModuleListAsk } from '@/host/moduleList.ts'
+import { cn } from '@/lib/utils'
+import { ModuleUpdates, useUpdates, type UpdatesEngine } from './Updates.tsx'
 import { ScopeChip } from './Scope.tsx'
 import { ChevronRight, LoaderCircle } from 'lucide-react'
 
@@ -90,6 +93,9 @@ export interface IntroAbout {
   summary?: string | null
 }
 
+/** What a press elsewhere opened the list on (`openModuleList`): every module, or the Updates filter at one. */
+export const ModuleListAsked = createContext<ModuleListAsk>({})
+
 export function ModuleList({
   registry,
   onCanvas,
@@ -115,6 +121,12 @@ export function ModuleList({
   openAtFirst?: readonly string[] | 'all'
 }) {
   const [query, setQuery] = useState('')
+  /* One list of modules, as an editor's extensions view: every module, or only the ones with an update
+     to see (the Updates filter), each update drawn in its module's row by the one engine (`Updates.tsx`). */
+  const asked = useContext(ModuleListAsked)
+  const updates = useUpdates()
+  const [filter, setFilter] = useState<'all' | 'updates'>(asked.filter ?? 'all')
+  useEffect(() => setFilter(asked.filter ?? 'all'), [asked])
   const official = useOfficial(onLookAgain)
   /* Where each official module runs from (Kehikko development): said on its row when it matters. */
   const development = useDevelopment()
@@ -189,7 +201,9 @@ export function ModuleList({
     <div className="flex max-h-[70vh] min-w-0 flex-col" data-module-list="">
       <div className="space-y-2 border-b p-3">
         <h2 className="text-sm font-medium">Kehikko modules</h2>
-        <Input
+        {updates ? <FilterChips filter={filter} onFilter={setFilter} updates={updates.attention.filter((one) => one.id !== 'host').length} /> : null}
+{filter === 'all' ? (
+                <Input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -204,10 +218,11 @@ export function ModuleList({
             first.focus()
           }}
         />
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onKeys}>
         {/* Where the official list would begin: said once, in a sentence, so a short list is not a mystery. */}
-        {stale ? <p className="text-muted-foreground border-b px-3 py-2 text-[11px] leading-relaxed">{stale}</p> : null}
+        {stale && filter === 'all' ? <p className="text-muted-foreground border-b px-3 py-2 text-[11px] leading-relaxed">{stale}</p> : null}
         {/* What the last Uninstall removed, the space it freed, and what it left and why: said until read. */}
         {official.uninstalled ? (
           <div role="status" className="bg-muted/30 border-b px-3 py-2 text-[11px] leading-relaxed" data-uninstalled="">
@@ -217,7 +232,11 @@ export function ModuleList({
             </button>
           </div>
         ) : null}
-        {sections.length ? (
+        {filter === 'updates' && updates ? (
+          <div className="p-3">
+            <ModuleUpdates engine={updates} />
+          </div>
+        ) : sections.length ? (
           sections.map((section) => (
             <section key={section.heading} aria-label={section.heading}>
               <h3 className="bg-muted/40 text-muted-foreground px-3 py-1 text-[11px] font-medium tracking-wide uppercase">
@@ -248,6 +267,10 @@ export function ModuleList({
                       onUninstall={(projects) => official.uninstall(row.id, projects)}
                       refused={official.refused.get(row.id) ?? null}
                       onIntro={onIntro ? () => onIntro(row.id, { name: row.name, summary: row.summary }) : undefined}
+                      update={updates ? <InlineUpdate engine={updates} id={row.id} onSee={() => {
+                        updates.setAsked(row.id)
+                        setFilter('updates')
+                      }} /> : null}
                       runs={
                         development.state ? (
                           <RunsFrom
@@ -267,7 +290,8 @@ export function ModuleList({
         ) : (
           <p className="text-muted-foreground p-4 text-sm">No module matches &ldquo;{query.trim()}&rdquo;.</p>
         )}
-        {official.mine ? (
+        {/* The Updates filter is the updates alone; what is installed, from where, is under All. */}
+        {official.mine && filter === 'all' ? (
           <MyModules
             mine={official.mine}
             onAdded={official.again}
@@ -275,10 +299,12 @@ export function ModuleList({
             refused={official.refused}
           />
         ) : null}
-        <div className="space-y-2 border-t p-3">
-          <p className="text-muted-foreground font-mono text-[11px] break-all">{sweep.dir}</p>
-          <Rejected rejected={sweep.rejected} />
-        </div>
+        {filter === 'all' ? (
+          <div className="space-y-2 border-t p-3">
+            <p className="text-muted-foreground font-mono text-[11px] break-all">{sweep.dir}</p>
+            <Rejected rejected={sweep.rejected} />
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -598,10 +624,13 @@ function ModuleRow({
   refused,
   onIntro,
   runs,
+  update = null,
 }: {
   row: Registered
   /** Where it runs from (Kehikko development), when that is said. */
   runs?: ReactNode
+  /** Its update, when it has one: Update, Updating…, or See update (`InlineUpdate`). */
+  update?: ReactNode
   open: boolean
   onToggle(): void
   onPlace(): void
@@ -654,7 +683,7 @@ function ModuleRow({
       onToggle={onToggle}
       dot={<ConditionDot condition={presence.condition} lifecycle={presence.lifecycle} reached={presence.reached} stopped={presence.stopped} />}
       icon={<ModuleIcon id={row.id} name={row.name} className="text-muted-foreground size-3.5" />}
-      status={status}
+      status={update ? <span className="flex items-center gap-1.5">{update}{status}</span> : status}
       progress={shownJob ? <StepProgress job={shownJob} /> : null}
       badges={badges}
       onIntro={onIntro}
@@ -1345,5 +1374,50 @@ function Rejected({ rejected }: { rejected: { file: string; why: string }[] }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/** The two views of the one list: every module, and the ones with an update to see (with how many). */
+function FilterChips({ filter, onFilter, updates }: { filter: 'all' | 'updates'; onFilter(to: 'all' | 'updates'): void; updates: number }) {
+  const chip = (to: 'all' | 'updates', label: string) => (
+    <button
+      type="button"
+      aria-pressed={filter === to}
+      data-module-filter={to}
+      onClick={() => onFilter(to)}
+      className={cn('rounded-full border px-2 py-0.5 text-[11px]', filter === to ? 'bg-foreground text-background border-foreground' : 'text-muted-foreground hover:text-foreground')}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div className="flex items-center gap-1.5" role="group" aria-label="which modules">
+      {chip('all', 'All')}
+      {chip('updates', updates ? `Updates (${updates})` : 'Updates')}
+    </div>
+  )
+}
+
+/**
+ * A module's update on its row in "All": Update when it is only that (one press, as in the Updates
+ * filter), Updating… while it runs, and See update when there is more to read or decide — a failure,
+ * a kept module, a pin — which opens the Updates filter at it, where every button is.
+ */
+function InlineUpdate({ engine, id, onSee }: { engine: UpdatesEngine; id: string; onSee(): void }) {
+  const one = engine.attention.find((it) => it.id === id)
+  if (!one) return null
+  if (engine.updating && engine.mine(id)) return <span className="text-muted-foreground text-[11px]" data-inline-update="running">Updating…</span>
+  const plain = engine.ready.some((it) => it.id === id) && !engine.outcomes[id]
+  if (plain) {
+    return (
+      <Button size="sm" className="h-5 px-1.5 text-[11px]" data-inline-update="ready" disabled={engine.updating !== null} onClick={() => void engine.updateAll([id])}>
+        Update
+      </Button>
+    )
+  }
+  return (
+    <button type="button" className="text-[11px] text-amber-700 underline-offset-2 hover:underline dark:text-amber-400" data-inline-update="see" onClick={onSee}>
+      See update
+    </button>
   )
 }

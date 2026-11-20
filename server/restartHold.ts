@@ -126,7 +126,7 @@ export interface HoldDeps {
 export interface HeldRestart {
   reason: 'app-update' | 'app-restart'
   version: string | null
-  /** The provider's name ("Queue"), as it says it. */
+  /** The provider's own name, as its descriptor says it. */
   by: string
   ahead: number
   at: number
