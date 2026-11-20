@@ -15,7 +15,8 @@ const DEV = join(import.meta.dirname, '..', 'dev')
 
 describe('what a drive leaves behind', () => {
   test('a detached process running inside a folder the drive owns is stopped', async () => {
-    const { stopInside } = (await import('../dev/scratch-host.mjs')) as { stopInside(roots: string[]): number }
+    /* A plain .mjs with no types: loaded by its address, typed here by what is used. */
+    const { stopInside } = (await import(new URL('../dev/scratch-host.mjs', import.meta.url).href)) as { stopInside(roots: string[]): number }
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-owned-')))
     /* As the host starts a module: detached, in its own process group, from a folder under the drive's. */
     const child = spawn('sleep', ['30'], { cwd: dir, detached: true, stdio: 'ignore' })
