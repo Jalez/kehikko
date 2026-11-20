@@ -14,7 +14,7 @@ import type { Rect } from '@/canvas/Frames.tsx'
  * It is the wrong answer, because the number this needs is not where the ITEM
  * is — it is where the container's BODY is, which is the item minus a header, a
  * border and whatever rounding the card has. Calculating that means encoding
- * `Container.tsx`'s padding in a second file, and the day somebody makes the header
+ * `ContainerHeader.tsx`'s padding in a second file, and the day somebody makes the header
  * a pixel taller, every module on the canvas is a pixel out of place and
  * nothing in either file looks wrong. Measuring asks the browser where the
  * element actually ended up, and the answer stays right through any restyling.

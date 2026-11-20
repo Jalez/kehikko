@@ -105,7 +105,7 @@ export function RefreshButton({
                icons does not deliver one. */
             className="text-foreground pointer-events-auto size-6 cursor-default"
             /* Stops the grid reading the press as the start of a drag, which
-               would make this button unpressable — see `Container.tsx`. */
+               would make this button unpressable — see `ContainerHeader.tsx`. */
             onMouseDown={(event) => event.stopPropagation()}
           >
             {/* Turning while the module says it is reading. The module is the

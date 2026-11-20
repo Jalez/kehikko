@@ -5,7 +5,7 @@ import { forwardRef, type HTMLAttributes, type ReactElement, type Ref } from 're
  *
  * A small square at the very corner, so that it takes the least from the
  * header it overlaps at the top: the header's own controls sit above it
- * (`Container.tsx`) and the rest of the header keeps dragging the container.
+ * (`ContainerHeader.tsx`) and the rest of the header keeps dragging the container.
  * It has no drawing of its own. The corner is shown by tinting the rounded
  * arc of the container itself, which `index.css` does from `data-corner`.
  *

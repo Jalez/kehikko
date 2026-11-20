@@ -247,7 +247,7 @@
  * carries no meaning, so there is nothing for colour to be the only signal of.
  *
  * The hit area is a small square AT the corner. The header's own controls are
- * lifted above it in `Container.tsx`, and the rest of the header, which drags
+ * lifted above it in `ContainerHeader.tsx`, and the rest of the header, which drags
  * the container, is never under it.
  */
 .react-grid-item > .react-resizable-handle.corner-handle {

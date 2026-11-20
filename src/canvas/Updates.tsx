@@ -631,41 +631,10 @@ function UpdatesFromContext() {
 }
 
 function UpdatesMenu({ engine }: { engine: UpdatesEngine }) {
-  const { open, onOpenChange, label, shown, restartWaiting, checking, updating, restarting, retryingIds, notesOpen, status, check, setAuto, autoTrouble, appOne, held, restartPastHold, applyApp, checkAll, notes, phase, cancel, notice, lastFailed, steps, attention, appCalm, now, updateAll, setMoved, checkouts, ready, everything, unfetchedOnes, moved, movedOpen, setMovedOpen } = engine
+  const { open, onOpenChange, restarting, notesOpen, status, check, setAuto, autoTrouble, appOne, held, restartPastHold, applyApp, checkAll, notes, phase, cancel, moved, movedOpen, setMovedOpen } = engine
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <Hint label={label} align="end">
-        <PopoverTrigger
-          asChild
-          onClick={(event) => {
-            /* While it names a restart it restarts; see `restartWaiting`.
-               Prevented, so the same press does not also toggle the panel. */
-            if (shown?.tone !== 'action') return
-            event.preventDefault()
-            void restartWaiting()
-          }}
-        >
-          <Button
-            variant="ghost"
-            size={shown ? 'sm' : 'icon'}
-            aria-label={shown ? `updates — ${shown.label}` : 'check for updates'}
-            data-busy={checking || updating !== null || restarting || retryingIds.length > 0}
-            data-testid="updates-indicator"
-            data-tour="updates"
-            data-tone={shown?.tone ?? 'none'}
-            className={
-              shown
-                ? `h-6 gap-1 px-1.5 text-xs font-normal ${shown.tone === 'error' ? 'text-destructive' : shown.tone === 'info' ? 'text-muted-foreground hover:text-foreground' : 'text-foreground'}`
-                : `size-6 ${open ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`
-            }
-          >
-            <CloudDownload
-              className={`size-3 ${checking || updating || restarting || shown?.tone === 'busy' ? 'animate-pulse' : ''}`}
-            />
-            {shown ? <span className="tabular-nums">{shown.label}</span> : null}
-          </Button>
-        </PopoverTrigger>
-      </Hint>
+      <UpdatesTrigger engine={engine} />
 
       <PopoverContent
         align="end"
@@ -702,76 +671,7 @@ function UpdatesMenu({ engine }: { engine: UpdatesEngine }) {
               }
             />
           ) : null}
-          {restarting || phase.kind === 'checking' ? (
-            <div className="flex flex-col items-center gap-3 py-4" data-testid="updates-working">
-              <KehikkoMark key={restarting ? 'r' : 'c'} working className="text-foreground size-12" />
-              <p className="text-muted-foreground text-center text-xs">
-                {restarting
-                  ? 'The window closes and Kehikot opens again in a moment, on the same kehikko.'
-                  : 'Fetching from each repository — a few seconds per repository.'}
-              </p>
-              {restarting ? null : (
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={cancel}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2" data-testid="updates-results">
-              {notice ? <p className="text-muted-foreground text-xs">{notice}</p> : null}
-              {lastFailed ? <p className="text-destructive text-xs">{lastFailed.why}</p> : null}
-              {/* Installs and updates with no row of their own here (an install, an automatic update): each with its step. */}
-              <StepList jobs={Object.values(steps).filter((job) => !attention.some((one) => one.id === job.id))} />
-
-              {check && !lastFailed && attention.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-3 text-center" data-testid="updates-calm">
-                  <KehikkoMark working={false} className="text-muted-foreground size-12" />
-                  <p className="text-sm">{appCalm ? 'Everything is up to date' : 'Every module is up to date'}</p>
-                  <p className="text-muted-foreground text-xs">
-                    Last checked {ago(check.checked, now)} (
-                    {check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
-                  </p>
-                </div>
-              ) : null}
-
-              {/* The host's own checkout (a development host) stays here: it is the app's, not a module's. */}
-              <UpdateRows engine={engine} only={(id) => id === 'host'} />
-              {/* Each module's update is in its own row of the module list ("Kehikko modules"): said here, with Show. */}
-              <ModulesToUpdate engine={engine} onShow={() => onOpenChange(false)} />
-
-              {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} onNotes={(one, opener) => setMoved({ one, repo: repoOf(checkouts, one.id), opener })} /> : null}
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  disabled={updating !== null}
-                  onClick={checkAll}
-                >
-                  Check now
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground mr-auto h-7 text-xs"
-                  data-testid="updates-whats-new"
-                  disabled={updating !== null}
-                  onClick={() => {
-                    onOpenChange(false)
-                    setTimeout(openWhatsNew, 0)
-                  }}
-                >
-                  What’s new
-                </Button>
-                {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
-                  <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
-                    Update all ({everything})
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          )}
+          {restarting || phase.kind === 'checking' ? <PanelWorking restarting={restarting} onCancel={cancel} /> : <PanelResults engine={engine} />}
         </div>
         {notes.dialog}
         {/* A module's "What's new" is opened from its row in the module list, which draws that dialog. */}
@@ -780,6 +680,135 @@ function UpdatesMenu({ engine }: { engine: UpdatesEngine }) {
         ) : null}
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** The header's Updates button: the quiet icon, or one line about everything — and while it names a restart, the restart. */
+function UpdatesTrigger({ engine }: { engine: UpdatesEngine }) {
+  const { open, label, shown, restartWaiting, checking, updating, restarting, retryingIds } = engine
+  return (
+    <Hint label={label} align="end">
+      <PopoverTrigger
+        asChild
+        onClick={(event) => {
+          /* While it names a restart it restarts; see `restartWaiting`.
+             Prevented, so the same press does not also toggle the panel. */
+          if (shown?.tone !== 'action') return
+          event.preventDefault()
+          void restartWaiting()
+        }}
+      >
+        <Button
+          variant="ghost"
+          size={shown ? 'sm' : 'icon'}
+          aria-label={shown ? `updates — ${shown.label}` : 'check for updates'}
+          data-busy={checking || updating !== null || restarting || retryingIds.length > 0}
+          data-testid="updates-indicator"
+          data-tour="updates"
+          data-tone={shown?.tone ?? 'none'}
+          className={triggerClass(shown, open)}
+        >
+          <CloudDownload
+            className={`size-3 ${checking || updating || restarting || shown?.tone === 'busy' ? 'animate-pulse' : ''}`}
+          />
+          {shown ? <span className="tabular-nums">{shown.label}</span> : null}
+        </Button>
+      </PopoverTrigger>
+    </Hint>
+  )
+}
+
+/** The button's look: a line in its tone's colour, or the quiet icon. */
+function triggerClass(shown: UpdatesEngine['shown'], open: boolean): string {
+  if (!shown) return `size-6 ${open ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`
+  const tone = shown.tone === 'error' ? 'text-destructive' : shown.tone === 'info' ? 'text-muted-foreground hover:text-foreground' : 'text-foreground'
+  return `h-6 gap-1 px-1.5 text-xs font-normal ${tone}`
+}
+
+/** A check, or the app restarting: the kehikko mark drawing itself, with Cancel for a check. */
+function PanelWorking({ restarting, onCancel }: { restarting: boolean; onCancel(): void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-4" data-testid="updates-working">
+      <KehikkoMark key={restarting ? 'r' : 'c'} working className="text-foreground size-12" />
+      <p className="text-muted-foreground text-center text-xs">
+        {restarting
+          ? 'The window closes and Kehikot opens again in a moment, on the same kehikko.'
+          : 'Fetching from each repository — a few seconds per repository.'}
+      </p>
+      {restarting ? null : (
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onCancel}>
+          Cancel
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** What the last check found: what was said, the host's own row, the modules to see, what updated itself, and the actions. */
+function PanelResults({ engine }: { engine: UpdatesEngine }) {
+  const { onOpenChange, check, notice, lastFailed, steps, attention, appCalm, now, updating, checkAll, setMoved, checkouts } = engine
+  return (
+    <div className="flex flex-col gap-2" data-testid="updates-results">
+      {notice ? <p className="text-muted-foreground text-xs">{notice}</p> : null}
+      {lastFailed ? <p className="text-destructive text-xs">{lastFailed.why}</p> : null}
+      {/* Installs and updates with no row of their own here (an install, an automatic update): each with its step. */}
+      <StepList jobs={Object.values(steps).filter((job) => !attention.some((one) => one.id === job.id))} />
+
+      {check && !lastFailed && attention.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-3 text-center" data-testid="updates-calm">
+          <KehikkoMark working={false} className="text-muted-foreground size-12" />
+          <p className="text-sm">{appCalm ? 'Everything is up to date' : 'Every module is up to date'}</p>
+          <p className="text-muted-foreground text-xs">
+            Last checked {ago(check.checked, now)} (
+            {check.checked.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+          </p>
+        </div>
+      ) : null}
+
+      {/* The host's own checkout (a development host) stays here: it is the app's, not a module's. */}
+      <UpdateRows engine={engine} only={(id) => id === 'host'} />
+      {/* Each module's update is in its own row of the module list ("Kehikko modules"): said here, with Show. */}
+      <ModulesToUpdate engine={engine} onShow={() => onOpenChange(false)} />
+
+      {check?.auto?.updated.length ? <UpdatedAutomatically updated={check.auto.updated} now={now} onNotes={(one, opener) => setMoved({ one, repo: repoOf(checkouts, one.id), opener })} /> : null}
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          disabled={updating !== null}
+          onClick={checkAll}
+        >
+          Check now
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground hover:text-foreground mr-auto h-7 text-xs"
+          data-testid="updates-whats-new"
+          disabled={updating !== null}
+          onClick={() => {
+            onOpenChange(false)
+            setTimeout(openWhatsNew, 0)
+          }}
+        >
+          What’s new
+        </Button>
+        <UpdateAllButton engine={engine} />
+      </div>
+    </div>
+  )
+}
+
+/** "Update all (N)", while more than one waits or one needs fetching first, and nothing is updating. */
+function UpdateAllButton({ engine }: { engine: UpdatesEngine }) {
+  const { everything, unfetchedOnes, updating, updateAll, ready } = engine
+  if (!((everything > 1 || unfetchedOnes.length > 0) && !updating)) return null
+  return (
+    <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
+      Update all ({everything})
+    </Button>
   )
 }
 
@@ -870,7 +899,7 @@ function ModulesToUpdate({ engine, onShow }: { engine: UpdatesEngine; onShow(): 
  * menu held for modules, now beside the modules themselves.
  */
 export function ModuleUpdates({ engine }: { engine: UpdatesEngine }) {
-  const { attention, level: everyLevel, asked, showLevel, setShowLevel, pins, showModuleNotes, ready, updating, endsAll, skipped, everything, unfetchedOnes, updateAll, checkAll, check, now, phase, notice, lastFailed, moduleNotes } = engine
+  const { attention, level: everyLevel, ready, updating, endsAll, skipped, checkAll, check, now, phase, notice, lastFailed, moduleNotes } = engine
   const modules = attention.filter((one) => one.id !== 'host')
   /* The host's own checkout is the app's, not a module's: said in the Updates menu, not here. */
   const level = everyLevel.filter((one) => one.id !== 'host')
@@ -885,84 +914,98 @@ export function ModuleUpdates({ engine }: { engine: UpdatesEngine }) {
         </p>
       ) : null}
       <UpdateRows engine={engine} only={(id) => id !== 'host'} />
-              {level.length > 0 ? (
-                <div className="text-muted-foreground text-xs" data-testid="updates-level">
-                  <div className="flex items-center gap-2 px-1">
-                    <span className="flex-1">
-                      {level.length} other{level.length === 1 ? '' : 's'} up to date
-                    </span>
-                    <button
-                      type="button"
-                      className="hover:text-foreground underline-offset-2 hover:underline"
-                      aria-expanded={showLevel}
-                      onClick={() => setShowLevel((was) => !was)}
-                    >
-                      {showLevel ? 'hide' : 'show'}
-                    </button>
-                  </div>
-                  {showLevel ? (
-                    <ul className="mt-1 space-y-0.5 px-1">
-                      {level.map((one) => (
-                        <li
-                          key={one.id}
-                          data-updates-id={one.id}
-                          tabIndex={asked === one.id ? -1 : undefined}
-                          className={cn('flex items-center gap-2', asked === one.id && 'ring-ring rounded-sm ring-2 outline-none')}
-                        >
-                          <ModuleIcon id={one.id} name={one.name} className="text-muted-foreground size-3" />
-                          <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
-                          {Object.hasOwn(pins, one.id) ? (
-                            <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
-                              {pins[one.id]!.containers} pinned to {pins[one.id]!.versions.join(', ')}
-                            </span>
-                          ) : null}
-                          {one.release ? (
-                            <span className="shrink-0 text-[11px]" data-testid="updates-release">
-                              {releaseSaid(one.release)}
-                            </span>
-                          ) : (
-                            <span className="shrink-0 font-mono text-[11px]">
-                              {one.branch ?? 'detached'} @ {one.commit}
-                            </span>
-                          )}
-                          {one.release?.repo && one.release.notes.length ? (
-                            <WhatsNew release={one.release} onShow={(opener) => showModuleNotes(one.id, one.name, one.release!, opener)} />
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
+      {level.length > 0 ? <LevelModules engine={engine} level={level} /> : null}
 
-              {ready.length > 1 && !updating && endsAll ? (
-                <p className="text-foreground px-1 text-xs" data-testid="updates-preview-all">
-                  {endsAll}
-                </p>
-              ) : null}
-              {skipped.length > 0 && !updating ? (
-                <div className="text-foreground px-1 text-xs" data-testid="updates-skipped">
-                  <p className="font-medium">Not updated:</p>
-                  <ul className="space-y-0.5">
-                    {skipped.map((one) => (
-                      <li key={one.id} data-testid="updates-skipped-item" data-id={one.id}>
-                        {one.name} — {one.why}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+      {ready.length > 1 && !updating && endsAll ? (
+        <p className="text-foreground px-1 text-xs" data-testid="updates-preview-all">
+          {endsAll}
+        </p>
+      ) : null}
+      {skipped.length > 0 && !updating ? <SkippedModules skipped={skipped} /> : null}
       <div className="flex items-center justify-between gap-2 pt-1">
         <Button variant="ghost" size="sm" className="h-7 text-xs" disabled={updating !== null || phase.kind === 'checking'} onClick={checkAll}>
           Check now
         </Button>
-        {(everything > 1 || unfetchedOnes.length > 0) && !updating ? (
-          <Button size="sm" className="h-7 text-xs" onClick={() => void updateAll(ready.map((one) => one.id), unfetchedOnes.map((one) => one.id))}>
-            Update all ({everything})
-          </Button>
-        ) : null}
+        <UpdateAllButton engine={engine} />
       </div>
       {moduleNotes.dialog}
+    </div>
+  )
+}
+
+/** "N others up to date", with show: each with its version, its pins and "What's new". */
+function LevelModules({ engine, level }: { engine: UpdatesEngine; level: UpdatesEngine['level'] }) {
+  const { showLevel, setShowLevel } = engine
+  return (
+    <div className="text-muted-foreground text-xs" data-testid="updates-level">
+      <div className="flex items-center gap-2 px-1">
+        <span className="flex-1">
+          {level.length} other{level.length === 1 ? '' : 's'} up to date
+        </span>
+        <button
+          type="button"
+          className="hover:text-foreground underline-offset-2 hover:underline"
+          aria-expanded={showLevel}
+          onClick={() => setShowLevel((was) => !was)}
+        >
+          {showLevel ? 'hide' : 'show'}
+        </button>
+      </div>
+      {showLevel ? (
+        <ul className="mt-1 space-y-0.5 px-1">
+          {level.map((one) => (
+            <LevelModule key={one.id} engine={engine} one={one} />
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
+/** One module that is up to date: its name, its pins, the release or commit it runs, and "What's new". */
+function LevelModule({ engine, one }: { engine: UpdatesEngine; one: UpdatesEngine['level'][number] }) {
+  const { asked, pins, showModuleNotes } = engine
+  return (
+    <li
+      data-updates-id={one.id}
+      tabIndex={asked === one.id ? -1 : undefined}
+      className={cn('flex items-center gap-2', asked === one.id && 'ring-ring rounded-sm ring-2 outline-none')}
+    >
+      <ModuleIcon id={one.id} name={one.name} className="text-muted-foreground size-3" />
+      <span className="text-foreground min-w-0 flex-1 truncate">{one.name}</span>
+      {Object.hasOwn(pins, one.id) ? (
+        <span className="shrink-0 text-[11px] text-amber-700 dark:text-amber-300" data-testid="updates-pinned">
+          {pins[one.id]!.containers} pinned to {pins[one.id]!.versions.join(', ')}
+        </span>
+      ) : null}
+      {one.release ? (
+        <span className="shrink-0 text-[11px]" data-testid="updates-release">
+          {releaseSaid(one.release)}
+        </span>
+      ) : (
+        <span className="shrink-0 font-mono text-[11px]">
+          {one.branch ?? 'detached'} @ {one.commit}
+        </span>
+      )}
+      {one.release?.repo && one.release.notes.length ? (
+        <WhatsNew release={one.release} onShow={(opener) => showModuleNotes(one.id, one.name, one.release!, opener)} />
+      ) : null}
+    </li>
+  )
+}
+
+/** What "Update all" left alone, and why. */
+function SkippedModules({ skipped }: { skipped: UpdatesEngine['skipped'] }) {
+  return (
+    <div className="text-foreground px-1 text-xs" data-testid="updates-skipped">
+      <p className="font-medium">Not updated:</p>
+      <ul className="space-y-0.5">
+        {skipped.map((one) => (
+          <li key={one.id} data-testid="updates-skipped-item" data-id={one.id}>
+            {one.name} — {one.why}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
