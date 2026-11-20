@@ -8,7 +8,8 @@ import { LIMITS, settingsDeclarationSchema, type SettingField } from 'kehikot-mo
 import { hostVouches } from 'kehikot-module-protocol/serve'
 
 import { createCanvas, open } from '../server/canvases.ts'
-import { own, refusal } from '../server/guard.ts'
+import { own, PAGE_ONLY, refusal } from '../server/guard.ts'
+import { SETTINGS_ROUTES } from '../server/settingsRoutes.ts'
 import { call, mcp, type Door } from '../server/mcp.ts'
 import { inside, moduleSettingsDesk, Passes, relativeFile, type SettingsModule } from '../server/moduleSettings.ts'
 import { Openness } from '../server/open.ts'
@@ -100,12 +101,16 @@ describe('the pass', () => {
     /* One mint, in the desk's `set`; nothing in the server mints one itself. */
     expect(desk.match(/passes\.issue\(/g)?.length).toBe(1)
     expect(server.includes('settingsPasses.issue')).toBe(false)
-    /* `set` is called on one route only, the page's alone. */
-    expect(server.match(/moduleSettings\.set\(/g)?.length).toBe(1)
-    const at = server.indexOf('moduleSettings.set(')
-    const route = server.indexOf("url.pathname === '/host/module-settings/set'")
+    /* `set` is called on one route only, the page's alone: in the settings desk, not in the server. */
+    const routes = readFileSync(join(import.meta.dir, '..', 'server', 'settingsRoutes.ts'), 'utf8')
+    expect(server.includes('moduleSettings.set(')).toBe(false)
+    expect(routes.match(/moduleSettings\.set\(/g)?.length).toBe(1)
+    const at = routes.indexOf('moduleSettings.set(')
+    const route = routes.indexOf("url.pathname === '/host/module-settings/set'")
     expect(at - route).toBeGreaterThan(0)
     expect(at - route).toBeLessThan(400)
+    expect(SETTINGS_ROUTES.settingsSet).toEqual({ method: 'POST', path: '/host/module-settings/set', pageOnly: true })
+    expect(PAGE_ONLY).toContain('/host/module-settings/set')
     /* And the door is never handed a way to change one. */
     const mcpSource = doorSource()
     expect(mcpSource.includes('moduleSettings.set')).toBe(false)

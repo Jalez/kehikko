@@ -30,7 +30,8 @@ export interface RouteSpec {
 /** A desk's routes by name. */
 export type RouteTable = Readonly<Record<string, RouteSpec>>
 
-export type RouteHandler = (request: Request, url: URL) => Response | Promise<Response>
+/** A route's answer; null when, having looked, it leaves the request to the routes after it (as an inline `if` that fell through did). */
+export type RouteHandler = (request: Request, url: URL) => Response | null | Promise<Response | null>
 
 /** One handler for every route a table declares. */
 export type RouteHandlers<T extends RouteTable> = { readonly [K in keyof T]: RouteHandler }

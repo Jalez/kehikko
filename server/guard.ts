@@ -1,10 +1,15 @@
 import { ADOPT_ROUTES } from './adoptRoutes.ts'
+import { CALL_ROUTES } from './callRoutes.ts'
 import { CANVAS_ROUTES } from './canvasRoutes.ts'
+import { DEVELOPMENT_ROUTES } from './developmentRoutes.ts'
 import { KEHIKKO_ROUTES } from './kehikkoRoutes.ts'
 import { LOG_ROUTES } from './logRoutes.ts'
+import { MODULE_ROUTES } from './moduleRoutes.ts'
+import { PERSON_ROUTES } from './personRoutes.ts'
 import { PROJECT_ROUTES } from './projectRoutes.ts'
 import { RESTART_ROUTES } from './restartRoutes.ts'
 import { pageOnlyPaths } from './routes.ts'
+import { SETTINGS_ROUTES } from './settingsRoutes.ts'
 import { SPACE_ROUTES } from './spaceRoutes.ts'
 import { TRACKER_ROUTES } from './trackerRoutes.ts'
 import { UPDATE_ROUTES } from './updateRoutes.ts'
@@ -162,7 +167,7 @@ export interface Refusal {
  */
 export const PAGE_ONLY: readonly string[] = [
   /* Declared on their routes: a desk's table says which of its writes are the page's alone (`routes.ts`). */
-  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES),
+  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES),
   ...ADOPT_ROUTES,
   /* Not yet in a table: still routed inline in `server.ts` or by their own desks. */
   '/host/restart-anyway',
@@ -184,25 +189,13 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/mine/add',
   '/host/mine/install',
   '/host/mine/remove',
-  '/host/uninstall',
   '/host/mine/adopt',
-  '/host/development',
-  '/host/unused-folders',
-  '/host/storage',
   '/host/skills',
   '/host/settings',
   '/host/visits',
   '/host/sounds',
   '/host/sounds/rename',
   '/host/sounds/remove',
-  '/host/onboarding',
-  '/host/whats-new',
-  '/host/whats-new/mentions',
-  '/host/module-settings',
-  '/host/module-settings/list',
-  '/host/module-settings/set',
-  '/host/module-settings/file',
-  '/host/pinned-places',
   '/host/startup',
 ]
 
