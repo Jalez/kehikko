@@ -34,6 +34,7 @@ import { basename, join } from 'node:path'
 import { MANIFEST_KIND, PROTOCOL, UNINSTALL_MARK, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, sha256, writeTarGz } from 'kehikot-module-protocol/bundle'
 
+import { bundleServe } from './fixtures/bundle-serve.mjs'
 import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const SAMPLE = 'kehikot.sample'
@@ -51,16 +52,8 @@ const manifest = (version) =>
     declares: { protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`, uses: [], storage: true, prompt: false }, health: '/healthz',
   })
 
-const serve = (version) => `
-const manifest = ${JSON.stringify(manifest(version))}
-const headers = { 'access-control-allow-origin': '*', 'content-type': 'application/json' }
-Bun.serve({ port: Number(process.env.PORT), hostname: '127.0.0.1', fetch(request) {
-  const path = new URL(request.url).pathname
-  if (path === ${JSON.stringify(WELL_KNOWN)}) return new Response(JSON.stringify(manifest), { headers })
-  if (path === '/healthz') return new Response('ok')
-  return new Response('<!doctype html><title>Sample</title>', { headers: { 'content-type': 'text/html' } })
-} })
-`
+/** Its server, from one file with nothing to import, which registers where it bound (`fixtures/bundle-serve.mjs`). */
+const serve = (version) => bundleServe(manifest(version))
 
 /** Its own clean-up (protocol 2.108.0): takes out the entry it wrote into a (scratch) agent's folder. */
 const cleanUp = `
@@ -190,11 +183,20 @@ export async function uninstallDrive({ check = false, claudeBundle = process.env
       console.log(`(waited for ${what})`)
       return null
     }
-    const answers = async (port) => {
+    const answers = async (origin) => {
       try {
-        return (await fetch(`http://127.0.0.1:${port}${WELL_KNOWN}`)).ok
+        return (await fetch(`${origin}${WELL_KNOWN}`)).ok
       } catch {
         return false
+      }
+    }
+    /* Where the sample answers is its registration's to say: its bundle is built against a protocol the
+       host starts on a port it hands, and it writes where it bound there (`server/anyPort.ts`). */
+    const sampleAt = () => {
+      try {
+        return JSON.parse(readFileSync(join(root, 'modules', `${SAMPLE}.json`), 'utf8')).url ?? null
+      } catch {
+        return null
       }
     }
     const projectA = (await get('/host/canvases')).projects.find((one) => one.path === join(root, 'project-a'))
@@ -224,7 +226,9 @@ export async function uninstallDrive({ check = false, claudeBundle = process.env
     const placed = await fetch(`${api}/host/canvases/${kehikko.id}`, { method: 'PATCH', headers, body: JSON.stringify({ placements: [...kehikko.placements, { i: SAMPLE, x: 0, y: 56, w: 12, h: 20 }] }) })
     expect(placed.ok, 'a container of it is on a kehikko')
     await post('/host/start', { module: SAMPLE })
-    expect(Boolean(await until('the sample answers', () => answers(samplePort), 60_000)), 'the host starts it and it answers')
+    expect(Boolean(await until('the sample answers', () => answers(sampleAt()), 60_000)), `the host starts it and it answers (${sampleAt()})`)
+    /* Where it answered, for after the uninstall has deleted the registration that said so. */
+    const answeredAt = sampleAt()
     mkdirSync(join(root, 'installed', '.previous', SAMPLE), { recursive: true })
     writeFileSync(join(root, 'installed', '.previous', SAMPLE, 'serve.ts'), '// the version before\n')
     mkdirSync(join(root, 'project-a', '.kehikot', 'sample'), { recursive: true })
@@ -241,7 +245,7 @@ export async function uninstallDrive({ check = false, claudeBundle = process.env
     const goneBody = await gone.json()
     console.log(`  said: ${goneBody.said}`)
     expect(gone.ok, `Uninstall is pressed (${gone.status})`)
-    expect(!(await answers(samplePort)), 'it no longer answers: it was stopped')
+    expect(answeredAt !== null && !(await answers(answeredAt)), `it no longer answers: it was stopped (${answeredAt})`)
     expect(!existsSync(join(root, 'installed', SAMPLE)) && !existsSync(join(root, 'installed', '.previous', SAMPLE)), 'its copy and its rollback copy are deleted')
     expect(!existsSync(join(root, 'modules', `${SAMPLE}.json`)), 'its registration is deleted')
     expect(!readdirSync(join(root, 'logs', 'modules')).some((name) => name.startsWith(SAMPLE)), 'its log is deleted')
