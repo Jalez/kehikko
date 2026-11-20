@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 import { folderSize, inspect, runGit, trashUnused, type UnusedDeps } from '../server/unusedFolders.ts'
 import { sizeSaid, trashedSaid, verdictSaid } from '../src/host/unusedFolders.ts'
+import { doorSource } from './doorSource.ts'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, '-c', 'user.name=T', '-c', 'user.email=t@example.invalid', ...args], { stdio: 'pipe' })
 
@@ -121,6 +122,6 @@ describe('unused folders', () => {
 })
 
 test('no tool of the agents’ door can move a folder to the Trash', async () => {
-  const mcp = await Bun.file(join(import.meta.dir, '..', 'server', 'mcp.ts')).text()
+  const mcp = doorSource()
   expect(mcp).not.toMatch(/unused-folders|moveToTrash|unusedFolders/)
 })

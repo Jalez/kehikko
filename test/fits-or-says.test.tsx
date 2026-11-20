@@ -4,6 +4,7 @@ import { MESSAGE, PROTOCOL, SERVER_ASK_PATH, WELL_KNOWN, hostTooOld, tooOldOf } 
 
 import type { Presence as ServerPresence } from '../server/discover.ts'
 import type { Presence } from '../src/host/registry.ts'
+import { doorSource } from './doorSource.ts'
 
 /*
  * A module and this Kehikot that do not fit (protocol 2.22.0, `fitOf`). Found on discovery from
@@ -213,7 +214,7 @@ describe('the modules list and read_canvas', () => {
 
   test('an agent reading the canvas is told it, and a compatible one is not', async () => {
     const { readFileSync } = await import('node:fs')
-    const mcp = readFileSync(new URL('../server/mcp.ts', import.meta.url), 'utf8')
+    const mcp = doorSource()
     const server = readFileSync(new URL('../server/server.ts', import.meta.url), 'utf8')
     expect(mcp).toContain('does not fit this Kehikot, and its container says so in place of its page: ${sighting.fit}')
     expect(server).toContain('...(presence.fit ? { fit: `${presence.fit.title}. ${presence.fit.line}` } : {})')
