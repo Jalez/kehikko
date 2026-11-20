@@ -342,6 +342,8 @@ describe('the layout the grid is handed', () => {
 describe('what the grid animates', () => {
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  /* The grid itself, drawn by `CanvasGrid` and handed `moving`, `gliding` and the width by the page. */
+  const grid = readFileSync(new URL('../src/app/CanvasGrid.tsx', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 
   test('nothing, unless the host says it is in motion', () => {
     expect(css).toMatch(/\.react-grid-layout:not\(\.in-motion\) \.react-grid-item \{\s*transition: none;/)
@@ -350,7 +352,8 @@ describe('what the grid animates', () => {
   })
 
   test('in motion only for a drag or resize in hand, a glide after it, and a fold', () => {
-    expect(app).toContain("className={moving !== null || gliding ? 'min-h-full in-motion' : 'min-h-full'}")
+    expect(grid).toContain("className={moving !== null || gliding ? 'min-h-full in-motion' : 'min-h-full'}")
+    expect(app).toMatch(/<CanvasGrid[\s\S]*?moving=\{moving\}\s+gliding=\{gliding\}/)
     /* A switch never sets either: `moving` is the hand's, `gliding` a release's or a fold's. The
        hand's are in `useDragResize` (a drag let go of, a corner let go of, and `glide`, which the
        page calls for a fold and for nothing else). */
@@ -365,8 +368,11 @@ describe('what the grid animates', () => {
 
   test('the grid is told its width, so it is never born at the 1280 pixels it would guess', () => {
     expect(app).not.toContain('WidthProvider')
-    expect(app).toContain('width={width}')
-    expect(app).toContain('{width === null ? null : (')
+    expect(grid).not.toContain('WidthProvider')
+    /* The page draws no grid until there is a width, and hands it on; the grid is told it. */
+    expect(app).toMatch(/\{width === null \? null : \(\s*<CanvasGrid[\s\S]*?width=\{width\}/)
+    expect(grid).toContain('width={width}')
+    expect(grid).toContain('width: number')
   })
 
   test('only a fold or an unfold counts as one', () => {

@@ -2,12 +2,12 @@ import { TRACKER_NEWS_FROM } from '@/host/trackerNews.ts'
 import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { Responsive, type Layout } from 'react-grid-layout'
+import type { Layout } from 'react-grid-layout'
 import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, type Space } from 'kehikot-module-protocol'
 import { heldSpaceOf, spaceHere } from './host/spaces.ts'
 import type { SpaceActivity } from './host/spaceRecency.ts'
 import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
-import type { Build, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
+import type { ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -32,8 +32,6 @@ import { projectPicked } from './host/tour.ts'
 import { Button } from './components/ui/button.tsx'
 import { LayoutTemplate } from 'lucide-react'
 import { openSettings, SETTINGS_INBOX_MODULE } from './host/agentSettings.ts'
-import { Container } from './canvas/Container.tsx'
-import { Absent } from './canvas/Arriving.tsx'
 import { rememberedModules, rememberModules } from './host/arriving.ts'
 import { tellStartup } from './host/startupReport.ts'
 import { decide } from './host/pageLog.ts'
@@ -48,7 +46,6 @@ import { Presses } from './host/presses.ts'
 import { handOnDrop } from './host/drops.ts'
 import {
   chooseOpen,
-  COLUMNS,
   editCanvas,
   saveConnections,
   everyPlaced,
@@ -129,10 +126,7 @@ import { chosen, remembered, sameChoice, settle as settleFilters } from './host/
 import type { Filtered, Picked } from './host/ask.ts'
 import { useRects } from './host/rects.ts'
 import { useInbox } from './canvas/useInbox.ts'
-import { offersInboxUse } from './host/inboxUse.ts'
-import { offersMessagesUse } from './host/messagesUse.ts'
 import { useRestarts } from './canvas/useRestarts.ts'
-import { PINNED_VERSION } from './host/restartModule.ts'
 import { visitFor, type Here } from './host/pickerOrder.ts'
 import { noteVisit } from './host/pickerStore.ts'
 import { useGoToPlace } from './canvas/useGoToPlace.ts'
@@ -152,8 +146,7 @@ import { isNotAnswering, notAnswering } from './host/reachable.ts'
 import { shownFor } from './host/agentHandoff.ts'
 import { arranged as settledOn, drawnWidth, mostFor, mostUp, pressed, tiledTo } from './host/columns.ts'
 import { drawsOwnTile, tileHidesPage } from './host/tile.ts'
-import { cornerHandle } from './canvas/CornerHandle.tsx'
-import { asked as foldAsked, reread, signedBy } from './host/folds.ts'
+import { asked as foldAsked, reread } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import {
@@ -172,7 +165,6 @@ import { watchClicks, withMode, type ClickEvent, type ShowRows } from './host/ro
 import { agentRefusal, declared, headerPosting, NO_HEADER, NO_HEADERS, NOTHING_POSTED, pressing, withdrawn, type Headers, type Pressed, type Pressing } from './host/header.ts'
 import type { PressNote } from './canvas/HeaderMenus.tsx'
 import { CANVAS_ROWS, MIN_W, rowHeightFor } from './host/fit.ts'
-import { collapseFor } from './host/appearance.ts'
 import { useAppearance, useDrawnTheme } from './host/appearanceStore.ts'
 import { Writer } from './host/writer.ts'
 import { useTrackerReading } from './app/useTrackerReading.ts'
@@ -180,6 +172,8 @@ import { useAgentMarks } from './app/useAgentMarks.ts'
 import { useDialogs } from './app/useDialogs.ts'
 import { ModuleDialogs } from './app/ModuleDialogs.tsx'
 import { samePlacements, useDragResize } from './app/useDragResize.ts'
+import { CanvasGrid, MARGIN } from './app/CanvasGrid.tsx'
+import type { Live } from './app/live.ts'
 
 /**
  * The canvas.
@@ -200,132 +194,13 @@ import { samePlacements, useDragResize } from './app/useDragResize.ts'
  * where it was dropped would feel broken on a machine that is not busy at all.
  */
 
-/**
- * The grid, told its width rather than left to measure it.
- *
- * It used to be `WidthProvider(Responsive)`. `WidthProvider` renders once at a
- * hardcoded 1280 pixels, measures the element it rendered into, and renders
- * again at the real width — and the grid is keyed by kehikko, so that happened
- * on EVERY switch, not once a load: every container drawn in the wrong column,
- * then moved. Its own answer, `measureBeforeMount`, was a trap of a different
- * kind: with it on, the measurement never arrived and the grid stayed at 1280
- * for the life of the page.
- *
- * The canvas already measures its own surface (`useRects`, for `room`), so the
- * width comes from there, and the grid is not drawn until there is one. A new
- * grid is born at its real width. See `host/switching.ts` for what that and the
- * rest of the switch cost before.
- */
-const Grid = Responsive
-
-/*
- * Grid geometry. The gaps, and only the gaps.
- *
- * There is no `ROW_HEIGHT` here any more. A row is not a size this file
- * chooses; it is `room / CANVAS_ROWS`, decided in `fit.ts` for the same reason
- * a column is `room / COLUMNS` — see the essay there, and the two wrong answers it
- * records. What is left in this constant is the one piece of vertical geometry
- * that really is fixed: the eight pixels of air between rows, above the first
- * and below the last, which the fit has to subtract before it divides.
- */
-const MARGIN: [number, number] = [8, 8]
+/* The grid's gaps, `MARGIN`, are beside the grid, in `app/CanvasGrid.tsx`. */
 
 /* How tall a folded container is, in grid rows, is `FOLDED_ROWS` in
    `host/columns.ts`, beside the floor a neighbour may be squeezed to — the two
    are one judgement seen from two sides, and the essay is there. */
 
-/**
- * What the canvas currently believes about one module, which is not always what
- * the server last said.
- *
- * The server establishes a condition by asking for a manifest. The frame
- * establishes one by being greeted and answering — or not. Both are true
- * observations of the same program at different moments, and the later one
- * wins: a module whose manifest answered and whose page then said nothing is
- * silent, whatever the sweep concluded thirty seconds ago.
- */
-interface Live {
-  condition: ModuleCondition
-  /**
-   * The sentence the conversation itself produced, or `null` when it has not
-   * produced one — a module that simply answered has nothing to say about
-   * itself, and the container falls back to what discovery wrote.
-   *
-   * Null rather than an empty string, because an empty string is a sentence as
-   * far as `??` is concerned, and the container would show nothing where it meant to
-   * show the server's line.
-   */
-  line: string | null
-  /**
-   * The page's own account of why it did not answer (protocol 2.59.0,
-   * `kehikot.page.error`): the first lines of the error's stack, shown under
-   * "Show details" beside `line`. Text, never markup.
-   */
-  more?: string | null
-  fault: string | null
-  /**
-   * The build that served the page that answered, when the page says — which
-   * server PROCESS it came from. Compared with the build the module's server
-   * states now to see a page older than its server; see `isStale` in
-   * `host/standing.ts`. Null or absent for a module from before build
-   * identities, which is never called stale.
-   */
-  build?: Build | null
-  /**
-   * What this module last said it can be narrowed by, or nothing.
-   *
-   * Here rather than in the arrangement, and the split is the point: the OFFER
-   * belongs to a running program and dies with it, while the CHOICE belongs to
-   * a container on a canvas and outlives everything — see `filters` on the
-   * placement schema. A module that is stopped stops offering, its control
-   * disappears, and what somebody chose is still in the database waiting for it
-   * to come back.
-   *
-   * Absent for every module that has never said anything, which is almost all
-   * of them, and absence is what draws no control at all.
-   */
-  filters?: FilterGroup[]
-  /**
-   * What this module last said could be cleared of what it is showing, in its
-   * own words — or `null`, which is the module saying there is nothing on
-   * screen to clear right now.
-   *
-   * Here beside the filter offer and for the same reason: it belongs to a
-   * running program and dies with it. Unlike the filter, there is no matching
-   * CHOICE stored anywhere, because there is nothing to remember — a press is
-   * an event, not a state, and a container does not carry "somebody once
-   * cleared this" from one day to the next.
-   *
-   * Three values and they are three different things. Absent is a module that
-   * has never said anything, which is almost all of them and draws no control.
-   * `null` is a module that HAS said something and is currently offering
-   * nothing, which also draws no control but arrived there deliberately. A
-   * string is an offer. The host draws the same nothing for the first two, and
-   * the distinction is kept because `Live` is what a person reads when working
-   * out why a control is missing.
-   */
-  clear?: string | null
-  /**
-   * What this module last said about being refreshed, or nothing.
-   *
-   * The third offer, held here beside the other two and for the same reason:
-   * all three belong to a running program and die with it, while what a person
-   * chose about the container outlives everything. For the filter that split is
-   * offer-here / choice-in-the-placement; for this it is state-here /
-   * INTERVAL-in-the-placement, which is the same split with different words.
-   *
-   * `at` is the part that could not have come from anywhere else. This host
-   * knows when it asked; it does not know whether the module answered out of a
-   * cache, whether the read failed over a reading still on screen, or whether
-   * the module refreshed itself for a reason nothing here can see. So the
-   * module says, and `null` — "I cannot say" — draws no time rather than a
-   * guess.
-   *
-   * Absent for every module that has never mentioned the idea, which is almost
-   * all of them, and absence draws no control at all.
-   */
-  refresh?: { can: boolean; at: string | null; busy: boolean }
-}
+/* What the canvas currently believes about one module: `Live`, in `app/live.ts`. */
 
 /**
  * How long after a sweep the canvas stops re-sweeping on focus.
@@ -4871,211 +4746,61 @@ export function App() {
           style={layerStyle(calm.incoming)}
         >
         {width === null ? null : (
-        <Grid
-          style={{ position: 'relative' }}
-          /* Keyed by the canvas, so switching them is a new grid rather than
-             the same grid being told every container moved at once. */
-          key={openId ?? 'none'}
-          /* Told, not measured: see `Grid` above. */
+        <CanvasGrid
+          openId={openId}
           width={width}
-          /* Animated only for a person's own drag or resize, and a fold. */
-          className={moving !== null || gliding ? 'min-h-full in-motion' : 'min-h-full'}
-          layouts={{ lg: laid }}
-          breakpoints={{ lg: 0 }}
-          cols={{ lg: COLUMNS }}
+          moving={moving}
+          gliding={gliding}
+          laid={laid}
           rowHeight={rowHeight}
-          /*
-           * The canvas has a bottom, the way it has always had a right-hand
-           * edge, and this is the line that gives it one.
-           *
-           * `cols` and `maxRows` are the same kind of statement: the axis has a
-           * fixed number of divisions and nothing may exceed them. That is what
-           * makes a column's width `room / 24` regardless of the content, and
-           * with this it is what makes a row's height `room / 56` regardless of
-           * the content — which is the whole of the fix in `fit.ts`.
-           *
-           * Verified in the library rather than assumed: `maxRows` reaches
-           * `calcXY` and `calcWH` in `calculateUtils.js`, which clamp a DRAG to
-           * `maxRows - h` and a RESIZE to `maxRows - y`. So a person feels the
-           * bottom of the canvas while dragging, rather than discovering
-           * afterwards that something was clipped.
-           *
-           * What it does NOT reach is the compaction that runs when the host
-           * writes a placement itself, which is why `roomBelow` exists and why
-           * `onHeight` calls it. A module asking to grow is the host writing a
-           * placement, and this prop would not have stopped it.
-           */
-          maxRows={CANVAS_ROWS}
-          margin={MARGIN}
-          containerPadding={MARGIN}
-          draggableHandle=".container-grip"
           onLayoutChange={onLayoutChange}
-          /* A drag by the grip and a pull on a corner, measured as they move: `gestures`, see
-             `app/useDragResize.ts`. */
-          {...gestures}
-          /* A container cannot be dropped into another container's space; the grid pushes
-             instead. Free placement would let one module hide another, and a
-             module a person cannot find is worse than one they have to arrange
-             around. */
-          compactType="vertical"
-          resizeHandles={['se', 'sw', 'ne', 'nw']}
-          resizeHandle={cornerHandle}
-        >
-          {containers.map((placement) => {
-            /* A pinned container shows its version's presence, or the pin's
-               sentence while the version is on its way — never the latest
-               copy's page. See `pinnedPresence`. */
-            const { presence, waiting } = pinnedPresence(
-              byId.get(placement.i),
-              placement.version ?? null,
-              open ? pinViews.get(`${open.id}|${placement.i}`) : undefined,
-            )
-            if (!presence) {
-              /* Missing only once a reading of the whole registry says so; until then, on its way. */
-              return (
-                <div key={placement.i}>
-                  <Absent id={placement.i} reading={registry} name={lastModules.get(placement.i)?.name ?? null} onRemove={() => onUnplace(placement.i)} />
-                </div>
-              )
-            }
-            const found = waiting ? undefined : live[presence.id]
-            return (
-              <div key={placement.i}>
-                <Container
-                  presence={presence}
-                  /* The page, the cover, or a notice. Nothing found yet is a
-                     module that has been framed and has not spoken, which
-                     `condition` alone cannot express: discovery said `ready`
-                     because the manifest read, not because the page answered. */
-                  showing={showing(presence, found && { ...found, stale: staleOf(presence.id, found), held: drawing.has(presence.id), label: loadingCovers.get(presence.id) ?? null }, askedFor === openId, restarts.of(presence.id))}
-                  loading={!drawing.has(presence.id) && loadingCovers.has(presence.id) ? { label: loadingCovers.get(presence.id) ?? null } : null}
-                  restart={restarts.of(presence.id)}
-                  onRestart={() => restarts.restart(presence.id)}
-                  /* A pinned version's process is the version's, not the module's own copy a restart names. */
-                  restartBlocked={placement.version ? PINNED_VERSION : undefined}
-                  /* "Reload page" on a page that went silent or failed: a new document, as a restart gives. */
-                  onReload={() => setGenerations((was) => ({ ...was, [presence.id]: (was[presence.id] ?? 0) + 1 }))}
-                  coverDetail={waiting ? presence.line : undefined}
-                  fault={found?.fault ?? null}
-                  body={body(presence.id)}
-                  grow={placement.grow}
-                  onGrow={(grow) => onGrow(presence.id, grow)}
-                  pinned={placement.pinned}
-                  onPin={(pinned) => onPin(presence.id, pinned)}
-                  collapsed={placement.collapsed}
-                  onCollapse={(collapsed) => onCollapse(presence.id, collapsed)}
-                  tiled={placement.tiled === true}
-                  onTile={(tiled) => onTile(presence.id, tiled)}
-                  /* What the collapse button does: Settings › Appearance's, the same for every container. */
-                  collapseMakes={collapseFor(drawn, presence.id)}
-                  /* How far a fold goes, and when the rows show: Settings › Appearance's, the same for every container. */
-                  foldRows={drawn.foldRows}
-                  rowsMode={drawn.rows}
-                  foldedBy={signedBy(signed && signed.kehikko === openId ? signed.marks : null, placement)}
-                  arrangedBy={arrangeMark && arrangeMark.kehikko === openId && arrangeMark.changed.includes(placement.i) ? arrangeMark.by : null}
-                  header={headers[presence.id] ?? NO_HEADER}
-                  /* A press on whichever frame is standing, judged against
-                     what is declared now — see `onPressItem`. */
-                  onPress={(press) => onPressItem(presence.id, press)}
-                  /* Its declared footer (protocol 2.38.0), pressed the same way with `place: 'footer'`. */
-                  footerSource={footerStore.source(presence.id)}
-                  onFooterPress={(press) => onFooterPressItem(presence.id, press)}
-                  /* Which rows are revealed: on hover or on click, as `rowsMode` says. Every container
-                     has a say now, so the reveal is handed to all of them. */
-                  reveals={reveals}
-                  /* And the keyboard to that frame after a press that closed
-                     its menu — see `focusAfter` in `host/header.ts`. */
-                  onKeyboard={() => presses.focus(presence.id)}
-                  /* Full screen for a run that asks for it, on THIS frame; an
-                     agent's `press_item` never comes this way. */
-                  surface={{
-                    enter: () => presses.fullscreen(presence.id),
-                    leave: () => presses.leaveFullscreen(presence.id),
-                  }}
-                  pressNote={pressNotes[presence.id] ?? null}
-                  /* The offer is the conversation's — it dies with the program —
-                     and the choice is the arrangement's. See `Live` above. */
-                  filters={found?.filters ?? []}
-                  chosen={chosen(found?.filters ?? [], placement.filters)}
-                  onChoose={(group, option) => onChooseFilter(presence.id, group, option)}
-                  onEverything={() => onEverything(presence.id)}
-                  /* `?? null` folds "never said anything" and "said there is
-                     nothing to clear" into the one thing the header draws for
-                     both, which is nothing. `Live.clear` keeps them apart for
-                     whoever is working out why a control is missing. */
-                  clear={found?.clear ?? null}
-                  /* The press, made at the moment of the press, on whichever
-                     frame is standing — see `presses.ts`. Nothing is stored and
-                     nothing is replayed: a press at a module that has gone does
-                     nothing at all, which is the only correct answer. */
-                  onClear={() => presses.press(presence.id)}
-                  /* Straight through, and never reconciled against anything the
-                     host knows: `at` is the module's statement about its own
-                     data. See `Refreshing.tsx`. */
-                  refresh={found?.refresh}
-                  /* And the setting beside it, which is the host's. The pair is
-                     the whole shape of this feature — the module owns the
-                     state, the container owns the clock. */
-                  refreshEvery={placement.refreshEvery}
-                  /* A press, like the clear, on whichever frame is standing.
-                     The interval in the effect above calls the same thing. */
-                  onRefresh={() => presses.refresh(presence.id)}
-                  onRefreshEvery={(every) => onRefreshEvery(presence.id, every)}
-                  selected={placement.selected}
-                  onSelect={(selected) => onSelect(presence.id, selected)}
-                  onPrompts={() => openPrompts(presence.id)}
-                  onTools={() => openTools(presence.id)}
-                  onSkills={() => openSkills(presence.id)}
-                  onHelp={() => openHelp(presence.id)}
-                  onIntro={() => {
-                    openIntro(presence.id, { name: presence.name ?? presence.id, summary: presence.summary }, false)
-                  }}
-                  onNotes={() => openWhatsNew({ item: presence.id })}
-                  onSettings={() => {
-                    openModuleSettings(presence.id, null)
-                  }}
-                  scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
-                  onStarted={() => void look(true)}
-                  onRemove={() => onUnplace(presence.id)}
-                  kehikko={open?.name ?? null}
-                  epic={about.epic}
-                  oneEpic={!waiting && coveredForScope(about.scope, presence.module, placement.pinned, placement.scope)}
-                  canvas={open?.id ?? null}
-                  version={placement.version ?? null}
-                  current={waiting ? null : (presence.module?.version ?? null)}
-                  /* The server has written the pin and woken this page for the
-                     kehikko; looking again picks up what the version is doing. */
-                  onVersion={() => void look(true)}
-                  /* "Use inbox": the person's, per module and machine-wide; a row of the Container menu. */
-                  inboxUse={
-                    offersInboxUse(presence.module, inbox.muted.has(presence.id))
-                      ? { on: !inbox.muted.has(presence.id), onChange: (on) => inbox.use(presence.id, on) }
-                      : undefined
-                  }
-                  /* "Messages to agents": the person's, per module in this project; the row after "Use inbox". */
-                  messagesUse={
-                    offersMessagesUse(presence.module, messagesMuted.has(presence.id))
-                      ? { on: !messagesMuted.has(presence.id), onChange: (on) => muteMessages(presence.id, !on) }
-                      : undefined
-                  }
-                  /* "Expand": shown large over the canvas for a while, and put back (`host/expand.ts`). */
-                  expand={
-                    open
-                      ? {
-                          on: expandedNow?.module.id === presence.id,
-                          onChange: (on) => setExpanded(on ? { kehikko: open.id, id: presence.id } : null),
-                        }
-                      : undefined
-                  }
-                  onActivitySeen={() =>
-                    inbox.see(inbox.open.filter((one) => one.module === presence.id && one.state === 'done'))
-                  }
-                  find={findControls(finds, presence.id)}
-                />
-              </div>
-            )
-          })}
-        </Grid>
+          gestures={gestures}
+          containers={containers}
+          wiring={{
+            byId,
+            registry,
+            lastModules,
+            pinViews,
+            live,
+            staleOf,
+            drawing,
+            loadingCovers,
+            askedFor,
+            restarts,
+            setGenerations,
+            look,
+            open,
+            openId,
+            about,
+            drawn,
+            signed,
+            arrangeMark,
+            body,
+            headers,
+            footerStore,
+            reveals,
+            presses,
+            pressNotes,
+            inbox,
+            messagesMuted,
+            muteMessages,
+            expandedNow,
+            setExpanded,
+            finds,
+            dialogs: { openPrompts, openTools, openSkills, openHelp, openIntro, openSettings: openModuleSettings },
+            onUnplace,
+            onGrow,
+            onPin,
+            onCollapse,
+            onTile,
+            onPressItem,
+            onFooterPressItem,
+            onChooseFilter,
+            onEverything,
+            onRefreshEvery,
+            onSelect,
+          }}
+        />
         )}
         </div>
 
