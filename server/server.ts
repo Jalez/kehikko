@@ -24,6 +24,7 @@ import { canvasDesk } from './canvasRoutes.ts'
 import { kehikkoDesk } from './kehikkoRoutes.ts'
 import { projectDesk } from './projectRoutes.ts'
 import { spaceDesk } from './spaceRoutes.ts'
+import { ModuleStates } from './supervisor/state.ts'
 import { moduleDesk } from './moduleRoutes.ts'
 import { callDesk } from './callRoutes.ts'
 import { personDesk } from './personRoutes.ts'
@@ -88,12 +89,11 @@ import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
 import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
-import { StoppedByPerson, stopModuleDesk } from './stopModule.ts'
+import { stopModuleDesk } from './stopModule.ts'
 import { aim, anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
 import {
   endedTooOftenLine,
   EXIT_RESTARTS_WINDOW_MS,
-  ExitRestarts,
   doorWake,
   exitedLine,
   personStoppedDoorLine,
@@ -1797,36 +1797,14 @@ const moduleSettings = moduleSettingsDesk({
   moduleOf: async (id) => settingsModuleOf(lastPresences.get(id)) ?? settingsModuleOf((await sweep()).presences.find((one) => one.id === id)),
 })
 
-/** When the host last ran a module's script, for as long as that is news. */
-const starting = new Map<string, number>()
-
-/** When the host stopped a module, until something starts it again. */
-const sleeping = new Map<string, number>()
-
 /**
- * The run of each module's script this host is waiting to hear the end of,
- * by when it was started. An exit is acted on only when it is still the run
- * named here — one the host stopped on purpose, or replaced, is taken out first.
+ * What the supervisor believes about each module between one look and the next (`supervisor/state.ts`):
+ * starting, asleep, the run whose end is news, its exit, stopped by the person, failed, in an update's
+ * hand, somebody else's that went, each one's scope, its ends and the wait after one, and whose process
+ * last answered. Named here as before; the operations that change several at once are on `states`.
  */
-const runs = new Map<string, number>()
-
-/** The exit code of each module's last run that has ended; null when a signal ended it. */
-const exits = new Map<string, number | null>()
-
-/**
- * Modules a person stopped from the Kehikko modules menu, until they press Start on one (or the app
- * starts again: nothing writes this down). Nothing here is started by the host's own rules. `stopModule.ts`.
- */
-const stoppedByPerson = new StoppedByPerson()
-
-/** A module the host ran that stopped again without answering, until something clears it. */
-const failures = new Map<string, { line: string; detail: string[] }>()
-
-/** An update or a restart the host is running for a module right now. */
-const working = new Map<string, 'updating' | 'restarting'>()
-
-/** The modules an update or a restart has in hand. Nothing else starts those meanwhile, and their exits are not news. */
-const inHand = new Set<string>()
+const states = new ModuleStates()
+const { starting, sleeping, runs, exits, stoppedByPerson, failures, working, inHand, theirs, scopeRead, exitRestarts, exitHeld, answeredBy } = states
 
 /** What an update has reached, per checkout, for a page that was not there when it began. */
 const progress = new Map<string, UpdateStep>()
@@ -1838,13 +1816,6 @@ const staleness = new Staleness()
 
 /** The app is stopping this host, and the host is stopping what it started. Nothing is started from here on. */
 let going = false
-
-/**
- * Modules somebody else was running that have just stopped answering, and
- * when. The host does not start one while it is here: `THEIRS_TO_RESTART_MS`
- * in `lifecycle.ts` has why. `theirReturn` takes it out again.
- */
-const theirs = new Map<string, number>()
 
 /**
  * Ask once a second whether a module that somebody else was running has come
@@ -1873,16 +1844,6 @@ function theirReturn(id: string): void {
   }
   setTimeout(() => void because('is the module back', again), 1_000).unref()
 }
-
-/**
- * Each module's manifest as last read, for the scope a container keeps it by
- * (`scopeKeeps`, "Why a container's scope may keep a module" in
- * `lifecycle.ts`). Kept while the module is not answering — a module its scope
- * keeps that went down is needed, and started again — and forgotten with its
- * registration. Memory only: a host that has not read a module keeps nothing
- * for it by scope.
- */
-const scopeRead = new Map<string, FramedModule>()
 
 /**
  * Which modules are on a kehikko that a live page says it has open.
@@ -1963,11 +1924,7 @@ function standings(presences: readonly Presence[], now: number): Standing[] {
      — see `readRegistrations` — so it is also the list of what these may hold. */
   const here = new Set(presences.map((presence) => presence.id))
   idleness.forgetAllBut(here)
-  for (const id of [...scopeRead.keys()]) if (!here.has(id)) scopeRead.delete(id)
-  for (const id of [...starting.keys()]) if (!here.has(id)) starting.delete(id)
-  for (const id of [...sleeping.keys()]) if (!here.has(id)) sleeping.delete(id)
-  for (const id of [...failures.keys()]) if (!here.has(id)) failures.delete(id)
-  stoppedByPerson.forgetAllBut(here)
+  states.forgetAllBut(here)
   staleness.forgetAllBut(here)
   releases.forgetAllBut(here)
   auto.forgetAllBut(here)
@@ -2044,7 +2001,7 @@ function begin(id: string, why = 'an open kehikko or project has it'): void {
      there: a second copy would race it for the port (`startOnce.ts`). */
   if (inHand.has(id) || pressedStarts.has(id) || nursery.holds(id)) return
   /* Its process ended a moment ago and the next start after an end waits (`ExitRestarts`). */
-  if ((exitHeld.get(id) ?? 0) > Date.now()) return
+  if (states.heldAfterEnd(id, Date.now())) return
   const registration = registered.get(id) ?? null
   const can = startable(registration)
   if (!can.ok) return
@@ -2569,10 +2526,7 @@ function run(id: string, runnable: Runnable): Started {
   nursery.keep(id, { child: ran.child, at, url: runnable.url, ...(ran.token ? { token: ran.token } : {}) })
   if (anyPort) ran.anyPort = true
   manifests.forget(id)
-  runs.set(id, at)
-  starting.set(id, at)
-  sleeping.delete(id)
-  failures.delete(id)
+  states.ran(id, at)
   staleness.fresh(id)
   return ran
 }
@@ -2694,14 +2648,6 @@ function govern(presences: readonly Presence[], mayStart = true): void {
   notice(presences, now)
   act(standings(presences, now), now, mayStart)
 }
-
-/** How often a module whose process ended is started again on its own (`ExitRestarts`). */
-const exitRestarts = new ExitRestarts()
-/** Modules whose next start after an end waits until this time. */
-const exitHeld = new Map<string, number>()
-
-/** Whose process was answering for each module when it was last seen answering. */
-const answeredBy = new Map<string, 'ours' | 'theirs'>()
 
 /**
  * See a module somebody else was running go, wherever the sweep that shows it
@@ -2948,11 +2894,7 @@ watchRegistry(registryDir(), () => {
  * how a module the other agent restarted by hand loses the word.
  */
 function saidOf(presence: Presence, now: number): Lifecycle | undefined {
-  if (presence.condition !== 'silent') {
-    starting.delete(presence.id)
-    sleeping.delete(presence.id)
-    failures.delete(presence.id)
-  }
+  if (presence.condition !== 'silent') states.answering(presence.id)
   return lifecycleOf(presence.condition === 'silent', doing(presence.id), now)
 }
 
@@ -3397,8 +3339,7 @@ async function restart(
   heldOnly = false,
 ): Promise<Restarted> {
   /* A press, an update or a retry: the count of ends begins again, and nothing waits. */
-  exitRestarts.forget(id)
-  exitHeld.delete(id)
+  states.pressed(id)
   const mine = !inHand.has(id)
   inHand.add(id)
   try {
