@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import { checkOnOrigin } from '../server/baseBranch.ts'
 import type { Runner } from '../server/feedback.ts'
 import { existingIdentity, explainGitFailure, forgetIdentities, hostOfRemote, identityFor, identityInSaid, isSshRemote, whyOfFailure } from '../server/gitAuth.ts'
-import { QUIET_ENV } from '../server/updates.ts'
+import { QUIET_ENV } from '../server/quietEnv.ts'
 import { run } from '../server/versions.ts'
 import { isGitReason, splitSaid } from '../src/host/gitSaid.ts'
 

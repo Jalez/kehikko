@@ -19,7 +19,8 @@ import {
   untraced,
   type Unnumbered,
 } from '../server/traffic.ts'
-import { parseLsof, parseListeners, parseNettop, parsePs, ProcessSampler } from '../server/trafficProcesses.ts'
+import { parseLsof, parseNettop, ProcessSampler } from '../server/trafficProcesses.ts'
+import { parseListeners, parsePs } from '../server/processTable.ts'
 import { owners } from '../server/callers.ts'
 import { trackerReason } from '../server/trackers/reading.ts'
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
-import { KeptBySettings, toSettings, useAgentSettings } from './Settings.tsx'
+import { KeptBySettings } from './KeptBySettings.tsx'
+import { toSettings, useAgentSettings } from '@/host/settingsClient.ts'
 import { ModuleIcon } from './ModuleIcon.tsx'
 
 import { Button } from '@/components/ui/button.tsx'

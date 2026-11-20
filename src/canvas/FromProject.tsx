@@ -11,7 +11,7 @@ import {
   type ElsewhereProject,
 } from '@/host/fromProject.ts'
 import type { OfficialEntry } from '@/host/layouts.ts'
-import { LayoutPreview } from './Layouts.tsx'
+import { LayoutPreview } from './LayoutPreview.tsx'
 
 /**
  * "From another project" in the New kehikko dialog: pick a project this host knows (searchable,
