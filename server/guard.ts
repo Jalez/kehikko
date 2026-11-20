@@ -1,3 +1,10 @@
+import { ADOPT_ROUTES } from './adoptRoutes.ts'
+import { LOG_ROUTES } from './logRoutes.ts'
+import { RESTART_ROUTES } from './restartRoutes.ts'
+import { pageOnlyPaths } from './routes.ts'
+import { TRACKER_ROUTES } from './trackerRoutes.ts'
+import { UPDATE_ROUTES } from './updateRoutes.ts'
+
 /**
  * What a request must be before this host looks at it.
  *
@@ -150,12 +157,11 @@ export interface Refusal {
  *    checks how it reaches this host.
  */
 export const PAGE_ONLY: readonly string[] = [
+  /* Declared on their routes: a desk's table says which of its writes are the page's alone (`routes.ts`). */
+  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES),
+  ...ADOPT_ROUTES,
+  /* Not yet in a table: still routed inline in `server.ts` or by their own desks. */
   '/host/restart-anyway',
-  '/host/restart/queue',
-  '/host/restart/now',
-  '/host/updates/cancel',
-  '/host/steps/cancel',
-  '/host/updates/step-back',
   '/host/restart-module',
   '/host/stop-module',
   '/host/headers',
@@ -167,19 +173,9 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/inbox/migrate',
   '/host/inbox/use',
   '/host/inbox/answer',
-  '/host/inbox/adoption',
-  '/host/inbox/afters',
-  '/host/inbox/adopt',
-  '/host/inbox/untrack',
-  '/host/inbox/undo',
-  '/host/inbox/untracked',
-  '/host/inbox/retrack',
-  '/host/inbox/task',
   '/host/messages/clear',
   '/host/messages/say',
   '/host/messages/mute',
-  '/host/trackers',
-  '/host/tracker/refresh',
   '/host/base-branch',
   '/host/mine/check',
   '/host/mine/add',
@@ -211,10 +207,7 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/file',
   '/host/connections',
   '/host/pinned-places',
-  '/host/module-addresses/check',
   '/host/startup',
-  '/host/log',
-  '/host/logs/open',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

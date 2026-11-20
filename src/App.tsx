@@ -1,5 +1,4 @@
 import { TRACKER_NEWS_FROM } from '@/host/trackerNews.ts'
-import type { TrackerListing } from '@/host/trackerSources.ts'
 import { fetchMessages, onMessagesChanged, postMute } from './host/messagesClient.ts'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -8,7 +7,7 @@ import { REFRESH_EVERY_MAX, REFRESH_EVERY_MIN, nodeAt, own, type ModuleScope, ty
 import { heldSpaceOf, spaceHere } from './host/spaces.ts'
 import type { SpaceActivity } from './host/spaceRecency.ts'
 import type { SpaceEditAnswer, SpaceEditAsked } from './canvas/SpacePicker.tsx'
-import type { Build, ContentChange, Disposition, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
+import type { Build, ExpandResult, SettingsOpenResult, EpicPart, FilterChoice, FilterGroup, ModuleCondition, ModuleContext, SharedAddress, SharedLocation } from 'kehikot-module-protocol'
 
 import { Bar } from './canvas/Bar.tsx'
 import { Frames, type Framing } from './canvas/Frames.tsx'
@@ -19,19 +18,12 @@ import type { DocumentEvent } from './canvas/ModuleFrame.tsx'
 import { Covers, registryBehind, Replacing, Runs, showing } from './host/standing.ts'
 import { Picking } from './canvas/Picking.tsx'
 import { Prompts } from './canvas/Prompts.tsx'
-import { ToolsDialog } from './canvas/Tools.tsx'
-import { SkillsDialog } from './canvas/Skills.tsx'
-import { ModuleAboutDialog, ModuleHelpDialog } from './canvas/ModuleHelp.tsx'
-import { helpFor as helpOfModule } from './host/moduleHelp.ts'
-import { ModuleIntroDialog } from './canvas/ModuleIntro.tsx'
-import type { IntroAbout } from './canvas/Modules.tsx'
-import { ModuleSettingsDialog, setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
+import { setSettingsFileOpener } from './canvas/ModuleSettings.tsx'
 import { AgentSettingsHost, fetchSettings } from './canvas/Settings.tsx'
 import { OnboardingHost } from './canvas/Onboarding.tsx'
 import { KehikkoSettingsHost } from './canvas/KehikkoSettings.tsx'
 import { WhatsNewHost } from './canvas/WhatsNew.tsx'
 import { openWhatsNew } from './host/whatsNew.ts'
-import { introFor as introOfModule } from './host/moduleIntro.ts'
 import { MENTIONS_MODULE, parseMentionId } from './host/whatsNewMentions.ts'
 import { forgetRead, hostRead } from './host/hostRead.ts'
 import { fileOpenerFor } from './host/fileOpener.ts'
@@ -86,7 +78,6 @@ import { keptFor, keptWritten } from './host/kept.ts'
 import { JUMP_SIGNED, markAfter, markStands, offerAsk, planJump as planAgentJump, sameView, walkAll, walkersOf, walkSoon, type JumpMark as JumpMarkShape, type Place as ViewPlace, type Told } from './host/jump.ts'
 import { JumpMark } from './canvas/JumpMark.tsx'
 import { ArrangeMark } from './canvas/ArrangeMark.tsx'
-import { arrangeNoted, arrangeStands, undoneTo, type ArrangeMark as ArrangeMarkShape } from './host/arrange.ts'
 import { usePinnedPlaces } from './canvas/usePinnedPlaces.ts'
 import { targetOf } from './host/pinnedPlaces.ts'
 import { arrive, MISSED_NEWS_MS, oneAfterAnother, stillMoving } from './host/looks.ts'
@@ -98,10 +89,6 @@ import {
   chooseProject,
   createEpic,
   deleteEpic,
-  fetchDispositions,
-  fetchTracker,
-  refreshTracker,
-  type TrackerState,
   editParts,
   fetchEpics,
   editSpaces,
@@ -169,7 +156,7 @@ import { arranged as settledOn, dragged, drawnWidth, granted, mostFor, mostUp, p
 import { drawsOwnTile, tileHidesPage } from './host/tile.ts'
 import { cornerOf } from './host/corners.ts'
 import { cornerHandle } from './canvas/CornerHandle.tsx'
-import { asked as foldAsked, noted, reread, signedBy, standing, type FoldMarks } from './host/folds.ts'
+import { asked as foldAsked, reread, signedBy } from './host/folds.ts'
 import { storageViewOf } from './host/storage.ts'
 import type { StorageViews } from './canvas/Storage.tsx'
 import {
@@ -191,7 +178,10 @@ import { CANVAS_ROWS, MIN_W, rowHeightFor, rowsHolding } from './host/fit.ts'
 import { collapseFor } from './host/appearance.ts'
 import { useAppearance, useDrawnTheme } from './host/appearanceStore.ts'
 import { Writer } from './host/writer.ts'
-import { builtFrom, worksWithOf } from './host/moduleMenu.ts'
+import { useTrackerReading } from './app/useTrackerReading.ts'
+import { useAgentMarks } from './app/useAgentMarks.ts'
+import { useDialogs } from './app/useDialogs.ts'
+import { ModuleDialogs } from './app/ModuleDialogs.tsx'
 
 /**
  * The canvas.
@@ -458,14 +448,8 @@ export function App() {
   const [canvases, setCanvases] = useState<Canvas[]>([])
   const canvasesRef = useRef(canvases)
   canvasesRef.current = canvases
-  /**
-   * Who folded or unfolded which containers on the open kehikko, when it was
-   * not the person: an agent at the host's door, or a module asking with
-   * `view.fold`. See `host/folds.ts`.
-   */
-  const [signed, setSigned] = useState<{ kehikko: number; marks: FoldMarks } | null>(null)
-  /* What an agent's `arrange_modules` changed on the open kehikko, and what Undo puts back (`host/arrange.ts`). */
-  const [arrangeMark, setArrangeMark] = useState<ArrangeMarkShape | null>(null)
+  /* Who folded which containers when it was not the person, and what an agent's `arrange_modules`
+     changed: `agentMarks`, from `useAgentMarks` (`app/useAgentMarks.ts`), called where `open` is made. */
   /**
    * An agent's jump of the view (`jump`), with where the person was, and the
    * step the open kehikko was last walked to. The page's alone; see
@@ -560,26 +544,8 @@ export function App() {
   const [heldProject, setHeldProject] = useState<number | null>(null)
   const heldBefore = useRef(new Map<number, HeldEpics>())
   if (held !== null && projectId !== null && heldProject === projectId) heldBefore.current.set(projectId, held)
-  /**
-   * The open project's dispositions — people's marks on why refs closed — for
-   * `context.dispositions`. Empty while they are read and when nobody has said
-   * anything; a module cannot tell those apart and does not need to, since in
-   * both it falls back to what its own tracker reading implies.
-   */
-  const [marks, setMarks] = useState<Disposition[]>([])
-  /**
-   * The open project's shared tracker reading, as the bar shows it and as
-   * `context.tracker` carries it: when it last changed, whether a read is
-   * running, and how each source fared. See `server/trackers/reading.ts`.
-   */
-  const [tracker, setTracker] = useState<TrackerState>({ at: null, refreshing: false, sources: [] })
-  /**
-   * What has changed in the material kept for the open project's epics, for
-   * `context.content`. Empty until the server says something changed: a
-   * module loads what it shows when its epic opens, and this is only ever the
-   * reason to read it again. See `server/content.ts`.
-   */
-  const [rewritten, setRewritten] = useState<ContentChange[]>([])
+  /* The open project's dispositions, tracker reading and changed material: `reading`, from
+     `useTrackerReading` (`app/useTrackerReading.ts`), called below the epics' read. */
   const [live, setLive] = useState<Record<string, Live>>({})
   /* The frames whose page answered `ready { hold: true }` and has not said it is
      drawn (protocol 2.70.0): their cover stays up. See `Found.held`. */
@@ -712,27 +678,10 @@ export function App() {
     const done = setTimeout(() => setGliding(0), GLIDE_MS)
     return () => clearTimeout(done)
   }, [gliding])
-  /* Which container's prompts are being written, if any. The dialog belongs to the
-     host rather than to a module — see `Prompts.tsx` for why a modal inside an
-     iframe is not a modal. */
-  const [prompting, setPrompting] = useState<string | null>(null)
-  /* Which module's tools are being looked at, if any. The host's window for the
-     same reason the prompt one is: a module cannot open a modal bigger than its
-     own container, and what this window shows is not the module's material anyway —
-     it is what the AGENT has been told. See `Tools.tsx`. */
-  const [toolsFor, setToolsFor] = useState<string | null>(null)
-  /* Whose agent skills are open (protocol 2.5.0). See `Skills.tsx`. */
-  const [skillsFor, setSkillsFor] = useState<string | null>(null)
-  /* Whose "How to use" is open (protocol 2.52.0): drawn from its manifest's `help`, by the host. */
-  const [helpFor, setHelpFor] = useState<string | null>(null)
-  /* A module's introduction (protocol 2.57.0) in the app's introduction dialog: from the modules
-     list's "?" with "Add to this kehikko" (`add`), from the container's Help menu
-     without it. */
-  const [introOpen, setIntroOpen] = useState<{ id: string; about: IntroAbout; add: boolean } | null>(null)
-  /** Whose settings are open in the modal (protocol 2.15.0), from a container's gear or Container menu. */
-  const [settingsFor, setSettingsFor] = useState<string | null>(null)
-  /* The setting the dialog opens at, when a module's page asked for one (`settings.open`). */
-  const [settingsTarget, setSettingsTarget] = useState<string | null>(null)
+  /* Which of the host's windows about one module are open — its prompts, tools, skills, "How to
+     use", introduction and settings — and for whom. See `app/useDialogs.ts`. */
+  const { dialogs, openPrompts, openTools, openSkills, openHelp, openIntro, openSettings: openModuleSettings, close: closeDialog } = useDialogs()
+  const { prompting, settingsFor } = dialogs
 
   /* Where each container's body ended up, measured. The module pages are positioned
      over these from a layer that outlives the containers. */
@@ -997,12 +946,10 @@ export function App() {
             /* Signed in the same breath as the arrangement it is about, so the
                fold and who made it are drawn together. Only for the kehikko on
                this screen: a mark is about what somebody watched happen. */
-            if (note && kehikko === openId) {
-              setSigned((was) => ({ kehikko, marks: noted(was?.kehikko === kehikko ? was.marks : {}, note) }))
-            }
+            if (note && kehikko === openId) agentMarks.noteFold(kehikko, note)
             /* An agent's arrangement, marked with Undo. If the person's own change crossed it, theirs
                is what stands, and the mark does not (`arrangeStands`, below). */
-            if (arrangedNote && kehikko === openId) setArrangeMark((was) => arrangeNoted(was, kehikko, arrangedNote))
+            if (arrangedNote && kehikko === openId) agentMarks.noteArranged(kehikko, arrangedNote)
           } catch {
             /* The next wake, or the next load, will do. A canvas that could not
                be re-read is the arrangement the person already has on screen. */
@@ -1028,42 +975,17 @@ export function App() {
           }
         })()
       },
-      /* A mark changed — a module's press, or an agent at the door. Re-read
-         and let the context carry it to every frame, for `epics`' reason only
-         when it is this page's project. */
-      marked: (project) => {
-        if (project !== projectRef.current) return
-        void (async () => {
-          try {
-            const found = await fetchDispositions(project)
-            if (project === projectRef.current) setMarks(found)
-          } catch {
-            /* The marks the page has are the marks it had. */
-          }
-        })()
-      },
-      /* The project's tracker reading started or landed a read. The signal
-         came with the news and goes straight into the context; when a read
-         lands, the sources are re-read for the bar's sentence about them. */
-      read: (project, signal) => {
-        if (project !== projectRef.current) return
-        setTracker((was) => ({ ...was, ...signal }))
-        if (signal.refreshing) return
-        void (async () => {
-          try {
-            const found = await fetchTracker(project)
-            if (project === projectRef.current) setTracker(found)
-          } catch {
-            /* The bar keeps what it had. */
-          }
-        })()
-      },
+      /* A mark changed — a module's press, or an agent at the door — and the
+         project's tracker reading started or landed a read: `useTrackerReading`
+         re-reads, for `epics`' reason only when it is this page's project. */
+      marked: (project) => reading.heard.marked(project),
+      read: (project, signal) => reading.heard.read(project, signal),
       /* Material kept for the project's epics changed — the host's own write,
          a module's report, or an edit to the project's files. The list came
          with the news and goes straight into the context. */
       rewritten: (project, changes) => {
+        reading.heard.rewritten(project, changes)
         if (project !== projectRef.current) return
-        setRewritten(changes)
         /* And the list of epics is read again, because the parts of an epic
            are read off it — the list in the epic's own file, and for each
            part what the modules hold. Somebody who has just added a part, or
@@ -1164,62 +1086,11 @@ export function App() {
     return () => stop.abort()
   }, [projectId])
 
-  /* The open project's dispositions, re-read on a project switch. Cleared
-     first: another project's marks on refs that happen to share a spelling
-     would be verdicts about work this project does not have. */
-  useEffect(() => {
-    setMarks([])
-    if (projectId === null) return
-    const stop = new AbortController()
-    void (async () => {
-      try {
-        const found = await fetchDispositions(projectId, stop.signal)
-        if (!stop.signal.aborted) setMarks(found)
-      } catch {
-        /* No marks is what modules fall back from anyway. */
-      }
-    })()
-    return () => stop.abort()
-  }, [projectId])
-
-  /* The open project's tracker reading, read on a project switch. Asking is
-     what starts the project's first read — never the host's startup. */
-  useEffect(() => {
-    setTracker({ at: null, refreshing: false, sources: [] })
-    /* Another project's changes are not this one's. Nothing is fetched in
-       their place: every container reads its material afresh on the switch. */
-    setRewritten([])
-    if (projectId === null) return
-    const stop = new AbortController()
-    void (async () => {
-      try {
-        const found = await fetchTracker(projectId, stop.signal)
-        if (!stop.signal.aborted) setTracker(found)
-      } catch {
-        /* Nothing read is what the context says by default. */
-      }
-    })()
-    return () => stop.abort()
-  }, [projectId])
-
-  /* "Refresh all". The bar shows it running from the wake the server sends
-     when the read starts, so this only has to ask; the answer is the outcome,
-     and the sentence about any source that failed arrives with the re-read. */
-  const onRefreshTrackers = useCallback(() => {
-    const project = projectRef.current
-    if (project === null) return
-    setTracker((was) => ({ ...was, refreshing: true }))
-    void refreshTracker(project)
-      .catch(() => null)
-      .then(async () => {
-        try {
-          const found = await fetchTracker(project)
-          if (project === projectRef.current) setTracker(found)
-        } catch {
-          if (project === projectRef.current) setTracker((was) => ({ ...was, refreshing: false }))
-        }
-      })
-  }, [])
+  /* The open project's dispositions and tracker reading, re-read on a project
+     switch (after the epics, as they always were), on the host's news and on
+     "Refresh all". See `app/useTrackerReading.ts`. */
+  const reading = useTrackerReading(projectId)
+  const { marks, tracker, rewritten, onRefreshTrackers, onTrackerListing, onTrackerOpen } = reading
 
   /*
    * When the last sweep finished, for the focus sweep's quiet floor. A ref,
@@ -1492,21 +1363,10 @@ export function App() {
     return { ...canvas, placements: canvas.placements.map((p) => ({ ...p, foldRows: drawn.foldRows === 2 && footed.has(p.i) ? (2 as const) : (1 as const) })) }
   }, [canvases, openId, drawn.foldRows, footed])
 
-  /* A mark stands only while its container is as it was left — `standing` in
-     `host/folds.ts`. Run against every arrangement drawn, so the person's
-     press on the control, a drag, a removal or a switch of kehikko each take
-     the mark with them and nothing has to remember to clear it. */
-  useEffect(() => {
-    setSigned((was) => {
-      if (!was) return was
-      if (!open || was.kehikko !== open.id) return null
-      const kept = standing(was.marks, open.placements)
-      if (kept === was.marks) return was
-      return Object.keys(kept).length ? { kehikko: was.kehikko, marks: kept } : null
-    })
-    /* An agent's arrangement mark stands only while the kehikko is exactly as it left it. */
-    setArrangeMark((was) => (was && arrangeStands(was, open?.id ?? null, open?.placements ?? []) ? was : null))
-  }, [open])
+  /* A mark stands only while its container is as it was left: checked against every arrangement
+     drawn, here, where it always was among the page's effects. See `app/useAgentMarks.ts`. */
+  const agentMarks = useAgentMarks(open)
+  const { signed, arrangeMark } = agentMarks
 
   /** Change the open canvas, on screen now and in the database shortly. */
   const change = useCallback(
@@ -2328,8 +2188,7 @@ export function App() {
     const presence = byId.get(from)
     const said = settingsOpenAsked({ name: presence?.name ?? presence?.module?.name ?? from, fields: settingsOf(presence?.module), key: call.key, pressed })
     if (said.outcome === 'declined') return said
-    setSettingsTarget(said.target)
-    setSettingsFor(from)
+    openModuleSettings(from, said.target)
     return { outcome: 'opened', why: '' }
   }
 
@@ -2372,7 +2231,7 @@ export function App() {
     arrangedRef.current = { kehikko: on, placements: next as Placement[] }
     change({ placements: next as Placement[] })
     const note = { by: byId.get(from)?.name ?? from, fold: said.folded, unfold: said.unfolded }
-    setSigned((was) => ({ kehikko: on, marks: noted(was?.kehikko === on ? was.marks : {}, note) }))
+    agentMarks.noteFold(on, note)
     return said
   }
 
@@ -3884,8 +3743,7 @@ export function App() {
   }
   /* Undo an agent's arrangement: the arrangement before, exactly — only while it still stands. */
   const arrangeUndo = () => {
-    const next = undoneTo(arrangeMark, open?.id ?? null, open?.placements ?? [])
-    setArrangeMark(null)
+    const next = agentMarks.undoArranged()
     if (next) change({ placements: next })
   }
 
@@ -4446,18 +4304,9 @@ export function App() {
         : { on: !messagesMuted.has(TRACKER_NEWS_FROM.module), onChange: (on: boolean) => muteMessages(TRACKER_NEWS_FROM.module, !on) },
     [projectId, messagesMuted, muteMessages],
   )
-  /* An edit in Settings › Trackers is kept by the page, not by the panel (which closing Settings unmounts). */
-  const onTrackerListing = useCallback((project: number, listing: TrackerListing) => {
-    if (project === projectRef.current) setTracker((was) => ({ ...was, project, listing }))
-  }, [])
-  /* The panel opened: read what the host holds, so the panel shows what is on disk. */
-  const onTrackerOpen = useCallback(() => {
-    const project = projectRef.current
-    if (project === null) return
-    void fetchTracker(project)
-      .then((found) => project === projectRef.current && setTracker(found))
-      .catch(() => undefined)
-  }, [])
+  /* An edit in Settings › Trackers is kept by the page, not by the panel (which closing Settings
+     unmounts), and the panel's opening reads what the host holds: `onTrackerListing` and
+     `onTrackerOpen`, from `useTrackerReading`. */
   /* Settings › Trackers: the open project's reading, "Refresh all" and the news switch (`TrackerSettings.tsx`). */
   const trackersDoor = useMemo(
     () => (projectId === null ? null : { tracker, onRefresh: onRefreshTrackers, news: trackerNews, onListing: onTrackerListing, onOpen: onTrackerOpen }),
@@ -5107,7 +4956,7 @@ export function App() {
         onUnplace={onUnplace}
         trouble={trouble}
         onLookAgain={() => void look(true)}
-        onIntro={(id, about) => setIntroOpen({ id, about, add: true })}
+        onIntro={(id, about) => openIntro(id, about, true)}
         looking={looking}
         tracker={projectId === null ? null : tracker}
         onRefreshTrackers={onRefreshTrackers}
@@ -5126,7 +4975,7 @@ export function App() {
            the sweep — `registry.host.id` — so the page never spells the host's
            name itself; see `hostDoor` in `server/register.ts`. */
         onTools={() => {
-          if (registry?.host) setToolsFor(registry.host.id)
+          if (registry?.host) openTools(registry.host.id)
         }}
       />
 
@@ -5501,17 +5350,16 @@ export function App() {
                   onRefreshEvery={(every) => onRefreshEvery(presence.id, every)}
                   selected={placement.selected}
                   onSelect={(selected) => onSelect(presence.id, selected)}
-                  onPrompts={() => setPrompting(presence.id)}
-                  onTools={() => setToolsFor(presence.id)}
-                  onSkills={() => setSkillsFor(presence.id)}
-                  onHelp={() => setHelpFor(presence.id)}
+                  onPrompts={() => openPrompts(presence.id)}
+                  onTools={() => openTools(presence.id)}
+                  onSkills={() => openSkills(presence.id)}
+                  onHelp={() => openHelp(presence.id)}
                   onIntro={() => {
-                    setIntroOpen({ id: presence.id, about: { name: presence.name ?? presence.id, summary: presence.summary }, add: false })
+                    openIntro(presence.id, { name: presence.name ?? presence.id, summary: presence.summary }, false)
                   }}
                   onNotes={() => openWhatsNew({ item: presence.id })}
                   onSettings={() => {
-                    setSettingsTarget(null)
-                    setSettingsFor(presence.id)
+                    openModuleSettings(presence.id, null)
                   }}
                   scope={presence.module ? scopeOfContainer(presence.module, placement.scope) : null}
                   onStarted={() => void look(true)}
@@ -5684,7 +5532,9 @@ export function App() {
       {prompted ? (
         <Prompts
           open
-          onOpenChange={(isOpen) => setPrompting(isOpen ? prompting : null)}
+          onOpenChange={(isOpen) => {
+            if (!isOpen) closeDialog('prompts')
+          }}
           container={prompted}
           presences={registry?.presences ?? []}
           placements={placements}
@@ -5704,7 +5554,7 @@ export function App() {
         names={(id) => byId.get(id)?.name ?? id}
         raised={shownJumpMark !== null}
         onUndo={arrangeUndo}
-        onClose={() => setArrangeMark(null)}
+        onClose={agentMarks.clearArranged}
       />
 
       {/* The project picker a module gets instead of a listing. Owned by the
@@ -5720,105 +5570,22 @@ export function App() {
         onCancel={onCancelled}
       />
 
-      {/* The tools window, owned by the host for the same reason. It asks the
-          host's server what the module's door offers at the moment it opens —
-          never on a sweep; see the essay in `server/tools.ts`. `onChanged` is a
-          sweep, so the mark on the container catches up with a connect or a
-          disconnect without anybody pressing "look again". */}
-      {toolsFor ? (
-        <ToolsDialog
-          open
-          onOpenChange={(isOpen) => setToolsFor(isOpen ? toolsFor : null)}
-          module={toolsFor}
-          /* The host is not in `byId` and must not be looked up as if it were;
-             what it is called in this window is what the strip calls it. */
-          name={
-            toolsFor === registry?.host?.id ? 'this host' : (byId.get(toolsFor)?.name ?? toolsFor)
-          }
-          onChanged={() => void look(true)}
-        />
-      ) : null}
-
-      {/* A module's agent skills, read and installed on the person's press. Asked when it opens. */}
-      {skillsFor ? (
-        <SkillsDialog
-          open
-          onOpenChange={(isOpen) => setSkillsFor(isOpen ? skillsFor : null)}
-          module={skillsFor}
-          name={byId.get(skillsFor)?.name ?? skillsFor}
-        />
-      ) : null}
-
-      {/* A module's "How to use": its manifest's own words, drawn as text. "About <name>" in the same
-          dialog when it wrote none, from its summary and its list entry: help is never missing. */}
-      {helpFor && helpOfModule(byId.get(helpFor)?.module) ? (
-        <ModuleHelpDialog
-          open
-          onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
-          name={byId.get(helpFor)?.name ?? helpFor}
-          help={helpOfModule(byId.get(helpFor)?.module)!}
-        />
-      ) : helpFor ? (
-        <ModuleAboutDialog
-          open
-          onOpenChange={(isOpen) => setHelpFor(isOpen ? helpFor : null)}
-          id={helpFor}
-          name={byId.get(helpFor)?.name ?? helpFor}
-          summary={byId.get(helpFor)?.module?.summary ?? byId.get(helpFor)?.summary ?? null}
-          says={byId.get(helpFor)?.module?.agentSays ?? null}
-        />
-      ) : null}
-
-      {/* A module's introduction (protocol 2.57.0), in the app's introduction dialog. */}
-      {introOpen ? (
-        <ModuleIntroDialog
-          open
-          onOpenChange={(isOpen) => setIntroOpen(isOpen ? introOpen : null)}
-          id={introOpen.id}
-          name={byId.get(introOpen.id)?.name ?? introOpen.about.name}
-          icon={introOpen.about.icon ?? null}
-          summary={byId.get(introOpen.id)?.summary ?? introOpen.about.summary ?? null}
-          intro={introOfModule(byId.get(introOpen.id)?.module)}
-          help={helpOfModule(byId.get(introOpen.id)?.module)}
-          works={worksWithOf(introOpen.id, registry?.presences ?? [], canvases, open)}
-          version={(() => {
-            const built = byId.get(introOpen.id) ? builtFrom(byId.get(introOpen.id)!) : null
-            return built ? [`Version ${built.version}`] : []
-          })()}
-          releases={byId.has(introOpen.id)}
-          onNotes={byId.has(introOpen.id) ? () => openWhatsNew({ item: introOpen.id }) : undefined}
-          addable={
-            introOpen.add
-              ? {
-                  open: open !== null,
-                  placed: (open?.placements ?? []).some((one) => one.i === introOpen.id),
-                  registered: byId.has(introOpen.id),
-                  onPlace: () => onPlaceRef.current(introOpen.id),
-                  onLookAgain: () => void look(true),
-                }
-              : undefined
-          }
-        />
-      ) : null}
-
-      {/* A module's settings window: what it declared, saved by the module (protocol 2.15.0), and its
-          Providers & Consumers on the open kehikko (`host/connections.ts`). */}
-      {settingsFor ? (
-        <ModuleSettingsDialog
-          open
-          onOpenChange={(isOpen) => {
-            setSettingsFor(isOpen ? settingsFor : null)
-            if (!isOpen) setSettingsTarget(null)
-          }}
-          module={settingsFor}
-          target={settingsTarget}
-          name={byId.get(settingsFor)?.name ?? settingsFor}
-          project={project ? { id: project.id, name: project.name } : null}
-          hasSettings={settingsOf(byId.get(settingsFor)?.module).length > 0}
-          connections={open ? { sides: connectionSides, setting: open.connections, onChange: onConnections } : null}
-          scope={settingsScope}
-        />
-      ) : null}
+      {/* The host's windows about one module: its tools, agent skills, "How to use", introduction and
+          settings, owned by the host for the same reason. See `app/ModuleDialogs.tsx`. */}
+      <ModuleDialogs
+        dialogs={dialogs}
+        close={closeDialog}
+        hostId={registry?.host?.id}
+        byId={byId}
+        presences={registry?.presences ?? []}
+        kehikot={canvases}
+        open={open}
+        project={project ? { id: project.id, name: project.name } : null}
+        connections={open ? { sides: connectionSides, setting: open.connections, onChange: onConnections } : null}
+        scope={settingsScope}
+        onLookAgain={() => void look(true)}
+        onPlace={(id) => onPlaceRef.current(id)}
+      />
 
       {/* Settings, grouped by scope: this computer, the open project, a
           kehikko (the gear on a kehikko menu row), and each module's own page
