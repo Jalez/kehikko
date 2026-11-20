@@ -10,12 +10,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
  *   - `useTrackerReading`: read on a project switch, and an answer about a
  *     project that is no longer open is dropped, from the read on the switch,
  *     from the host's news, and from "Refresh all".
+ *   - `usePageState`: the open kehikko changes through `setOpenId`, which looks
+ *     at the kehikko being left first and only when it changes; the raw setter
+ *     does not.
  *
  * In a process of its own, for the reason `header-menus.test.tsx` gives.
  */
 
 const inChild = process.env.APP_HOOKS_DOM === '1'
-const TESTS = 5
+const TESTS = 6
 
 if (!inChild) {
   test('the hooks out of App.tsx, rendered in a process of their own', () => {
@@ -36,6 +39,7 @@ let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let Marks: typeof import('../src/app/useAgentMarks.ts')
 let Reading: typeof import('../src/app/useTrackerReading.ts')
+let Page: typeof import('../src/app/usePageState.ts')
 
 const realFetch = globalThis.fetch
 
@@ -48,6 +52,7 @@ beforeAll(async () => {
   ;({ createRoot } = await import('react-dom/client'))
   Marks = await import('../src/app/useAgentMarks.ts')
   Reading = await import('../src/app/useTrackerReading.ts')
+  Page = await import('../src/app/usePageState.ts')
 })
 
 afterAll(async () => {
@@ -210,5 +215,27 @@ describe.if(inChild)('useTrackerReading', () => {
     await server.answer('tracker?project=3', server.reading(false, '2026-04-04T00:00:00.000Z'))
     expect(r.now.tracker).toMatchObject({ at: '2026-04-04T00:00:00.000Z', refreshing: false, project: 3 })
     await r.unmount()
+  })
+})
+
+describe.if(inChild)('usePageState', () => {
+  test('the kehikko being left is looked at before a change of the open kehikko, and only then', async () => {
+    const state = await mountHook(() => Page.usePageState(), null)
+    let left = 0
+    state.now.leavingRef.current = () => {
+      left += 1
+    }
+    await act(async () => state.now.setOpenId(3))
+    expect([state.now.openId, left]).toEqual([3, 1])
+    /* The same kehikko again is no change, and nothing is left. */
+    await act(async () => state.now.setOpenId((was) => was))
+    expect(left).toBe(1)
+    await act(async () => state.now.setOpenId(4))
+    expect([state.now.openId, left]).toEqual([4, 2])
+    /* The raw setter, for the updater that must not touch the page. */
+    await act(async () => state.now.setOpenIdNow(null))
+    expect([state.now.openId, left]).toEqual([null, 2])
+    expect(state.now.canvasesRef.current).toBe(state.now.canvases)
+    await state.unmount()
   })
 })
