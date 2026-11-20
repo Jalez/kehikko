@@ -35,6 +35,9 @@ let React: typeof import('react')
 let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let Updates: typeof import('../src/canvas/Updates.tsx').Updates
+let UpdatesProvider: typeof import('../src/canvas/Updates.tsx').UpdatesProvider
+let ModuleUpdates: typeof import('../src/canvas/Updates.tsx').ModuleUpdates
+let useUpdates: typeof import('../src/canvas/Updates.tsx').useUpdates
 let Settings: typeof import('../src/canvas/Settings.tsx')
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let announceUpdatesChanged: typeof import('../src/host/updates.ts').announceUpdatesChanged
@@ -52,7 +55,7 @@ beforeAll(async () => {
   React = await import('react')
   act = React.act
   ;({ createRoot } = await import('react-dom/client'))
-  ;({ Updates } = await import('../src/canvas/Updates.tsx'))
+  ;({ Updates, UpdatesProvider, ModuleUpdates, useUpdates } = await import('../src/canvas/Updates.tsx'))
   Settings = await import('../src/canvas/Settings.tsx')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
   ;({ announceUpdatesChanged } = await import('../src/host/updates.ts'))
@@ -114,7 +117,10 @@ async function mount() {
   await act(async () => {
     root.render(
       <TooltipProvider>
-        <Updates markMs={0} />
+        <UpdatesProvider markMs={0}>
+          <Updates />
+          <ModuleUpdatesHere />
+        </UpdatesProvider>
       </TooltipProvider>,
     )
   })
@@ -333,3 +339,9 @@ describe.skipIf(!inChild)('Settings › Modules', () => {
     expect(changes).toEqual([{ updates: { auto: false } }])
   })
 })
+
+/** The module list's Updates, from the one engine, drawn beside the menu as the bar does. */
+function ModuleUpdatesHere() {
+  const engine = useUpdates()
+  return engine ? <ModuleUpdates engine={engine} /> : null
+}

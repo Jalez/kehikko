@@ -10,7 +10,7 @@ import type { Subject } from '@/host/context.ts'
 import type { Epics as HeldEpics, Project, TrackerState } from '@/host/projects.ts'
 import type { Part, PartsEdit } from '@/host/parts.ts'
 import { attention } from '@/host/moduleMenu.ts'
-import { onOpenModuleList } from '@/host/moduleList.ts'
+import { onOpenModuleList, type ModuleListAsk } from '@/host/moduleList.ts'
 import type { RegistryView } from '@/host/registry.ts'
 import { InboxCount, type InboxCountView } from './InboxCount.tsx'
 import { Canvases } from './Canvases.tsx'
@@ -18,8 +18,8 @@ import { Epics } from './Epics.tsx'
 import { Parts } from './Parts.tsx'
 import { SpacePicker, type SpacePickerProps } from './SpacePicker.tsx'
 import { Hint } from './Hint.tsx'
-import { ModuleList, type IntroAbout } from './Modules.tsx'
-import { Updates } from './Updates.tsx'
+import { ModuleList, ModuleListAsked, type IntroAbout } from './Modules.tsx'
+import { Updates, UpdatesProvider, useUpdates } from './Updates.tsx'
 import { WhatsNewNotice } from './WhatsNew.tsx'
 import { HelpMenu } from './Help.tsx'
 import { AppVersion } from './AppVersion.tsx'
@@ -183,6 +183,8 @@ export function Bar({
        of waiting out the delay again, which is what makes a row of icons
        readable in one pass rather than four. */
     <TooltipProvider delayDuration={400} skipDelayDuration={300}>
+      {/* One update engine for the Updates menu and the module list: each module's update is drawn in its own row. */}
+      <UpdatesProvider>
       {/*
        * In a narrow window the strip gives up decoration before names, and
        * names before the picked part. At 640 px and under, the word "Kehikot",
@@ -429,6 +431,7 @@ export function Bar({
           </PopoverContent>
         </ModuleListPopover>
       </header>
+      </UpdatesProvider>
     </TooltipProvider>
   )
 }
@@ -457,10 +460,27 @@ export function SettingsGear() {
 /** The module list's popover, which a press elsewhere can open too (`openModuleList`). */
 function ModuleListPopover({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
-  useEffect(() => onOpenModuleList(() => setOpen(true)), [])
+  /* What a press elsewhere opened it on: every module, or the Updates filter at one module. */
+  const [ask, setAsk] = useState<ModuleListAsk>({})
+  const updates = useUpdates()
+  useEffect(
+    () =>
+      onOpenModuleList((asked) => {
+        setAsk(asked)
+        setOpen(true)
+      }),
+    [],
+  )
+  const onOpenChange = (next: boolean) => {
+    setOpen(next)
+    if (!next) {
+      setAsk({})
+      updates?.setAsked(null)
+    }
+  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      {children}
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <ModuleListAsked.Provider value={ask}>{children}</ModuleListAsked.Provider>
     </Popover>
   )
 }

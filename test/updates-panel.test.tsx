@@ -42,6 +42,9 @@ let React: typeof import('react')
 let act: typeof import('react').act
 let createRoot: typeof import('react-dom/client').createRoot
 let Updates: typeof import('../src/canvas/Updates.tsx').Updates
+let UpdatesProvider: typeof import('../src/canvas/Updates.tsx').UpdatesProvider
+let ModuleUpdates: typeof import('../src/canvas/Updates.tsx').ModuleUpdates
+let useUpdates: typeof import('../src/canvas/Updates.tsx').useUpdates
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let forgetSummaries: () => void
 
@@ -58,7 +61,7 @@ beforeAll(async () => {
   React = await import('react')
   act = React.act
   ;({ createRoot } = await import('react-dom/client'))
-  ;({ Updates } = await import('../src/canvas/Updates.tsx'))
+  ;({ Updates, UpdatesProvider, ModuleUpdates, useUpdates } = await import('../src/canvas/Updates.tsx'))
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
   ;({ forgetSummaries } = await import('../src/canvas/UpdateSummaries.tsx'))
 })
@@ -141,7 +144,11 @@ async function mount(more: { disarmMs?: number } = {}) {
   await act(async () => {
     root.render(
       <TooltipProvider>
-        <Updates markMs={0} {...more} />
+        {/* As the bar draws them: one engine, the Updates menu, and the module list's Updates beside it. */}
+        <UpdatesProvider markMs={0} {...more}>
+          <Updates />
+          <ModuleUpdatesHere />
+        </UpdatesProvider>
       </TooltipProvider>,
     )
   })
@@ -158,7 +165,8 @@ async function press(host: HTMLElement) {
 }
 
 const panels = () => document.querySelectorAll('[data-slot="popover-content"]')
-const text = () => panels()[0]?.textContent ?? ''
+/* What the Updates menu and the module list's Updates say, together: a module's row is in the list. */
+const text = () => `${panels()[0]?.textContent ?? ''}${document.querySelector('[data-testid="module-updates"]')?.textContent ?? ''}`
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 10)))
 
 describe.skipIf(!inChild)('the updates panel', () => {
@@ -424,7 +432,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(row.querySelector('[role="progressbar"]')).not.toBeNull()
     expect(row.querySelector('[data-testid="step-line"]')?.textContent).toBe('Installing dependencies · step 3 of 6 · 0:12')
     /* The only bar and step line in the panel are the one in the row. */
-    expect(document.querySelectorAll('[data-testid="updates-results"] [role="progressbar"]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-testid="module-updates"] [role="progressbar"]')).toHaveLength(1)
     expect(document.querySelectorAll('[data-testid="step-progress"]')).toHaveLength(1)
     /* Under the name line: after the title, inside the row's box. */
     const title = row.querySelector('[data-testid="updates-row-title"]')!
@@ -460,7 +468,8 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]?.textContent).toContain('notes')
     expect(rows[0]?.textContent).toContain('2 new commits')
-    expect(text()).toContain('3 others up to date')
+    /* The host's own checkout is the app's: the module list counts only modules. */
+    expect(text()).toContain('2 others up to date')
     expect(text()).not.toContain('Everything is up to date')
 
     const show = [...document.querySelectorAll('button')].find((b) => b.textContent === 'show')!
@@ -468,7 +477,7 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(document.querySelector('[data-testid="updates-level"]')?.textContent).toContain('learning')
   })
 
-  test('a press elsewhere whose remedy is an update opens this panel and checks at once', async () => {
+  test('a press elsewhere whose remedy is an update opens the module list on its Updates and checks at once', async () => {
     const { openUpdates } = await import('../src/host/updates.ts')
     let asked = 0
     answer = async (url) => {
@@ -478,11 +487,16 @@ describe.skipIf(!inChild)('the updates panel', () => {
     }
     await mount()
     expect(panels()).toHaveLength(0)
+    const lists: unknown[] = []
+    const heard = (event: Event) => lists.push((event as CustomEvent).detail)
+    window.addEventListener('kehikot:open-module-list', heard)
 
     await act(async () => openUpdates())
     await settle()
+    window.removeEventListener('kehikot:open-module-list', heard)
 
-    expect(panels()).toHaveLength(1)
+    /* The module list opens on its Updates (the bar's list hears this); the check runs at once. */
+    expect(lists).toEqual([{ filter: 'updates', module: null }])
     expect(asked).toBe(1)
     const rows = document.querySelectorAll('[data-testid="updates-row"]')
     expect(rows).toHaveLength(1)
@@ -490,15 +504,15 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect([...rows[0]!.querySelectorAll('button')].some((b) => b.textContent === 'Update')).toBe(true)
   })
 
-  test('"Update <Module>" opens the panel at that module’s row, listed and focused even when it is up to date', async () => {
+  test('"Update <Module>" opens the module list’s Updates at that module’s row, listed and focused even when it is up to date', async () => {
     const { openUpdates } = await import('../src/host/updates.ts')
     answer = async (url) => (url.startsWith('/host/updates') ? check([checkout('host', 0), checkout('kehikot.source', 0)]) : {})
     await mount()
 
     await act(async () => openUpdates('kehikot.source'))
     await settle()
+    await act(async () => new Promise((done) => setTimeout(done, 80)))
 
-    expect(panels()).toHaveLength(1)
     const row = document.querySelector<HTMLElement>('[data-updates-id="kehikot.source"]')
     expect(row).not.toBeNull()
     expect(document.querySelector('[data-testid="updates-level"]')?.textContent).toContain('kehikot.source')
@@ -518,7 +532,8 @@ describe.skipIf(!inChild)('the updates panel', () => {
     expect(text()).toContain('Last checked just now')
     expect(text()).toContain("Check now")
     expect(document.querySelectorAll('[data-testid="updates-row"]')).toHaveLength(0)
-    expect(text()).not.toContain('others up to date')
+    /* The menu is calm; the module list's Updates still lists, folded, the modules that are up to date. */
+    expect(panels()[0]?.textContent ?? '').not.toContain('others up to date')
   })
 
   for (const restartable of [true, false]) {
@@ -1062,3 +1077,9 @@ describe.skipIf(!inChild)('the updates panel', () => {
     ])
   })
 })
+
+/** The module list's Updates, from the one engine, drawn beside the menu as the bar does. */
+function ModuleUpdatesHere() {
+  const engine = useUpdates()
+  return engine ? <ModuleUpdates engine={engine} /> : null
+}
