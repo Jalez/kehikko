@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path'
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, readBundleInfo, sha256, unpackBundle, writeTarGz } from 'kehikot-module-protocol/bundle'
 
-import { bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
+import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const ID = 'kehikot.sample'
 const REPO = 'Jalez/kehikko-sample'
@@ -77,7 +77,7 @@ export async function rollbackDrive({ check = false } = {}) {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`)
     if (!ok) failures.push(what)
   }
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'rollback-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'rollback-'))))
   try {
     /* The fake GitHub: release files and the raw package.json, for whatever `https://` the host asks. */
     const releases = { 'v1.0.0': bundleOf('1.0.0', working('1.0.0')), 'v1.1.0': bundleOf('1.1.0', broken) }

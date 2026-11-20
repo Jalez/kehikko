@@ -34,7 +34,7 @@ import { basename, join } from 'node:path'
 import { MANIFEST_KIND, PROTOCOL, UNINSTALL_MARK, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, sha256, writeTarGz } from 'kehikot-module-protocol/bundle'
 
-import { bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
+import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const SAMPLE = 'kehikot.sample'
 const SAMPLE_REPO = 'Jalez/kehikko-sample'
@@ -113,7 +113,7 @@ export async function uninstallDrive({ check = false, claudeBundle = process.env
   if (!withClaude) console.log('(no CLAUDE_BUNDLE: the real Claude module’s part is left out)')
   const claudeArchive = withClaude ? readFileSync(claudeBundle) : new Uint8Array()
   const claudeVersion = withClaude ? /kehikot\.claude-(\d+\.\d+\.\d+)\.tar\.gz$/.exec(basename(claudeBundle))?.[1] : '0.0.0'
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'uninstall-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'uninstall-'))))
   try {
     /* The fake GitHub: release files and the raw package.json, for whatever `https://` the host asks. */
     const releases = {

@@ -36,7 +36,7 @@ import { basename, join, relative } from 'node:path'
 import { MANIFEST_KIND, PROTOCOL, WELL_KNOWN, manifestSchema } from 'kehikot-module-protocol'
 import { bundleArchiveName, bundleRunScript, checksumLine, readBundleInfo, sha256, writeTarGz } from 'kehikot-module-protocol/bundle'
 
-import { bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
+import { owns, bootHost, freePort, HOST, scratch, stop } from './scratch-host.mjs'
 
 const text = (value) => new TextEncoder().encode(value)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -138,7 +138,7 @@ export async function developmentDrive({ check = false } = {}) {
   const claudeBundle = process.env.CLAUDE_BUNDLE ? realpathSync(process.env.CLAUDE_BUNDLE) : null
   const claudeSource = process.env.CLAUDE_CHECKOUT ? realpathSync(process.env.CLAUDE_CHECKOUT) : null
   const withClaude = Boolean(claudeBundle && claudeSource)
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'development-')))
+  const dir = owns(realpathSync(mkdtempSync(join(tmpdir(), 'development-'))))
   try {
     const sample = { id: 'kehikot.sample', name: 'Sample', repo: 'Jalez/kehikko-sample' }
     const brokenOne = { id: 'kehikot.broken', name: 'Broken', repo: 'Jalez/kehikko-broken' }
