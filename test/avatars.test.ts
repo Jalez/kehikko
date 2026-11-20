@@ -69,7 +69,8 @@ describe('GitHub', () => {
       expect(q).toContain('assignees(first: 16) { nodes { login name avatarUrl(size: 48) } }')
       expect(q).toContain('... on User { login name avatarUrl(size: 48) } ... on Bot { login avatarUrl(size: 48) } ... on Mannequin { login avatarUrl(size: 48) }')
       expect(q).toContain('latestReviews(first: 32) { nodes { state submittedAt author { login avatarUrl(size: 48) ... on User { name } } } }')
-      expect(q).toContain('actor { login avatarUrl(size: 48) }')
+      /* A timeline item's actor also says its type, so a bot's activity is told apart (protocol 2.111.0). */
+      expect(q).toContain('actor { __typename login avatarUrl(size: 48) }')
       expect(q).not.toMatch(/author \{ login \}/)
     }
   })

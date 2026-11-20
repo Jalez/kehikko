@@ -1,6 +1,6 @@
 import { LIMITS, type TrackerRow } from 'kehikot-module-protocol'
 
-import { happenings, namesSaid, type Happening, type Seen } from './trackerNotices.ts'
+import { happenings, namesSaid, type Happening, type QuietBot, type Seen } from './trackerNotices.ts'
 
 /**
  * Tracker news to agents: what somebody other than the person did on an issue
@@ -31,6 +31,18 @@ import { happenings, namesSaid, type Happening, type Seen } from './trackerNotic
  * A session reads it under the marker `⟦Trackers · report #N⟧`. The person's
  * switch for it is the "Messages to agents" mute under that id, per project
  * (`server/messageMutes.ts`), shown as "Tracker news to agents".
+ *
+ * ## Automated accounts, quietly
+ *
+ * A code scanner or a CI bot comments on a change at every push, and a
+ * colleague's one real comment drowns among them. A comment the tracker says an
+ * automated account wrote (`bot` on the item's latest activity, protocol
+ * 2.111.0 — never guessed from a name) is not told on its own: it is counted on
+ * the item (`Seen.quiet`), and the counts are said after people's news, one line
+ * per item ("<name> commented 3 times on !5032 since the last report …"), in the
+ * next report to its space that has people's news in it. A report that would
+ * hold only such counts is not sent; they wait for one that is. People's
+ * comments, reviews, approvals, pushes and CI are told as before, first.
  */
 
 /** Who the news is from, as the messages record stamps it. The host names no module and no vendor. */
@@ -67,6 +79,8 @@ export interface NewsEvent {
   path?: string
   line?: number
   commits?: number
+  /** On `commented`: an automated account wrote it (protocol 2.111.0). */
+  bot?: true
 }
 
 /** Where an item belongs: an epic, and the parts of it that hold the item (none: the epic itself names it). */
@@ -98,6 +112,7 @@ export function newsOf(was: Seen | undefined, row: TrackerRow, me: string | null
       ...(one.path ? { path: one.path } : {}),
       ...(one.line ? { line: one.line } : {}),
       ...(one.commits ? { commits: one.commits } : {}),
+      ...(one.bot ? { bot: true as const } : {}),
     })
   }
   const before = was.facts.ci
@@ -158,6 +173,35 @@ export function newsLine(ref: string, title: string, events: readonly NewsEvent[
   return `${out.join('; ')}${named}`
 }
 
+/** A comment by an automated account: counted, not told on its own. */
+export const isBotComment = (one: NewsEvent): boolean => one.kind === 'commented' && one.bot === true
+
+/** The automated accounts' comments of `bots` added to what was already waiting (`was`), per account. */
+export function quietAdded(was: readonly QuietBot[] | undefined, bots: readonly NewsEvent[]): QuietBot[] {
+  const out = (was ?? []).map((one) => ({ ...one }))
+  for (const one of bots) {
+    if (!one.by) continue
+    const known = out.find((it) => it.by.toLowerCase() === one.by!.toLowerCase())
+    if (known) {
+      known.count += 1
+      if (one.name) known.name = one.name
+    } else out.push({ by: one.by, ...(one.name ? { name: one.name } : {}), count: 1 })
+  }
+  return out
+}
+
+/**
+ * The automated accounts' comments waiting on one item, as one line said after people's news:
+ * "Scanner commented 3 times on !5032 since the last report (an automated account) — <url>".
+ * Empty when none wait.
+ */
+export function quietLine(ref: string, url: string, quiet: readonly QuietBot[] | undefined): string {
+  const said = (quiet ?? []).filter((one) => one.count > 0).map((one) => `${one.name ?? one.by} commented ${one.count === 1 ? 'once' : `${one.count} times`}`)
+  if (!said.length) return ''
+  const accounts = said.length === 1 ? 'an automated account' : 'automated accounts'
+  return `${said.join(' and ')} on ${ref} since the last report (${accounts})${url ? ` — ${url}` : ''}`
+}
+
 /** One message to one place: an epic, or some of its parts. */
 export interface NewsTell {
   place: { epic: string; parts?: string[]; space?: string[] }
@@ -169,10 +213,29 @@ export interface NewsTell {
  * — to the epic itself when the epic names it, else to the parts that hold it —
  * one message per place, its lines in the order found.
  */
-export function newsTells(items: readonly { line: string; places: readonly EpicPlace[] }[]): NewsTell[] {
-  const byPlace = new Map<string, NewsTell & { lines: string[] }>()
+export function newsTells(items: readonly NewsItem[]): NewsTell[] {
+  return newsReport(items).tells
+}
+
+/** One item's news for `newsReport`: people's line, the automated accounts' line, and where it goes. */
+export interface NewsItem {
+  line: string
+  places: readonly EpicPlace[]
+  /** The automated accounts' comments waiting on it (`quietLine`); empty or absent: none. */
+  quiet?: string
+  /** What `newsReport` names it by when its `quiet` line was told. */
+  key?: string
+}
+
+/**
+ * The messages one reading sends, as `newsTells` says, with the automated accounts' lines after
+ * people's in each — and only in a message that has people's news: a place that would get only those
+ * lines gets nothing. `quietTold` names the items (`key`) whose quiet line went out somewhere.
+ */
+export function newsReport(items: readonly NewsItem[]): { tells: NewsTell[]; quietTold: Set<string> } {
+  const byPlace = new Map<string, NewsTell & { lines: string[]; quiet: { line: string; key: string | undefined }[] }>()
   for (const item of items) {
-    if (!item.line) continue
+    if (!item.line && !item.quiet) continue
     const perEpic = new Map<string, Set<string> | null>()
     for (const one of item.places) {
       const was = perEpic.get(one.epic)
@@ -190,10 +253,19 @@ export function newsTells(items: readonly { line: string; places: readonly EpicP
             ? { epic, parts: [...parts], space: [epic, ...parts] }
             : { epic, parts: [...parts].sort().slice(0, LIMITS.PARTS) }
       const key = JSON.stringify(place)
-      const at = byPlace.get(key) ?? { place, body: '', lines: [] }
-      at.lines.push(item.line)
+      const at = byPlace.get(key) ?? { place, body: '', lines: [], quiet: [] }
+      if (item.line) at.lines.push(item.line)
+      if (item.quiet) at.quiet.push({ line: item.quiet, key: item.key })
       byPlace.set(key, at)
     }
   }
-  return [...byPlace.values()].map(({ place, lines }) => ({ place, body: clip(lines.join('\n'), LIMITS.MESSAGE_BODY) }))
+  const quietTold = new Set<string>()
+  const tells: NewsTell[] = []
+  for (const { place, lines, quiet } of byPlace.values()) {
+    /* Only automated accounts' comments: not a report, and they wait for one. */
+    if (!lines.length) continue
+    for (const one of quiet) if (one.key !== undefined) quietTold.add(one.key)
+    tells.push({ place, body: clip([...lines, ...quiet.map((one) => one.line)].join('\n'), LIMITS.MESSAGE_BODY) })
+  }
+  return { tells, quietTold }
 }

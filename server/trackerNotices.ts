@@ -20,7 +20,7 @@ import {
   type NoticeSettings,
   type Seen,
 } from '../src/host/trackerNotices.ts'
-import { newsLine, newsOf, newsTells, type EpicPlace, type NewsTell } from '../src/host/trackerNews.ts'
+import { isBotComment, newsLine, newsOf, newsReport, quietAdded, quietLine, type EpicPlace, type NewsItem, type NewsTell } from '../src/host/trackerNews.ts'
 import type { Inbox } from './inbox.ts'
 
 /**
@@ -176,7 +176,7 @@ export class TrackerNotices {
         const at = landing.places?.get(row.ref)
         if (at?.length) places.set(id, [...(places.get(id) ?? []), ...at])
       }
-      const news: { line: string; places: readonly EpicPlace[] }[] = []
+      const news: NewsItem[] = []
 
       for (const [id, row] of items) {
         const was = held.get(id)
@@ -187,9 +187,16 @@ export class TrackerNotices {
         const fresh = relevant ? happenings(was, row, me, now, lastAt).filter((one) => settings.events[one.kind]) : []
         /* Tracker news to agents: only an item an epic holds, whatever the Inbox's setting. */
         const at = places.get(id)
+        let quiet = was?.quiet
         if (at?.length) {
           const told = newsOf(was, row, me, now, lastAt)
-          if (told.length) news.push({ line: newsLine(row.ref, row.title, told, row.discussions?.unresolved), places: at })
+          /* People's news first, as it was; an automated account's comment is counted, and said after it (`trackerNews.ts`). */
+          const people = told.filter((one) => !isBotComment(one))
+          quiet = quietAdded(was?.quiet, told.filter(isBotComment))
+          const line = people.length ? newsLine(row.ref, row.title, people, row.discussions?.unresolved) : ''
+          const waiting = quietLine(row.ref, row.url, quiet)
+          if (line || waiting) news.push({ line, places: at, ...(waiting ? { quiet: waiting, key: id } : {}) })
+          if (!quiet.length) quiet = undefined
         }
         /* Put away (seen, dismissed, closed): only what is new comes back. */
         let events = was && !away.has(id) ? was.events : []
@@ -211,7 +218,18 @@ export class TrackerNotices {
           events,
           since: events.length ? since : null,
           at: now,
+          ...(quiet?.length ? { quiet } : {}),
         }
+        held.set(id, next)
+        this.#put(project, next)
+      }
+
+      /* Automated accounts' comments said in a report that went out are told; the rest wait for the next. */
+      const report = newsReport(news)
+      for (const id of report.quietTold) {
+        const seen = held.get(id)
+        if (!seen?.quiet) continue
+        const { quiet: _told, ...next } = seen
         held.set(id, next)
         this.#put(project, next)
       }
@@ -246,7 +264,7 @@ export class TrackerNotices {
         .query('insert into tracker_seen_projects (project, at) values (?, ?) on conflict (project) do update set at = excluded.at')
         .run(project, now)
       this.#trim(project)
-      return { ...this.#report(project, [...held.values()], settings), news: newsTells(news) }
+      return { ...this.#report(project, [...held.values()], settings), news: report.tells }
     })
     return run()
   }

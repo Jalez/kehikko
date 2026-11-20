@@ -47,7 +47,7 @@ import {
 } from './common.ts'
 import { closedSince } from '../../src/host/trackerReads.ts'
 import { Pace } from './pace.ts'
-import { githubItemFacts, githubItemQuery } from './itemDetail.ts'
+import { githubBot, githubItemFacts, githubItemQuery } from './itemDetail.ts'
 import type { Source } from './sources.ts'
 
 /**
@@ -286,25 +286,29 @@ export function activityOf(timeline: unknown, author: unknown, createdAt: unknow
   if (!kind) return undefined
   const commit = obj(last.commit)
   const committer = (item: Record<string, unknown>) => login(obj(obj(obj(item.commit).author).user))
-  const by = login(last.author) || login(last.actor) || committer(last)
+  const actor = [last.author, last.actor, obj(obj(commit.author).user)].find((one) => login(one))
+  const by = login(actor)
   const at = instant(last.submittedAt ?? last.createdAt ?? commit.committedDate)
   if (!by || !at) return undefined
+  /* An automated account, as GitHub types the actor (protocol 2.111.0); said only when it does. */
+  const bot = githubBot(actor)
+  const botSaid = bot !== undefined ? { bot } : {}
   if (type === 'PullRequestReview') {
     const verdict = VERDICT[str(last.state).toUpperCase()]
     const first = obj(nodes(last.comments)[0])
     const path = clip(str(first.path), LIMITS.PATH)
     const line = first.line ?? first.originalLine
     if (verdict === 'commented' && path && !str(last.body).trim()) {
-      return { login: by, at, kind: 'comment', path, ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}) }
+      return { login: by, at, kind: 'comment', path, ...(typeof line === 'number' && Number.isInteger(line) && line > 0 ? { line } : {}), ...botSaid }
     }
-    return { login: by, at, kind, ...(verdict ? { verdict } : {}) }
+    return { login: by, at, kind, ...(verdict ? { verdict } : {}), ...botSaid }
   }
   if (type === 'PullRequestCommit') {
     let commits = 0
     for (let i = items.length - 1; i >= 0 && str(items[i]!.__typename) === 'PullRequestCommit' && same(committer(items[i]!), by); i -= 1) commits += 1
-    return { login: by, at, kind, commits }
+    return { login: by, at, kind, commits, ...botSaid }
   }
-  return { login: by, at, kind }
+  return { login: by, at, kind, ...botSaid }
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
@@ -603,6 +607,8 @@ export function boardsSeen(items: readonly unknown[]): TrackerBoard[] {
 const AVATAR = 'avatarUrl(size: 48)'
 /** An actor's login and picture. */
 const ACTOR = `{ login ${AVATAR} }`
+/** Whoever did a timeline item: an actor, and whether it is an automated account (`__typename` Bot or User, protocol 2.111.0). */
+const ACTED_BY = `{ __typename login ${AVATAR} }`
 /**
  * An author's login, picture and, when a user, name — as `fullName`, so that
  * `author` (the row's `who`) stays the login it has always been.
@@ -610,12 +616,12 @@ const ACTOR = `{ login ${AVATAR} }`
 const AUTHOR = `{ login ${AVATAR} ... on User { fullName: name } }`
 
 /** Who did it and when, for every timeline item `ACTED` names. An issue's timeline holds no reviews or commits. */
-const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author ${ACTOR} }
-      ... on ClosedEvent { createdAt actor ${ACTOR} } ... on ReopenedEvent { createdAt actor ${ACTOR} }`
+const ISSUE_ACTS = `__typename ... on IssueComment { createdAt author ${ACTED_BY} }
+      ... on ClosedEvent { createdAt actor ${ACTED_BY} } ... on ReopenedEvent { createdAt actor ${ACTED_BY} }`
 const PULL_ACTS = `${ISSUE_ACTS}
-      ... on PullRequestReview { submittedAt createdAt state body author ${ACTOR} comments(first: 1) { nodes { path line originalLine } } }
-      ... on PullRequestCommit { commit { committedDate author { user ${ACTOR} } } }
-      ... on HeadRefForcePushedEvent { createdAt actor ${ACTOR} } ... on MergedEvent { createdAt actor ${ACTOR} }`
+      ... on PullRequestReview { submittedAt createdAt state body author ${ACTED_BY} comments(first: 1) { nodes { path line originalLine } } }
+      ... on PullRequestCommit { commit { committedDate author { user ${ACTED_BY} } } }
+      ... on HeadRefForcePushedEvent { createdAt actor ${ACTED_BY} } ... on MergedEvent { createdAt actor ${ACTED_BY} }`
 /**
  * How many of a pull request's newest timeline items are read: the newest is its last activity,
  * and the rest say which reviewers commented and how many commits the last push added (2.66.0).

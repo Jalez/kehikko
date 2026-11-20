@@ -192,6 +192,8 @@ export interface Happening {
   commits?: number
   /** On `commented`: it was a review submitted, not a comment. */
   review?: true
+  /** On `commented`: the tracker says an automated account wrote it (protocol 2.111.0). Never guessed from a name. */
+  bot?: true
 }
 
 /**
@@ -245,6 +247,19 @@ export interface Seen {
   since: number | null
   /** When these facts were taken. */
   at: number
+  /**
+   * Comments by automated accounts on it that tracker news to agents has not told yet: held back
+   * while no report with people's news goes out to its space, and said in the next one that does
+   * (`src/host/trackerNews.ts`). Absent: none waiting.
+   */
+  quiet?: QuietBot[]
+}
+
+/** One automated account's comments on an item, not told yet: who, and how many. */
+export interface QuietBot {
+  by: string
+  name?: string
+  count: number
 }
 
 export const EVENTS_MAX = 40
@@ -406,7 +421,14 @@ export function happenings(
     const known = activity.mine === false || (activity.mine === undefined && me !== null && !mine(activity.login))
     if (time(activity.at) > after && known && !(activity.kind === 'review' && reviewed.has(lower(activity.login)))) {
       const place = activity.kind === 'comment' && activity.path ? { path: activity.path, ...(activity.line ? { line: activity.line } : {}) } : {}
-      out.push({ kind: 'commented', ...by(activity.login), at: now, ...place, ...(activity.kind === 'review' ? { review: true as const } : {}) })
+      out.push({
+        kind: 'commented',
+        ...by(activity.login),
+        at: now,
+        ...place,
+        ...(activity.kind === 'review' ? { review: true as const } : {}),
+        ...(activity.kind === 'comment' && activity.bot === true ? { bot: true as const } : {}),
+      })
     }
   }
 
