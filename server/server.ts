@@ -5,10 +5,10 @@ import { hostLog } from './hostLogStart.ts'
 import { editSpaces, type SpaceEdit, type SpaceEdited } from './spaces.ts'
 import { Arranging, arrangingRoute } from './arranging.ts'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
-import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, AGENT_SETUP_CARRIED_PATH, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, SETTINGS_PASS_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
+import { AGENT_DELIVERY, AGENT_SETUP, WORK_QUEUE, buildStamp, CONTENT_HOST, installsSkills, JOURNEYS_MODULE, LIMITS, moduleFolder, PACKAGE_VERSION, PROTOCOL, SERVER_ASK_PATH, WELL_KNOWN } from 'kehikot-module-protocol'
 import type { PartsEdit } from '../src/host/parts.ts'
-import { hold, undeclaredLine } from '../src/host/grants.ts'
-import { answer as answerOne, answerCall } from './answers.ts'
+import { undeclaredLine } from '../src/host/grants.ts'
+import { answer as answerOne } from './answers.ts'
 import { serverAskDesk } from './serverAsk.ts'
 import { isReadOnlyRoot } from './projectRoot.ts'
 import { projectsMine } from './projectsMine.ts'
@@ -24,6 +24,11 @@ import { canvasDesk } from './canvasRoutes.ts'
 import { kehikkoDesk } from './kehikkoRoutes.ts'
 import { projectDesk } from './projectRoutes.ts'
 import { spaceDesk } from './spaceRoutes.ts'
+import { moduleDesk } from './moduleRoutes.ts'
+import { callDesk } from './callRoutes.ts'
+import { personDesk } from './personRoutes.ts'
+import { settingsRouteDesk } from './settingsRoutes.ts'
+import { developmentRouteDesk } from './developmentRoutes.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { runsAgents, type ConnectionModule } from '../src/host/connections.ts'
@@ -33,8 +38,6 @@ import { moduleIconFor } from '../src/host/moduleIcon.ts'
 import {
   databaseFile,
   epicFromKehikot,
-  keepFor,
-  keepState,
   listCanvases,
   open,
   readKept,
@@ -69,7 +72,7 @@ import { inboxDesk } from './inboxRoutes.ts'
 import { Adoption } from './adoption.ts'
 import { adoptRoutes } from './adoptRoutes.ts'
 import { answerLogged, failedAnswer } from './routeFailure.ts'
-import { carriedValues, holderOf, isSetupKey, refreshChoice, type SetupDeps } from './agentSetup.ts'
+import { holderOf, refreshChoice, type SetupDeps } from './agentSetup.ts'
 import { BY as HOST_BY, noteOf, RETIRED_INBOX_MODULE, RETIRED_ITEM, retiredOffer, retiredStill } from './retired.ts'
 import { isOwnCheckout, runCleanUp, uninstallDesk, uninstalledModules } from './uninstall.ts'
 import { placeDesk } from './placeRoutes.ts'
@@ -118,7 +121,7 @@ import { soundsRoute } from './chime.ts'
 import { ensurePickerOrder, visitsRoute } from './pickerOrder.ts'
 import { readGithubShare } from './githubShare.ts'
 import { AutoUpdates, readAutoUpdates, type Applied } from './autoUpdates.ts'
-import { AUTO_UPDATES_NOTE, holdsShells } from '../src/host/autoUpdates.ts'
+import { holdsShells } from '../src/host/autoUpdates.ts'
 import { builtAt, adoptedReadyBuilt, isUnder, ModuleBuilds, buildBun, runBuild, servedAs, whyNoBuilds, withOwnBun, type Copy } from './moduleBuilds.ts'
 import { previewUpdate, restartDecision, serverGraph, type UpdatePreview } from './restart.ts'
 import { behindCheckout, Staleness } from './stale.ts'
@@ -148,7 +151,6 @@ import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { doorPaces } from './mcp/paces.ts'
-import { setDisposition } from './dispositions.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
 import { framedFetch, movedFrom, pageMovedLine, quietEntry, whyQuiet } from './quiet.ts'
 import { sweepAfter } from './sweepAfter.ts'
@@ -166,7 +168,7 @@ import { describeFolder, readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
 import { ForgeLogins } from './forgeLogins.ts'
-import { mentionsDesk, releasesIn } from './whatsNewMentions.ts'
+import { mentionsDesk } from './whatsNewMentions.ts'
 import { APP_ITEM } from '../src/host/whatsNew.ts'
 import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
@@ -180,7 +182,6 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
-import { folderSize, inspect as inspectUnused, moveToTrash, runGit, trashUnused as trashUnusedFolders, type UnusedDeps } from './unusedFolders.ts'
 import { developmentDesk, pointRegistrationAt, restoreRegistration, type Moved as DevMoved } from './development.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -197,13 +198,10 @@ import { storageDesk } from './storage.ts'
 import { moduleSettingsDesk, Passes, type SettingsModule } from './moduleSettings.ts'
 import { ensureKehikkoSettings, readKehikkoSettings, takesNewsAt } from './kehikkoSettings.ts'
 import { choiceDue, shownPrimary } from '../src/host/kehikkoSettings.ts'
-import { ensureOnboarding, readOnboarding, writeOnboarding } from './onboarding.ts'
+import { ensureOnboarding } from './onboarding.ts'
 import { moduleIntros } from './moduleIntros.ts'
-import { editPinnedPlaces, ensurePinnedPlaces, readPinnedPlaces } from './pinnedPlaces.ts'
-import { pinEditSchema } from '../src/host/pinnedPlaces.ts'
-import { onboardingEditSchema } from '../src/host/onboarding.ts'
-import { editWhatsNew, ensureWhatsNew, installedModule, positionOf, readWhatsNew } from './whatsNew.ts'
-import { editSchema as whatsNewEditSchema, notesDue, type Position } from '../src/host/whatsNew.ts'
+import { ensurePinnedPlaces } from './pinnedPlaces.ts'
+import { ensureWhatsNew } from './whatsNew.ts'
 import { releaseVersion, steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
@@ -550,12 +548,6 @@ function spacesEdited(project: { id: number; path: string }, edit: SpaceEdit): S
   wakes.epicsChanged(project.id)
   if (about[0]) epicWritten(project.path, about[0])
   return done
-}
-
-/** The open project's folder, when the call named a project this host has. */
-function rootOf(project: unknown): string | null {
-  if (typeof project !== 'number' || !Number.isInteger(project)) return null
-  return projectById(db, project)?.path ?? null
 }
 
 /**
@@ -4416,6 +4408,34 @@ const canvasRoutes = canvasDesk({ db, official })
 const kehikkoRoutes = kehikkoDesk({ db, wakes, agentModulesOfCanvas, kehikkoSettingsAnswer })
 const projectRoutes = projectDesk({ db, wakes, trackers, followMoved, watchOpenProjects })
 const spaceRoutes = spaceDesk({ db, wakes, listEpics, epicWritten, partsEdited, spacesEdited })
+const moduleRoutes = moduleDesk({
+  startup,
+  sweep,
+  govern,
+  pageView,
+  pins,
+  startable,
+  stoppedByPerson,
+  startOnce,
+  answersWithinPressMs: ANSWERS_WITHIN_PRESS_MS,
+})
+const callRoutes = callDesk({
+  db,
+  callers,
+  sweep,
+  declared,
+  messageRoutes,
+  wakes,
+  trackers,
+  contentWatch,
+  contents,
+  partsEdited,
+  trafficReading,
+  servicesHere,
+})
+const personRoutes = personDesk({ db, intros, installedCopies, follower, progress, auto, mentions, wakes })
+const settingsRoutes = settingsRouteDesk({ db, storage, settingsListed, moduleSettings, personGrants, setupDeps, agentSync })
+const developmentRoutes = developmentRouteDesk({ uninstalling, development })
 const restartRoutes = restartDesk({
   db,
   restartFile: RESTART_FILE,
@@ -4524,175 +4544,13 @@ async function answerRequest(request: Request): Promise<Response> {
     const logsAnswer = await logRoutes.route(request, url)
     if (logsAnswer) return logsAnswer
 
-    /* What is registered, and what the host made of each of them. The page asks
-       for this on load and whenever the person asks it to look again; there is
-       no polling, because a host that re-swept every second would be a host
-       hammering somebody's own machine to tell them nothing changed. */
-    if (url.pathname === '/host/modules' && request.method === 'GET') {
-      /* `fresh=1`: a person pressed something (look again, Start, an install), so every
-         manifest is asked again; otherwise what `manifests` keeps stands. */
-      const press = url.searchParams.get('fresh') === '1'
-      startup.mark('page asked for the modules')
-      const view = await sweep(press)
-      /* And then act on it. A sweep is the only moment the host knows both what
-         is running and what is wanted, so it is where a module on the open
-         kehikko that nothing answers for gets started. Synchronous — it spawns
-         and returns — so the answer below already says `starting` about
-         whatever was just run, and the container says so instead of sitting on
-         a sentence about a program that is not running. */
-      govern(view.presences)
-      const answer = await pageView(view, press)
-      startup.mark('page given the modules')
-      return json(answer)
-    }
+    /* What is registered, a module's versions, and Start. `moduleRoutes.ts`. */
+    const modulesAnswer = await moduleRoutes.route(request, url)
+    if (modulesAnswer) return modulesAnswer
 
-    /* A module's versions, for the picker in a container's header: its own
-       checkout first, then its tags, each marked for that kehikko's project. */
-    if (url.pathname === '/host/versions' && request.method === 'GET') {
-      const module = moduleIn(url.searchParams.get('module'))
-      const kehikko = Number(url.searchParams.get('kehikko'))
-      if (!module || !Number.isInteger(kehikko) || kehikko <= 0) {
-        return json({ error: 'Name a module and a kehikko: /host/versions?module=…&kehikko=…' }, 400)
-      }
-      const listed = await pins.list(module, kehikko, url.searchParams.get('fresh') === '1')
-      return 'why' in listed ? json({ error: listed.why }, listed.status) : json(listed)
-    }
-
-    /* Pin a container to a version, or back to latest with `version: null`. */
-    if (url.pathname === '/host/versions' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { module?: unknown; kehikko?: unknown; version?: unknown } | null
-      const module = moduleIn(body?.module)
-      const kehikko = body?.kehikko
-      if (!module || typeof kehikko !== 'number' || !Number.isInteger(kehikko) || kehikko <= 0) {
-        return json({ error: 'A pin names a module, a kehikko, and a version (null for latest).' }, 400)
-      }
-      const version = body?.version === null || body?.version === undefined ? null : body.version
-      if (version !== null && typeof version !== 'string') return json({ error: 'version is a tag such as v1.2.0, or null.' }, 400)
-      const pinned = await pins.pin(kehikko, module, version)
-      if (!pinned.ok) return json({ error: pinned.why }, pinned.status)
-      return json({ ok: true, text: pinned.text })
-    }
-
-    /* One question from one framed module.
-     *
-     * It arrives over HTTP rather than being answered in the page, and that is
-     * the boundary worth being clear about: the page RELAYS, and every check is
-     * on this side. The page cannot be the one deciding, because the page is a
-     * document that a module's own frame is inside; the server is a process
-     * that no module can reach except through this endpoint.
-     *
-     * There is no credential on this request and there is nothing to steal: the
-     * host holds no token, the module holds no token, and the session id in the
-     * greeting is explicitly not one. Every answer below is decided out of the
-     * registry, which no module can write to. */
-    if (url.pathname === '/host/call' && request.method === 'POST') {
-      const length = Number(request.headers.get('content-length') ?? 0)
-      if (length > LIMITS.MANIFEST_BYTES) {
-        return json({ ok: false, reason: 'failed', error: 'That call is too large to read.' }, 413)
-      }
-
-      const body = (await request.json().catch(() => null)) as {
-        module?: unknown
-        method?: unknown
-        params?: unknown
-        /* Which project the frame that asked is standing in. Supplied by the
-           page, which is the only thing that knows — a module's page is loaded
-           once and shown on whichever kehikko asks for it, so the frame itself
-           genuinely cannot say. It is an id and not a path: a path arriving
-           here from a page would be a way to name any folder on the disk, and
-           this is the endpoint every framed module can reach. */
-        project?: unknown
-        /* Which kehikko the frame stands on, as an id, for a write kept per
-           container (protocol 2.51.0). Supplied by the page for the reason
-           `project` is; checked against the placements before anything is kept. */
-        kehikko?: unknown
-      } | null
-
-      if (!body || typeof body.module !== 'string' || typeof body.method !== 'string') {
-        return json({ ok: false, reason: 'failed', error: 'A call names a module and a method.' }, 400)
-      }
-      /* Bounded before it is looked at, matching the protocol's own bound on a
-         method name. A string this long has already stopped being a method
-         name; letting it through would put it in a Map key and, eventually, in
-         a log line somebody reads. */
-      if (body.method.length > LIMITS.METHOD || body.module.length > 64) {
-        return json({ ok: false, reason: 'failed', error: 'A call names a module and a method.' }, 400)
-      }
-      const named = body.module
-      /* Recorded under the module the page relays for, with the method as the
-         reason; reading and noting traffic is not recorded (a loop). */
-      tag(request, { by: named, via: 'page', reason: body.method, ...(body.method.startsWith('traffic.') ? { skip: true } : {}) })
-
-      /* If nothing has swept yet — a module framed by a page that was already
-         open when this server restarted — sweep once so the answer is about the
-         registry rather than about the host having just started. */
-      if (!callers.size) await sweep()
-
-      /* A module's page reading its own mail and posting in its own name
-         (protocol 2.50.0): held to the manifest like every call, then answered
-         from the record. `messages.say` is NOT here: it is the person's, and
-         goes only through `/host/messages/say` (`messageRoutes.ts`). */
-      if ((body.method === 'messages.mine' || body.method === 'messages.post') && callers.has(named)) {
-        const held = hold(body.method, (capability) => declared(named, capability))
-        if (held.held) {
-          return json(body.method === 'messages.post' ? { ok: true, data: { outcome: 'declined', id: null, why: held.why } } : { ok: false, reason: 'failed', error: held.why })
-        }
-        return json(messageRoutes.pageAnswer(named, body.method, body.params, typeof body.project === 'number' ? body.project : null))
-      }
-
-      return json(
-        await answerCall(named, body.method, body.params, {
-          knownModule: (id) => callers.has(id),
-          /* Protocol 2.51.0: for the container — the module on the kehikko the
-             module names, else the one its frame stands on (`kehikko`, from the
-             page). Module-wide only when nothing says which. */
-          keep: (module, state, kehikko) => {
-            const at = kehikko ?? (typeof body.kehikko === 'number' && Number.isInteger(body.kehikko) ? body.kehikko : null)
-            if (at === null) {
-              keepState(db, module, state)
-              return true
-            }
-            return keepFor(db, at, module, state)
-          },
-          root: rootOf(body.project),
-          /* A mark from a frame is a person's press inside a module, so it is
-             signed with the module's name — the one the registry last heard it
-             give, or its id. Every page in the project is woken only when the
-             file actually changed. */
-          mark: (module, root, marking) => {
-            const done = setDisposition(root, marking, known(db).get(module)?.name ?? module)
-            if (done.ok && done.changed && typeof body.project === 'number') {
-              wakes.dispositionsChanged(body.project)
-            }
-            return done
-          },
-          trackers,
-          /* A module's report of its own write. Signed with the module that
-             asked, and the watcher is told so the file event for the same
-             write says nothing more. */
-          report: (module, root, epic) => {
-            contentWatch.reported(root, module)
-            contents.announce(root, module, epic)
-          },
-          /* An edit of an epic's parts, for a module whose manifest asked for
-             it. Read off the last sweep's manifest, which no module can write. */
-          divide: {
-            may: declared,
-            edit: (root, epic, edit) => partsEdited(root, epic, edit).result,
-          },
-          /* Every other method, held to the same list the same way. */
-          grants: {
-            may: declared,
-            undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
-          },
-          traffic: { door: trafficReading, via: 'page' },
-          /* The projects the module keeps its own folder in (protocol 2.76.0). */
-          mine: (module) => projectsMine(listProjects(db), module),
-          /* Who provides a service here (protocol 2.81.0). */
-          services: servicesHere,
-        }),
-      )
-    }
+    /* One question from one framed module, relayed by the page. `callRoutes.ts`. */
+    const callAnswer = await callRoutes.route(request, url)
+    if (callAnswer) return callAnswer
 
     /* The kehikot, their layouts and connections, and one kehikko by its id. `canvasRoutes.ts`. */
     const canvasAnswer = await canvasRoutes.route(request, url)
@@ -4702,85 +4560,9 @@ async function answerRequest(request: Request): Promise<Response> {
     const kehikkoAnswer = await kehikkoRoutes.route(request, url)
     if (kehikkoAnswer) return kehikkoAnswer
 
-    /* A module's own introduction (protocol 2.57.0), read without running it: its manifest, its
-       installed copy's intro.json, or that file at the release an install would take
-       (`server/moduleIntros.ts`). */
-    if (url.pathname === '/host/module-intro' && request.method === 'GET') {
-      const id = url.searchParams.get('module') ?? ''
-      if (!id || id.length > 200) return json({ error: 'Name a module: ?module=<id>.' }, 400)
-      return json(await intros.introFor(id))
-    }
-
-    /* Whether the introduction was seen and where the tour was left
-       (`server/onboarding.ts`). The POST is in `PAGE_ONLY`. */
-    if (url.pathname === '/host/onboarding' && request.method === 'GET') {
-      return json(readOnboarding(db))
-    }
-    if (url.pathname === '/host/onboarding' && request.method === 'POST') {
-      const edit = onboardingEditSchema.safeParse(await request.json().catch(() => null))
-      if (!edit.success) return json({ error: 'An onboarding change is { intro: "seen" } or { tour: { step, paused?, finished? } }.' }, 400)
-      return json(writeOnboarding(db, edit.data))
-    }
-
-    /* The person's pinned places (`server/pinnedPlaces.ts`), resolved against
-       what is there now. The POST — pin, unpin, order — is in `PAGE_ONLY`. */
-    if (url.pathname === '/host/pinned-places' && request.method === 'GET') {
-      return json({ pinned: readPinnedPlaces(db) })
-    }
-    if (url.pathname === '/host/pinned-places' && request.method === 'POST') {
-      const edit = pinEditSchema.safeParse(await request.json().catch(() => null))
-      if (!edit.success) return json({ error: 'A pinned-places change is { pin: { project, kehikko, epic, scope, parts } }, { unpin: id } or { order: [id, …] }.' }, 400)
-      const done = editPinnedPlaces(db, edit.data)
-      if (!done.ok) return json({ error: done.why }, done.status)
-      return json({ pinned: done.pinned })
-    }
-
-    /* "What's new" after an update (`server/whatsNew.ts`): what was last
-       acknowledged, beside where each installed copy is now — read from the
-       copies, nothing asked of the network. The POST is in `PAGE_ONLY`. */
-    if (url.pathname === '/host/whats-new' && request.method === 'GET') {
-      const record = readWhatsNew(db)
-      /* Settings' switch needs the setting alone, not every copy read. */
-      if (url.searchParams.get('only') === 'record') return json({ record })
-      const copies = await installedCopies(request.signal)
-      const modules = await Promise.all(
-        copies.map(({ place, release, commit }) =>
-          installedModule({
-            id: place.id,
-            name: place.name,
-            release,
-            commit,
-            record,
-            local: () => follower.local?.(place) ?? Promise.resolve([]),
-            works: (tags) => follower.worksFor?.(place, tags) ?? Promise.resolve({}),
-          }),
-        ),
-      )
-      /* Told once: that modules now update themselves, while they do (`autoUpdates.ts`). */
-      const notes = notesDue(record, { [AUTO_UPDATES_NOTE]: readAutoUpdates(db) })
-      return json({ record, modules, updating: [...progress.keys()], notes, auto: [...new Set(auto.said().updated.map((one) => one.id))] })
-    }
-    /* "You're mentioned in What's new": the releases the person gets, named by
-       the page, read for their handle (`server/whatsNewMentions.ts`). In `PAGE_ONLY`. */
-    if (url.pathname === '/host/whats-new/mentions' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { project?: unknown; releases?: unknown } | null
-      const releases = releasesIn(body?.releases)
-      const project = typeof body?.project === 'number' && Number.isInteger(body.project) ? projectById(db, body.project) : null
-      if (!releases || !project) return json({ error: 'Name a project and the releases as { item, tag }.' }, 400)
-      const out = await mentions.check(project.id, releases)
-      if (out.rev !== null) wakes.inboxChanged(project.id, out.rev)
-      return json({ told: out.told })
-    }
-    if (url.pathname === '/host/whats-new' && request.method === 'POST') {
-      const edit = whatsNewEditSchema.safeParse(await request.json().catch(() => null))
-      if (!edit.success) return json({ error: 'A change is { baseline }, { acknowledge }, { read } or { show }.' }, 400)
-      const record = await editWhatsNew(db, edit.data, async () => {
-        const here: Record<string, Position> = {}
-        for (const one of await installedCopies()) here[one.place.id] = positionOf(one.release, one.commit)
-        return here
-      })
-      return json({ record })
-    }
+    /* A module's introduction, the person's onboarding and pinned places, and What's new. `personRoutes.ts`. */
+    const personAnswer = await personRoutes.route(request, url)
+    if (personAnswer) return personAnswer
 
     /* The projects, what each is about, and the folders to pick one from. `projectRoutes.ts`. */
     const projectAnswer = await projectRoutes.route(request, url)
@@ -4794,70 +4576,9 @@ async function answerRequest(request: Request): Promise<Response> {
     const trackersAnswer = await trackerRoutes.route(request, url)
     if (trackersAnswer) return trackersAnswer
 
-    /*
-     * The storage overview, for the page's Storage view: every project's
-     * `.kehikot/` by module, and this machine's Kehikot data. The page's alone
-     * (`PAGE_ONLY`) — a POST so that rule can hold it; it changes nothing.
-     * `fresh: true` measures again rather than answering from the last few
-     * seconds' report.
-     */
-    if (url.pathname === '/host/storage' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { fresh?: unknown } | null
-      return json(await storage.read(body?.fresh === true))
-    }
-
-    /*
-     * A module's settings (protocol 2.15.0). Every one of these is the page's alone (`PAGE_ONLY`):
-     * the list and the read so the page draws the form, the change because it is the one place a
-     * person's PASS is minted (`moduleSettings.ts`), and the file because it shows a project's file.
-     * An agent reads settings through the door's `module_settings`, and changes one only at the
-     * module's own door — never here. `project` is a project's id, resolved out of this host's table.
-     */
-    if (url.pathname.startsWith('/host/module-settings') && request.method === 'POST') {
-      const body = ((await request.json().catch(() => null)) ?? {}) as { module?: unknown; project?: unknown; key?: unknown; value?: unknown }
-      const project = typeof body.project === 'number' ? projectById(db, body.project) : null
-      if (url.pathname === '/host/module-settings/list') {
-        return json({ ok: true, modules: await settingsListed() })
-      }
-      const module = moduleIn(body.module)
-      if (!module) return json({ ok: false, why: 'Which module.' }, 400)
-      if (body.project !== undefined && body.project !== null && !project) return json({ ok: false, why: 'There is no project with that id.' }, 404)
-      const path = project?.path ?? null
-      if (url.pathname === '/host/module-settings') return json(await moduleSettings.read(module, path))
-      if (url.pathname === '/host/module-settings/file') return json(await moduleSettings.file(module, path))
-      if (url.pathname === '/host/module-settings/set') {
-        if (typeof body.key !== 'string' || body.key.length > LIMITS.SETTING_KEY) return json({ ok: false, why: 'Which setting.' }, 400)
-        const changed = await moduleSettings.set(module, path, body.key, body.value)
-        /* The person's change, relayed from this page and saved by the module:
-           the one way a grant to send messages as them is recorded (protocol
-           2.50.0, `personGrants.ts`). */
-        if ('outcome' in changed && changed.outcome === 'saved') personGrants.saw(module, body.key, body.value)
-        /* The agent setup choice is the agent module's own setting (`agentSetup.ts`): the sync reads it again. */
-        if ('outcome' in changed && changed.outcome === 'saved' && isSetupKey(body.key)) {
-          await refreshChoice(setupDeps).catch(() => null)
-          agentSync.poke()
-        }
-        return json(changed)
-      }
-    }
-
-    /*
-     * Whether a pass is one this host minted for a person's change of a module's setting, asked by
-     * that module's server (`SETTINGS_PASS_PATH`, protocol 2.15.0). Answered to programs on this
-     * machine, like `/host/is-project`; the answer spends the pass.
-     */
-    if (url.pathname === SETTINGS_PASS_PATH && request.method === 'GET') {
-      return json(moduleSettings.vouch(url.searchParams))
-    }
-
-    /*
-     * The agent setup choice this host held itself before protocol 2.91.0, as settings values, for the
-     * agent module that holds it now to carry over once (`AGENT_SETUP_CARRIED_PATH`, `agentSetup.ts`).
-     * Answered to programs on this machine, like the pass above; read only.
-     */
-    if (url.pathname === AGENT_SETUP_CARRIED_PATH && request.method === 'GET') {
-      return json({ ok: true, values: carriedValues(db) })
-    }
+    /* The storage overview, a module's settings, and what a module's server checks of them. `settingsRoutes.ts`. */
+    const moduleSettingsAnswer = await settingsRoutes.route(request, url)
+    if (moduleSettingsAnswer) return moduleSettingsAnswer
 
     /* Whether the host and the modules are behind GitHub, catching them up, and how far each job has got. `updateRoutes.ts`. */
     const updatesAnswer = await updateRoutes.route(request, url)
@@ -4875,146 +4596,13 @@ async function answerRequest(request: Request): Promise<Response> {
     const notesAnswer = await releaseNotes.route(request, url)
     if (notesAnswer) return notesAnswer
 
+    /* Uninstall, Kehikko development, and unused folders. `developmentRoutes.ts`. */
+    const developmentAnswer = await developmentRoutes.route(request, url)
+    if (developmentAnswer) return developmentAnswer
+
     /* The official module list, installing from it, and proposing for it. */
-    /* Uninstall: `GET` is what the confirmation shows (what goes, the person's own folder, the projects
-       with saved data and their sizes); `POST { module, projects? }` does it and answers the summary. */
-    if (url.pathname === '/host/uninstall' && request.method === 'GET') {
-      const module = url.searchParams.get('module') ?? ''
-      const seen = await uninstalling.preview(module)
-      return seen.ok ? json(seen) : json({ error: seen.why }, seen.status)
-    }
-    if (url.pathname === '/host/uninstall' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { module?: unknown; projects?: unknown } | null
-      if (!body || typeof body.module !== 'string' || body.module.length > 64) return json({ error: 'An uninstall names one module.' }, 400)
-      const done = await uninstalling.uninstall(body.module, { projects: body.projects === true })
-      return done.ok ? json(done) : json({ error: done.why }, done.status)
-    }
-    /* "Kehikko development": the switch, a module's folder, and moving modules. `development.ts`. */
-    if (url.pathname === '/host/development') {
-      if (request.method === 'GET') return json(await development.state())
-      if (request.method === 'POST') {
-        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-        if (body && typeof body.on === 'boolean') {
-          await development.setOn(body.on)
-          return json(await development.state())
-        }
-        if (body && typeof body.module === 'string' && body.module.length <= 64) {
-          const change = {
-            ...(body.folder === null || (typeof body.folder === 'string' && body.folder.length <= 1024) ? { folder: body.folder as string | null } : {}),
-            ...(typeof body.release === 'boolean' ? { release: body.release } : {}),
-            ...(body.move === true ? { move: true as const } : {}),
-            ...(body.move === true && body.now === true ? { now: true as const } : {}),
-          }
-          const done = await development.setModule(body.module, change)
-          return done.ok ? json(await development.state()) : json({ error: done.why }, done.status)
-        }
-        return json({ error: 'A change of Kehikko development is { on } or { module, folder | release | move }.' }, 400)
-      }
-    }
-    /* "Move unused folders to the Trash": the folders Kehikot no longer uses, checked and listed (a read), and moved on a press. `unusedFolders.ts`. */
-    if (url.pathname === '/host/unused-folders') {
-      const unused: UnusedDeps = {
-        candidates: () => development.unusedCandidates(),
-        usedBy: (dir) => development.usedBy(dir),
-        git: runGit,
-        size: folderSize,
-        trash: moveToTrash,
-      }
-      if (request.method === 'GET') {
-        const folders = await inspectUnused(unused)
-        return json({ folders, freedBytes: folders.filter((one) => one.trash).reduce((sum, one) => sum + one.bytes, 0) })
-      }
-      if (request.method === 'POST') {
-        const body = (await request.json().catch(() => null)) as { trash?: unknown } | null
-        if (!body || !Array.isArray(body.trash) || body.trash.length > 400 || !body.trash.every((dir) => typeof dir === 'string' && dir.length <= 1024)) return json({ error: 'Moving folders to the Trash names the folders, as { trash: [path, …] }.' }, 400)
-        const { done, freed } = await trashUnusedFolders(body.trash as string[], unused)
-        development.cleared(freed)
-        console.log(`kehikko: ${done.moved.length} unused folder${done.moved.length === 1 ? '' : 's'} moved to the Trash, ${done.kept.length} kept`)
-        return json(done)
-      }
-    }
     const officialAnswer = (await installs.route(request, url)) ?? (await proposals.route(request, url)) ?? (await mine.route(request, url))
     if (officialAnswer) return officialAnswer
-
-    /*
-     * Start a module that is not running.
-     *
-     * A press, never anything else. There is no autostart and no retry: see the
-     * essay in `launch.ts` for why a host that ran programs when a canvas
-     * loaded would be a host that runs programs.
-     *
-     * The module is looked up in the registry — a directory can only come from
-     * a registration file somebody wrote, never from the request. What arrives
-     * over the wire is one module id, and if it names nothing registered the
-     * answer is a refusal.
-     */
-    if (url.pathname === '/host/start' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { module?: unknown } | null
-      if (!body || typeof body.module !== 'string' || body.module.length > 64) {
-        return json({ ok: false, why: 'A start names one module.' }, 400)
-      }
-      const named = body.module
-
-      /* Read the registrations now rather than trusting the last sweep, because
-         the commonest reason to press Start is that somebody has just edited a
-         registration — adding the `dir` that makes starting possible at all.
-         Answering out of a cached map made that edit invisible until something
-         else happened to sweep, which contradicted `launch.ts`'s own claim that
-         the answer is about the disk as it is at the moment of the press. It is
-         one small directory read; the honesty is worth more than the map. */
-      const now = await readRegistrations()
-      const registration = now.registrations.find((r) => r.id === named) ?? null
-      const can = startable(registration)
-      if (!can.ok) return json({ ok: false, why: can.why }, 409)
-
-      /*
-       * A module that is already answering must be RESTARTED, not started again.
-       *
-       * ## Start had quietly become a no-op
-       *
-       * Modules now claim their own port — see `kehikot-module-protocol/serve`
-       * — and a module finding its own copy already there says so and exits 0.
-       * That is right for a person typing `./run.sh`, and it turned this button
-       * into a lie: the spawn succeeded, the child exited immediately having
-       * done nothing, the sweep afterwards found the same broken module, and the
-       * page reported exactly what it had before.
-       *
-       * The press that exposed it was somebody whose container was drawing
-       * nothing because its page held addresses from before a dependency
-       * rebuild. Start was the only control offered, they pressed it several
-       * times, and it could not have worked on any of them. A restart WOULD have
-       * fixed it — a Vite server coming back up pushes a reload to the page it
-       * is framed in, and the module recovers in a few seconds unattended.
-       *
-       * ## Which is why this refuses rather than guesses when it cannot
-       *
-       * Stopping is only ever something this host may do to a program it
-       * started, and `keep` is how somebody says not even then — see the essay
-       * in `lifecycle.ts` for why stopping is not the mirror image of starting.
-       * A module somebody is running in their own terminal is theirs, and the
-       * honest answer names where it is rather than pretending the button did
-       * something.
-       *
-       * The one widening: a module the nursery does not hold may still be
-       * restarted when the program on its port is proven to be running from
-       * the registered directory — the case of modules a previous host started
-       * and this one inherited. The proof and its limits are in `takeover.ts`.
-       */
-      /* A person's press: what they stopped is theirs to start again. */
-      stoppedByPerson.pressed(named)
-      const done = await startOnce(named, registration, can.run, ANSWERS_WITHIN_PRESS_MS)
-      if (!done.ok) return json({ ok: false, why: done.why, detail: done.detail ?? [], ...(done.kept ? { kept: true } : {}) }, 409)
-      return json({
-        ok: true,
-        command: done.ok && done.moved ? done.moved.runnable.command : can.run.command,
-        /* Said when the module was started on another port: the sentence, for the container to show. */
-        ...(done.ok && done.moved ? { moved: done.moved.line } : {}),
-        /* The last it printed, when it has not answered — so the page can say
-           more than "run it yourself and see". */
-        ...(done.answered ? {} : { detail: done.detail }),
-        presence: done.presence,
-      })
-    }
 
     /* Restarting a module that is kept, on a person's two presses. `anyway.ts`. */
     const anywayAnswer = await anyway.route(request, url)

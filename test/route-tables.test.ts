@@ -3,14 +3,19 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ADOPT_ROUTES } from '../server/adoptRoutes.ts'
+import { CALL_ROUTES } from '../server/callRoutes.ts'
 import { CANVAS_ROUTES, canvasDesk } from '../server/canvasRoutes.ts'
 import { createCanvas, open } from '../server/canvases.ts'
+import { DEVELOPMENT_ROUTES } from '../server/developmentRoutes.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
 import { KEHIKKO_ROUTES } from '../server/kehikkoRoutes.ts'
 import { LOG_ROUTES } from '../server/logRoutes.ts'
+import { MODULE_ROUTES } from '../server/moduleRoutes.ts'
+import { PERSON_ROUTES } from '../server/personRoutes.ts'
 import { PROJECT_ROUTES } from '../server/projectRoutes.ts'
 import { RESTART_ROUTES } from '../server/restartRoutes.ts'
 import { pageOnlyPaths, routes, type RouteTable } from '../server/routes.ts'
+import { SETTINGS_ROUTES, settingsRouteDesk } from '../server/settingsRoutes.ts'
 import { SPACE_ROUTES } from '../server/spaceRoutes.ts'
 import { TRACKER_ROUTES } from '../server/trackerRoutes.ts'
 import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
@@ -23,7 +28,7 @@ import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
  * write to it.
  */
 
-const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES }
+const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES }
 const specs = Object.entries(TABLES).flatMap(([table, routes]) => Object.entries(routes).map(([name, spec]) => ({ table, name, ...spec })))
 
 const ok = (what: string) => () => new Response(what)
@@ -58,6 +63,11 @@ describe('routes', () => {
     expect(() => routes({ a: { method: 'GET', path: '/host/x', pageOnly: true } }, { a: ok('a') })).toThrow(/GET/)
   })
 
+  test('a handler that answers null leaves the request to the routes after it', async () => {
+    const passing = routes({ a: { method: 'GET', path: '/host/x' } }, { a: () => null })
+    expect(await passing.route(...ask('GET', '/host/x'))).toBeNull()
+  })
+
   test('pageOnlyPaths lists each declared page-only path once', () => {
     expect(pageOnlyPaths({ a: { method: 'POST', path: '/host/x', pageOnly: true }, b: { method: 'PATCH', path: '/host/x', pageOnly: true }, c: { method: 'POST', path: '/host/y' } })).toEqual(['/host/x'])
   })
@@ -88,6 +98,38 @@ describe('the canvases desk: one kehikko by the id in its path', () => {
   })
 })
 
+describe('the settings desk: every POST under /host/module-settings, as before', () => {
+  const read: string[] = []
+  const desk = settingsRouteDesk({
+    db: open(':memory:'),
+    storage: { read: async () => ({}) as never },
+    settingsListed: async () => [],
+    moduleSettings: {
+      read: async (module) => (read.push(module), { ok: true }) as never,
+      file: async () => ({}) as never,
+      set: async () => ({}) as never,
+      vouch: () => ({ ok: true, person: false }),
+    },
+    personGrants: { saw: () => {} },
+    setupDeps: {} as never,
+    agentSync: { poke: () => {} },
+  })
+  const post = (path: string, body: unknown) => {
+    const request = new Request(`http://127.0.0.1${path}`, { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } })
+    return desk.route(request, new URL(request.url))
+  }
+
+  test('the four routes are answered', async () => {
+    expect((await post('/host/module-settings', { module: 'kehikot.notes' }))!.status).toBe(200)
+    expect(read).toEqual(['kehikot.notes'])
+  })
+
+  test('any other path under it is read for a module, and then left to the routes after it', async () => {
+    expect((await post('/host/module-settings/other', {}))!.status).toBe(400)
+    expect(await post('/host/module-settings/other', { module: 'kehikot.notes' })).toBeNull()
+  })
+})
+
 describe('PAGE_ONLY and the route tables say the same', () => {
   test('every route a table declares page-only is in PAGE_ONLY', () => {
     for (const spec of specs.filter((one) => one.pageOnly)) expect(PAGE_ONLY).toContain(spec.path)
@@ -101,10 +143,11 @@ describe('PAGE_ONLY and the route tables say the same', () => {
   test('the page-only writes moved into tables are the ones that were listed', () => {
     expect(pageOnlyPaths(...Object.values(TABLES)).sort()).toEqual(
       ['/host/log', '/host/logs/open', '/host/module-addresses/check', '/host/restart/now', '/host/restart/queue', '/host/steps/cancel', '/host/tracker/refresh', '/host/trackers', '/host/updates/cancel', '/host/updates/step-back',
-        '/host/layouts', '/host/connections', '/host/kehikot/copy', '/host/kehikko-skills', '/host/kehikko-settings', '/host/projects/followed', '/host/projects/locate', '/host/base-branch'].sort(),
+        '/host/layouts', '/host/connections', '/host/kehikot/copy', '/host/kehikko-skills', '/host/kehikko-settings', '/host/projects/followed', '/host/projects/locate', '/host/base-branch',
+        '/host/onboarding', '/host/pinned-places', '/host/whats-new', '/host/whats-new/mentions', '/host/storage', '/host/module-settings', '/host/module-settings/list', '/host/module-settings/file', '/host/module-settings/set', '/host/uninstall', '/host/development', '/host/unused-folders'].sort(),
     )
     /* Answered to programs too, as before. */
-    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts']) expect(PAGE_ONLY).not.toContain(path)
+    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts', '/host/modules', '/host/versions', '/host/start', '/host/call']) expect(PAGE_ONLY).not.toContain(path)
   })
 
   test('adopting is listed once, by its desk', () => {
@@ -136,6 +179,6 @@ describe('server.ts routes a table’s paths only through its desk', () => {
   })
 
   test('every desk is asked', () => {
-    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes', 'canvasRoutes', 'kehikkoRoutes', 'projectRoutes', 'spaceRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
+    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes', 'canvasRoutes', 'kehikkoRoutes', 'projectRoutes', 'spaceRoutes', 'moduleRoutes', 'callRoutes', 'personRoutes', 'settingsRoutes', 'developmentRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
   })
 })
