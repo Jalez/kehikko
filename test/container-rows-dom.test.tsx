@@ -37,8 +37,8 @@ let Rows: typeof import('../src/host/rows.ts')
 let Protocol: typeof import('kehikot-module-protocol')
 let TooltipProvider: typeof import('../src/components/ui/tooltip.tsx').TooltipProvider
 let Responsive: typeof import('react-grid-layout').Responsive
-let Canvases: typeof import('../src/host/canvases.ts')
 let Columns: typeof import('../src/host/columns.ts')
+let Drag: typeof import('../src/app/useDragResize.ts')
 
 beforeAll(async () => {
   if (!inChild) return
@@ -53,8 +53,8 @@ beforeAll(async () => {
   Protocol = await import('kehikot-module-protocol')
   ;({ TooltipProvider } = await import('../src/components/ui/tooltip.tsx'))
   ;({ Responsive } = await import('react-grid-layout'))
-  Canvases = await import('../src/host/canvases.ts')
   Columns = await import('../src/host/columns.ts')
+  Drag = await import('../src/app/useDragResize.ts')
 })
 
 afterAll(async () => {
@@ -330,9 +330,10 @@ describe('folding to two rows on a canvas', () => {
   /*
    * The page's own loop, as `App.tsx` runs it: the placements are state, the
    * grid draws them, a fold is `onFold`'s write, and every arrangement the
-   * grid reports goes back through `fromGrid` and `redrawn` (`onLayoutChange`).
-   * The grid reports one after a fold, because the folded height changed — so
-   * whatever that report drops is lost the moment the fold lands.
+   * grid reports goes back through `fromGrid` and `redrawn` — `onLayoutChange`,
+   * the page's own, from `useDragResize`. The grid reports one after a fold,
+   * because the folded height changed — so whatever that report drops is lost
+   * the moment the fold lands.
    */
   function Canvas({ footerPressed }: { footerPressed: unknown[] }) {
     const [placements, setPlacements] = React.useState<import('../src/host/canvases.ts').Placement[]>(() => [
@@ -341,11 +342,7 @@ describe('folding to two rows on a canvas', () => {
     /* Appearance says two rows: stamped on the placements, as `App.tsx` does on `open`. */
     const onCollapse = (id: string, collapsed: boolean) =>
       setPlacements((was) => Columns.pressed(was.map((p) => ({ ...p, foldRows: 2 as const })), id, collapsed))
-    const onLayoutChange = (next: readonly import('react-grid-layout').Layout[]) =>
-      setPlacements((was) => {
-        const drawn = Columns.redrawn(Canvases.fromGrid(was, next, null, new Map()))
-        return JSON.stringify(drawn) === JSON.stringify(was) ? was : drawn
-      })
+    const { onLayoutChange } = useGestures(placements, setPlacements, () => false)
     const one = placements[0]!
     return (
       <Responsive
@@ -399,6 +396,27 @@ describe('folding to two rows on a canvas', () => {
 
 type Placement = import('../src/host/canvases.ts').Placement
 
+/**
+ * The page's own hand on the arrangement (`useDragResize`), as `App.tsx` calls it: given the open
+ * kehikko as drawn, writing through `change`, and measuring nothing (there are no pages here).
+ */
+function useGestures(drawn: Placement[], write: (next: Placement[]) => void, twoRowsFor: (id: string) => boolean) {
+  const open = React.useMemo(() => ({ placements: drawn }), [drawn])
+  return Drag.useDragResize({
+    open,
+    openId: null,
+    change: (edit) => {
+      if (edit.placements) write(edit.placements)
+    },
+    twoRowsFor,
+    rowHeight: 14,
+    rowGap: 8,
+    remeasure: nothing,
+    settle: nothing,
+    writer: { flushAll: async () => undefined },
+  })
+}
+
 const at = (i: string, x: number, more: Partial<Placement> = {}): Placement =>
   ({ i, x, y: 0, w: 12, h: 20, wish: 20, grow: false, pinned: false, prompt: '', promptFor: null, collapsed: false, selected: false, filters: {}, refreshEvery: null, version: null, scope: null, ...more }) as Placement
 
@@ -406,8 +424,9 @@ const at = (i: string, x: number, more: Partial<Placement> = {}): Placement =>
  * Several containers on a real grid, run the way `App.tsx` runs them: the
  * placements are state; the fold, a fold choice and when the rows show are
  * the page's writes from what is held NOW (`open.placements`); every
- * arrangement the grid reports goes back through `fromGrid` and `redrawn`;
- * and a corner let go at a height is `fromGrid` with that container held.
+ * arrangement the grid reports goes back through the page's `onLayoutChange`;
+ * and a corner let go at a height is the page's own resize handlers, then that
+ * report with the container held (`useDragResize`).
  */
 interface BoardHandle {
   placements: () => Placement[]
@@ -439,16 +458,19 @@ function Board({
   const twoRows = (id: string) => foldRows === 2 && footered(id)
   /* And stamped on the placements, as `App.tsx` does on `open`, so the heights agree with what is drawn. */
   const stamp = (ps: Placement[]) => ps.map((p) => ({ ...p, foldRows: twoRows(p.i) ? (2 as const) : (1 as const) }))
-  const onLayoutChange = (next: readonly import('react-grid-layout').Layout[]) =>
-    setPlacements((was) => {
-      const drawn = Columns.redrawn(Canvases.fromGrid(stamp(was), next, null, new Map(), twoRows))
-      return JSON.stringify(drawn) === JSON.stringify(was) ? was : drawn
-    })
+  const drawn = React.useMemo(() => stamp(placements), [placements])
+  const { onLayoutChange, gestures } = useGestures(drawn, write, twoRows)
   handle.current = {
     placements: () => held.current,
+    /* What the grid calls for a corner let go at `h`: the start and the stop of the gesture, then
+       the layout it reports in the same tick. */
     resize: (id, h) =>
       act(async () => {
-        setPlacements((was) => Columns.redrawn(Canvases.fromGrid(stamp(was), was.map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.i === id ? h : p.h })), id, new Map(), twoRows)))
+        const item = { i: id, x: 0, y: 0, w: 0, h }
+        const at = (type: string): Parameters<typeof gestures.onResizeStart> => [[], item, item, item, new MouseEvent(type), document.body]
+        gestures.onResizeStart(...at('mousedown'))
+        gestures.onResizeStop(...at('mouseup'))
+        onLayoutChange(drawn.map((p) => ({ i: p.i, x: p.x, y: p.y, w: p.w, h: p.i === id ? h : p.h })))
         await wait(10)
       }),
   }
