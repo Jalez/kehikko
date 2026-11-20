@@ -256,7 +256,10 @@ describe('a module is told which host started it (KEHIKOT_HOST, protocol 2.95.0)
     const dir = mkdtempSync(join(tmpdir(), 'host-env-'))
     const out = join(dir, 'said')
     const script = join(dir, 'run.sh')
-    writeFileSync(script, `#!/bin/sh\nprintf '%s' "$KEHIKOT_HOST" > "${out}"\n`)
+    /* Written aside and renamed into place: `> "$out"` alone creates the file empty before printf
+       fills it, and a poll that lands between the two read "" — the flake this once was on CI. A
+       rename is atomic, so `out` exists only once it holds the whole value. */
+    writeFileSync(script, `#!/bin/sh\nprintf '%s' "$KEHIKOT_HOST" > "${out}.part" && mv "${out}.part" "${out}"\n`)
     chmodSync(script, 0o755)
     const before = process.env[HOST_ENV]
     process.env[HOST_ENV] = 'http://127.0.0.1:47700'
