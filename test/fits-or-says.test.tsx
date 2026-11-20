@@ -380,6 +380,8 @@ describe('the modules list', () => {
         onCanvas={new Set()}
         onPlace={() => {}}
         onUnplace={() => {}}
+        /* Folded on purpose: by default a row that needs the person opens with the list. */
+        openAtFirst={[]}
       />,
     )
     /* Folded, the row says the word at its end, and the notice is its tooltip. */
