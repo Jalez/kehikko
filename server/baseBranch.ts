@@ -5,7 +5,7 @@ import { explainGitFailure } from './gitAuth.ts'
 import { spawnRunner, type Runner } from './feedback.ts'
 import { hostPath } from './hostData.ts'
 import { makeUnderRoot, projectRootExists, projectWritable, refusedSaid } from './projectRoot.ts'
-import { QUIET_ENV } from './updates.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 
 /**
  * A project's base branch: the branch agents start their work from and

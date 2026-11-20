@@ -6,8 +6,6 @@ import { Dialog } from '@/components/ui/dialog.tsx'
 import { ModalBody, ModalContent, ModalFooter, ModalHeader } from '@/components/ui/modal.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
-import { COLUMNS } from '@/host/canvases.ts'
-import { CANVAS_ROWS } from '@/host/fit.ts'
 import {
   availability,
   availabilitySaid,
@@ -16,14 +14,13 @@ import {
   toInstall,
   type Available,
   type Layout,
-  type LayoutContainer,
   type OfficialEntry,
   type Shelves,
 } from '@/host/layouts.ts'
 import type { LayoutsMode } from '@/host/onboarding.ts'
 import { fetchElsewhere, TAKE_DEFAULT, type CopyTake, type ElsewhereKehikko, type ElsewhereProject } from '@/host/fromProject.ts'
 import { FromProject } from './FromProject.tsx'
-import { KehikkoMark } from './Mark.tsx'
+import { LayoutPreview } from './LayoutPreview.tsx'
 import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 
 /**
@@ -40,70 +37,6 @@ import { ModuleIcon, setListedIcons } from './ModuleIcon.tsx'
 
 /** The blank kehikko, which is always the first card: a picker must never stand between a person and an empty canvas. */
 export const BLANK: Layout = { id: 'blank', from: 'builtin', name: 'Blank', summary: 'An empty kehikko. Put modules on it from Kehikko modules.', containers: [] }
-
-function shortName(module: string, available: readonly Available[]): string {
-  return available.find((one) => one.module === module)?.name ?? module.replace(/^kehikot\./, '')
-}
-
-/**
- * The rectangles of a layout as a picture, drawn with the theme's own colours. Each rectangle says
- * which module is there — its icon and its name, in the 11px the card's text is — so the picture is
- * the whole answer to "what is on it". An empty layout shows Kehikot's own mark.
- *
- * HTML rather than SVG: the picture stretches to its card, and stretched text is distorted text.
- * Positions are fractions of the canvas, so the rectangles keep their proportions at any width.
- */
-export function LayoutPreview({
-  containers,
-  available,
-  className = 'h-48 w-full',
-}: {
-  containers: readonly LayoutContainer[]
-  available?: readonly Available[]
-  className?: string
-}) {
-  const state = new Map(available?.map((one) => [one.module, one]) ?? [])
-  const rows = Math.max(CANVAS_ROWS, ...containers.map((c) => c.y + c.h))
-  return (
-    <div
-      className={`bg-muted/40 relative overflow-hidden rounded-md ${className}`}
-      role="img"
-      aria-label={containers.length ? `${containers.length} containers` : 'an empty kehikko'}
-      data-layout-preview=""
-    >
-      {containers.length === 0 ? (
-        <span className="text-muted-foreground absolute inset-0 flex items-center justify-center">
-          <KehikkoMark working={false} className="size-16" />
-        </span>
-      ) : null}
-      {containers.map((c) => {
-        const one = state.get(c.module)
-        const absent = one && one.state !== 'here'
-        const name = shortName(c.module, available ?? [])
-        return (
-          <div
-            key={c.module}
-            className="absolute p-0.5"
-            style={{ left: `${(c.x / COLUMNS) * 100}%`, top: `${(c.y / rows) * 100}%`, width: `${(c.w / COLUMNS) * 100}%`, height: `${(c.h / rows) * 100}%` }}
-            title={name}
-            data-preview-module={c.module}
-            data-preview-state={one?.state}
-          >
-            <div
-              className={
-                'flex size-full min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-[5px] border p-0.5 text-center text-[10px] leading-tight ' +
-                (absent ? 'bg-background border-muted-foreground/60 border-dashed' : 'bg-card border-border')
-              }
-            >
-              <ModuleIcon id={c.module} name={name} className="size-4 shrink-0" />
-              <span className="max-w-full min-w-0 truncate">{name}</span>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 /** One layout as a card: the picture, its name, what is on it and what using it would take. */
 function LayoutCard({

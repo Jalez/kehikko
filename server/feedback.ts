@@ -1,4 +1,4 @@
-import { QUIET_ENV } from './updates.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 
 /**
  * Feedback on a module, as GitHub issues in that module's own repository.

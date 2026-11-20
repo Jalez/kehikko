@@ -1,6 +1,6 @@
 import { LIMITS, TRAFFIC_HOST_BY, type TrafficCaller } from 'kehikot-module-protocol'
 
-import { parseListeners, parsePs, runQuiet, type Proc } from './trafficProcesses.ts'
+import { parseListeners, parsePs, runQuiet, type Proc } from './processTable.ts'
 
 /**
  * Who sent a request this host received (protocol 2.25.0, `caller` on a row of traffic), named at
