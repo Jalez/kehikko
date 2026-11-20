@@ -136,7 +136,7 @@ describe('the corner handle', () => {
     const size = Number(handle.match(/width:\s*(\d+)px/)![1])
     const layer = Number(handle.match(/z-index:\s*(\d+)/)![1])
     expect(size).toBeLessThanOrEqual(12)
-    const container = readFileSync(new URL('../src/canvas/Container.tsx', import.meta.url), 'utf8')
+    const container = readFileSync(new URL('../src/canvas/ContainerHeader.tsx', import.meta.url), 'utf8')
     const remove = container.match(/className="([^"]*-mr-1 size-6[^"]*)"/)![1]!
     expect(remove).toContain('relative')
     expect(Number(remove.match(/\bz-(\d+)\b/)![1])).toBeGreaterThan(layer)

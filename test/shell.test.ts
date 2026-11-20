@@ -178,7 +178,7 @@ describe('the probes can find what they measure', () => {
    * container, which is this workspace's recurring bug.
    */
   test('a container’s body says which module it is holding', () => {
-    expect(code(readFileSync(new URL('../src/canvas/Container.tsx', import.meta.url), 'utf8')))
+    expect(code(readFileSync(new URL('../src/canvas/ContainerBody.tsx', import.meta.url), 'utf8')))
       .toContain('data-body={presence.id}')
   })
 

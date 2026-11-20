@@ -72,7 +72,7 @@ describe('the rows keep their surface', () => {
 
   test('the header and footer rows paint an opaque card surface', () => {
     expect(read('FooterBar.tsx')).toMatch(/container-footer bg-card /)
-    expect(read('Container.tsx')).toMatch(/container-grip[^'`]*bg-card|bg-card[^'`]*container-grip/)
+    expect(read('ContainerHeader.tsx')).toMatch(/container-grip[^'`]*bg-card|bg-card[^'`]*container-grip/)
     expect(read('AppearancePreview.tsx')).toMatch(/container-grip bg-card/)
   })
 
