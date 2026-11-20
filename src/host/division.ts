@@ -106,6 +106,8 @@ export const ANSWERED_BY_THE_SERVER = [
      SERVER (`/host/server-ask`, `taskReported` in `server/server.ts`); `answer`
      declines it from a page. */
   'tasks.report',
+  /* 2.110.0: a restart this host asked a work queue to hold may go, or was cancelled: the queue's server asks, through `/host/server-ask`. */
+  'restart.release',
 ] as const
 
 /**

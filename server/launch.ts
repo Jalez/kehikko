@@ -54,6 +54,8 @@ export const RUN_SCRIPT = 'run.sh'
 
 /** What the host would run, once it is known to be runnable. */
 export interface Runnable {
+  /** The module's id, for what is said to it at its start (why it was started again, `restartEnvFor`). */
+  id?: string
   dir: string
   /** Absolute, and known to sit inside `dir`. */
   script: string
@@ -131,6 +133,7 @@ export function startable(registration: Registration | null): Startable {
   return {
     ok: true,
     run: {
+      id: registration.id,
       dir: root,
       script,
       port: portOf(registration.url),
@@ -376,6 +379,12 @@ export { HOST_ENV }
  * stable address (`startingHost`, `doorUrl` in the protocol). It is set last, over anything
  * inherited or registered, so a module never believes another host started it.
  */
+/** What a start tells a module of why it was started again (`RestartEnv.envFor`); nothing until the host sets it. */
+let restartEnvFor: (id: string | undefined) => Record<string, string> = () => ({})
+export function setRestartEnv(envFor: (id: string | undefined) => Record<string, string>): void {
+  restartEnvFor = envFor
+}
+
 let ownHost: string | null = null
 
 export function setHostOrigin(origin: string): void {
@@ -432,6 +441,8 @@ export function start(run: Runnable, exited?: (code: number | null) => void): St
         ...originEnv(process.env),
         ...(run.port === null ? {} : { PORT: String(run.port) }),
         ...(run.env ?? {}),
+        /* Why it is being started again, when the host knows (protocol 2.110.0, `restartHold.ts`). */
+        ...restartEnvFor(run.id),
         /* Last, so nothing inherited or registered can name another host or another process's token. */
         [HOST_ENV]: ownHost ?? '',
         ...hostEnv(),

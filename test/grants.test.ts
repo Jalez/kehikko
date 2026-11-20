@@ -60,6 +60,7 @@ const PARAMS: Record<string, unknown> = {
   'services.find': { service: 'work.queue' },
   'sessions.placeOf': { session: 'conv-alpha-0001' },
   'tasks.report': { session: 'h-1', outcome: 'failed', why: 'no' },
+  'restart.release': { token: 'abcdefghij0123456789', go: true },
   'inbox.read': {},
   'inbox.log': {},
   'inbox.act': { do: 'seen', keys: [{ module: 'a', id: 'b' }] },

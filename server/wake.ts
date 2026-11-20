@@ -101,6 +101,8 @@ export type News =
      as a look's answer, newer ones only (`swept`), instead of every page asking for it again. A
      cold start with six modules coming up was six reads per page. Without it, look again. */
   | { registry: true; modules?: unknown }
+  /* An app restart held behind queued work moved (protocol 2.110.0): the page reads `/host/restart/state`. */
+  | { restart: true }
   | { epics: number }
   | { dispositions: number }
   /* The inbox of a project: what its modules said they are doing, or what a
@@ -369,6 +371,11 @@ export class Wakes {
    */
   updatesChanged(): void {
     this.#tell({ updates: true })
+  }
+
+  /** Say that an app restart held behind queued work moved: held, let go, or cancelled (`restartHold.ts`). */
+  restartChanged(): void {
+    this.#tell({ restart: true })
   }
 
   /** Say that an install or update began, changed step or ended. Sent by `JobSteps` only. */

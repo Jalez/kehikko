@@ -151,6 +151,8 @@ export interface Refusal {
  */
 export const PAGE_ONLY: readonly string[] = [
   '/host/restart-anyway',
+  '/host/restart/queue',
+  '/host/restart/now',
   '/host/updates/cancel',
   '/host/steps/cancel',
   '/host/updates/step-back',

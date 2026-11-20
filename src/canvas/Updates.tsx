@@ -43,6 +43,7 @@ updateSets,
   type Reading,
 } from '@/host/updates.ts'
 import { watchApp, type AppEngine, type AppUpdateStatus } from '@/host/appUpdate.ts'
+import { askRestart, heldSaid, onRestartChanged, restartNow, restartState, type HeldRestart } from '@/host/restartQueue.ts'
 import {
   APP_ROW_ID,
   appNotes,
@@ -374,13 +375,43 @@ export function Updates({
     void run(true)
   }
 
-  const applyApp = () => {
+  /* An app restart held behind queued work (protocol 2.110.0, `restartQueue.ts`), as the host says it. */
+  const [held, setHeld] = useState<HeldRestart | null>(null)
+
+  const installNow = () => {
     const link = engine.current
     if (!link) return
     /* The shell pushes `installing` and then relaunches; say so meanwhile. */
     setApp((was) => (was && was.state === 'ready' ? { ...was, state: 'installing' } : was))
     void link.apply()
   }
+
+  /* "Restart to update": the host asks the work queue to hold it behind queued runs first; not held, it goes now. */
+  const applyApp = () => {
+    if (!engine.current) return
+    void askRestart(app?.version ?? null).then((asked) => {
+      if (asked.held) setHeld(asked.restart)
+      else installNow()
+    })
+  }
+
+  /* Restart now, past the hold. */
+  const restartPastHold = () => {
+    setHeld(null)
+    void restartNow(app?.version ?? null).then(installNow)
+  }
+
+  /* The queue let it go, or it was cancelled there: read what is held, and apply an update it let go. */
+  useEffect(() => {
+    const read = () =>
+      void restartState().then((state) => {
+        setHeld(state.held)
+        if (state.go) installNow()
+      })
+    read()
+    return onRestartChanged(read)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const onOpenChange = (next: boolean) => {
     if (next) {
@@ -749,6 +780,8 @@ export function Updates({
           {appOne && !restarting ? (
             <AppRow
               row={appOne}
+              held={held}
+              onRestartNow={restartPastHold}
               onApply={applyApp}
               onRetry={checkAll}
               onNotes={(version, opener) =>
@@ -948,11 +981,16 @@ export function Updates({
  */
 export function AppRow({
   row,
+  held = null,
+  onRestartNow = () => {},
   onApply,
   onRetry,
   onNotes,
 }: {
   row: UpdateRow
+  /** An app restart held behind queued work (protocol 2.110.0): said, with Restart now, instead of the button. */
+  held?: HeldRestart | null
+  onRestartNow?(): void
   onApply(): void
   onRetry(): void
   /** Show a version's release notes. See `appNotes`. */
@@ -998,7 +1036,14 @@ export function AppRow({
         </div>
       ) : null}
       {coming ? <UpdateSummaries repo={APP_REPO} tags={comingTags} onMore={onNotes ? (opener) => onNotes(coming.version, opener) : undefined} /> : null}
-      {row.state === 'ready' ? (
+      {row.state === 'ready' && held ? (
+        <div className="flex items-center gap-2 pt-1.5" data-testid="updates-app-held">
+          <span className="text-muted-foreground min-w-0 flex-1 text-xs">{heldSaid(held)}</span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRestartNow}>
+            Restart now
+          </Button>
+        </div>
+      ) : row.state === 'ready' ? (
         <div className="flex justify-end pt-1.5">
           <Button size="sm" className="h-6 px-2 text-xs" onClick={onApply}>
             {RESTART_TO_UPDATE}
