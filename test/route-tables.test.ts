@@ -3,10 +3,15 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ADOPT_ROUTES } from '../server/adoptRoutes.ts'
+import { CANVAS_ROUTES, canvasDesk } from '../server/canvasRoutes.ts'
+import { createCanvas, open } from '../server/canvases.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
+import { KEHIKKO_ROUTES } from '../server/kehikkoRoutes.ts'
 import { LOG_ROUTES } from '../server/logRoutes.ts'
+import { PROJECT_ROUTES } from '../server/projectRoutes.ts'
 import { RESTART_ROUTES } from '../server/restartRoutes.ts'
 import { pageOnlyPaths, routes, type RouteTable } from '../server/routes.ts'
+import { SPACE_ROUTES } from '../server/spaceRoutes.ts'
 import { TRACKER_ROUTES } from '../server/trackerRoutes.ts'
 import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
 
@@ -18,7 +23,7 @@ import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
  * write to it.
  */
 
-const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES }
+const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES }
 const specs = Object.entries(TABLES).flatMap(([table, routes]) => Object.entries(routes).map(([name, spec]) => ({ table, name, ...spec })))
 
 const ok = (what: string) => () => new Response(what)
@@ -58,6 +63,31 @@ describe('routes', () => {
   })
 })
 
+describe('the canvases desk: one kehikko by the id in its path', () => {
+  const db = open(':memory:')
+  const desk = canvasDesk({ db, official: { layouts: () => [] } })
+  const send = (method: string, path: string, body?: unknown) => {
+    const request = new Request(`http://127.0.0.1${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }) })
+    return desk.route(request, new URL(request.url))
+  }
+
+  test('a PATCH renames it, a DELETE removes it, and the last one is kept', async () => {
+    const one = createCanvas(db, 'one', null)
+    const two = createCanvas(db, 'two', null)
+    const renamed = await send('PATCH', `/host/canvases/${one.id}`, { name: 'first' })
+    expect(((await renamed!.json()) as { canvas: { name: string } }).canvas.name).toBe('first')
+    expect((await send('DELETE', `/host/canvases/${two.id}`))!.status).toBe(200)
+    expect((await send('DELETE', `/host/canvases/${one.id}`))!.status).toBe(409)
+    expect((await send('PATCH', '/host/canvases/999999', { name: 'x' }))!.status).toBe(404)
+  })
+
+  test('another method, or a path that is not a plain id, is not answered here', async () => {
+    expect(await send('GET', '/host/canvases/1')).toBeNull()
+    expect(await send('PATCH', '/host/canvases/1e3', { name: 'x' })).toBeNull()
+    expect(await send('PATCH', '/host/canvases/', { name: 'x' })).toBeNull()
+  })
+})
+
 describe('PAGE_ONLY and the route tables say the same', () => {
   test('every route a table declares page-only is in PAGE_ONLY', () => {
     for (const spec of specs.filter((one) => one.pageOnly)) expect(PAGE_ONLY).toContain(spec.path)
@@ -70,10 +100,11 @@ describe('PAGE_ONLY and the route tables say the same', () => {
 
   test('the page-only writes moved into tables are the ones that were listed', () => {
     expect(pageOnlyPaths(...Object.values(TABLES)).sort()).toEqual(
-      ['/host/log', '/host/logs/open', '/host/module-addresses/check', '/host/restart/now', '/host/restart/queue', '/host/steps/cancel', '/host/tracker/refresh', '/host/trackers', '/host/updates/cancel', '/host/updates/step-back'].sort(),
+      ['/host/log', '/host/logs/open', '/host/module-addresses/check', '/host/restart/now', '/host/restart/queue', '/host/steps/cancel', '/host/tracker/refresh', '/host/trackers', '/host/updates/cancel', '/host/updates/step-back',
+        '/host/layouts', '/host/connections', '/host/kehikot/copy', '/host/kehikko-skills', '/host/kehikko-settings', '/host/projects/followed', '/host/projects/locate', '/host/base-branch'].sort(),
     )
     /* Answered to programs too, as before. */
-    for (const path of ['/host/updates', '/host/restart']) expect(PAGE_ONLY).not.toContain(path)
+    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts']) expect(PAGE_ONLY).not.toContain(path)
   })
 
   test('adopting is listed once, by its desk', () => {
@@ -100,7 +131,11 @@ describe('server.ts routes a table’s paths only through its desk', () => {
     expect(inline).toEqual([])
   })
 
+  test('one kehikko by its id is routed by the canvases desk alone', () => {
+    expect(server).not.toContain('canvasId(')
+  })
+
   test('every desk is asked', () => {
-    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
+    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes', 'canvasRoutes', 'kehikkoRoutes', 'projectRoutes', 'spaceRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
   })
 })

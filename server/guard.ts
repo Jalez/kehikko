@@ -1,7 +1,11 @@
 import { ADOPT_ROUTES } from './adoptRoutes.ts'
+import { CANVAS_ROUTES } from './canvasRoutes.ts'
+import { KEHIKKO_ROUTES } from './kehikkoRoutes.ts'
 import { LOG_ROUTES } from './logRoutes.ts'
+import { PROJECT_ROUTES } from './projectRoutes.ts'
 import { RESTART_ROUTES } from './restartRoutes.ts'
 import { pageOnlyPaths } from './routes.ts'
+import { SPACE_ROUTES } from './spaceRoutes.ts'
 import { TRACKER_ROUTES } from './trackerRoutes.ts'
 import { UPDATE_ROUTES } from './updateRoutes.ts'
 
@@ -158,7 +162,7 @@ export interface Refusal {
  */
 export const PAGE_ONLY: readonly string[] = [
   /* Declared on their routes: a desk's table says which of its writes are the page's alone (`routes.ts`). */
-  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES),
+  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES),
   ...ADOPT_ROUTES,
   /* Not yet in a table: still routed inline in `server.ts` or by their own desks. */
   '/host/restart-anyway',
@@ -176,7 +180,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/messages/clear',
   '/host/messages/say',
   '/host/messages/mute',
-  '/host/base-branch',
   '/host/mine/check',
   '/host/mine/add',
   '/host/mine/install',
@@ -185,8 +188,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/mine/adopt',
   '/host/development',
   '/host/unused-folders',
-  '/host/projects/locate',
-  '/host/projects/followed',
   '/host/storage',
   '/host/skills',
   '/host/settings',
@@ -194,10 +195,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds',
   '/host/sounds/rename',
   '/host/sounds/remove',
-  '/host/layouts',
-  '/host/kehikot/copy',
-  '/host/kehikko-skills',
-  '/host/kehikko-settings',
   '/host/onboarding',
   '/host/whats-new',
   '/host/whats-new/mentions',
@@ -205,7 +202,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/module-settings/list',
   '/host/module-settings/set',
   '/host/module-settings/file',
-  '/host/connections',
   '/host/pinned-places',
   '/host/startup',
 ]

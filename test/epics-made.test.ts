@@ -217,7 +217,7 @@ describe('the slug a title makes', () => {
  * Asserted against each other rather than against two hand-written
  * expectations: the claim is not "each writes what I think it writes", it is
  * that there is one writer. The page's path is `POST /host/epics` in
- * `server.ts`, which calls `createEpic(project.path, { slug, title })` and
+ * `spaceRoutes.ts`, which calls `createEpic(project.path, { slug, title })` and
  * nothing else — so that call, made here exactly as the route makes it, IS the
  * page's path.
  */
