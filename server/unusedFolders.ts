@@ -5,6 +5,7 @@ import { basename, join } from 'node:path'
 
 import type { UnusedFolder } from '../src/host/unusedFolders.ts'
 import type { Trashed } from '../src/host/unusedFolders.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 
 /**
  * Clearing the folders Kehikot no longer uses (after "Kehikko development" is switched off).
@@ -106,7 +107,7 @@ export async function trashUnused(asked: readonly string[], deps: UnusedDeps): P
 
 export function runGit(cwd: string, args: string[]): Promise<string | null> {
   return new Promise((done) => {
-    execFile('git', ['-C', cwd, ...args], { maxBuffer: 16 * 1024 * 1024, timeout: 60_000 }, (error, stdout) => done(error ? null : stdout))
+    execFile('git', ['-C', cwd, ...args], { env: QUIET_ENV, maxBuffer: 16 * 1024 * 1024, timeout: 60_000 }, (error, stdout) => done(error ? null : stdout))
   })
 }
 
