@@ -150,6 +150,7 @@ import { ensureSettings, forgetMade, readSettings, recordMade, settingsRoute } f
 import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
+import { doorPaces } from './mcp/paces.ts'
 import { marksOf, setDisposition } from './dispositions.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
 import { framedFetch, movedFrom, pageMovedLine, quietEntry, whyQuiet } from './quiet.ts'
@@ -3649,6 +3650,8 @@ const visitsDesk = visitsRoute({ db })
 
 /* Whether the person has a hand in a kehikko's arrangement, for `arrange_modules`. `arranging.ts`. */
 const arranging = new Arranging()
+/* What the MCP door remembers between calls for its paces (`arrange_modules`, `jump`): one for the life of the host. */
+const paces = doorPaces()
 
 const headerDesk = headersDesk({
   hears: (page) => wakes.hears(page),
@@ -6392,6 +6395,8 @@ async function answerRequest(request: Request): Promise<Response> {
           wake: (kehikko, folded, arranged) =>
             arranged ? wakes.arranged(kehikko, arranged) : folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko),
           arranging: (kehikko) => arranging.busy(kehikko),
+          arranges: paces.arranges,
+          jumps: paces.jumps,
           epicsChanged: (project) => wakes.epicsChanged(project),
           epicWritten: (project, slug) => {
             const root = projectById(db, project)?.path
