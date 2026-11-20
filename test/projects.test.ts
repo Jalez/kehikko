@@ -134,17 +134,17 @@ describe('a project is a name and a folder', () => {
     const thesis = withoutEpics('thesis_latex')
     const known = (id: string) => id === 'example.notes'
 
-    const here = answer('example.notes', 'epics.list', {}, known, () => {}, epicsHere)
+    const here = answer('example.notes', 'epics.list', {}, { knownModule: known, keep: () => {}, root: epicsHere })
     expect(here).toEqual({ ok: true, data: { epics: [{ slug: 'modes-are-modules', title: 'Modes are modules' }] } })
 
     /* The same call, from a kehikko in a project that has none. An empty list
        is the honest answer and it is a different answer from the one above —
        the point being that it depends on the project and not on the process. */
-    const there = answer('example.notes', 'epics.list', {}, known, () => {}, thesis)
+    const there = answer('example.notes', 'epics.list', {}, { knownModule: known, keep: () => {}, root: thesis })
     expect(there).toEqual({ ok: true, data: { epics: [] } })
 
     /* And with no project at all, which is the state this host started in. */
-    const nowhere = answer('example.notes', 'epics.list', {}, known, () => {}, null)
+    const nowhere = answer('example.notes', 'epics.list', {}, { knownModule: known, keep: () => {} })
     expect(nowhere).toEqual({ ok: true, data: { epics: [] } })
   })
 
@@ -153,14 +153,14 @@ describe('a project is a name and a folder', () => {
     const thesis = withoutEpics('thesis_latex')
     const known = (id: string) => id === 'example.notes'
 
-    const found = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, known, () => {}, epicsHere)
+    const found = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, { knownModule: known, keep: () => {}, root: epicsHere })
     expect(found.ok).toBe(true)
 
     /* The same slug, asked from the thesis. Refused rather than answered out of
        the project that has them, which is the failure this whole change is about: a host that
        showed one project and answered about another, correctly, with nothing to
        indicate it. */
-    const missing = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, known, () => {}, thesis)
+    const missing = answer('example.notes', 'epic.get', { epic: 'modes-are-modules' }, { knownModule: known, keep: () => {}, root: thesis })
     expect(missing.ok).toBe(false)
   })
 })

@@ -119,6 +119,6 @@ describe('sessions.placeOf', () => {
   })
 
   test('a page is not answered', () => {
-    expect(answer(WORKER, 'sessions.placeOf', { session: 'conv-alpha-0001' }, () => true)).toMatchObject({ ok: false })
+    expect(answer(WORKER, 'sessions.placeOf', { session: 'conv-alpha-0001' }, { knownModule: () => true })).toMatchObject({ ok: false })
   })
 })

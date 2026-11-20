@@ -62,7 +62,7 @@ const { watchCanvases } = await import('../src/host/canvases.ts')
 const listening = () => {
   const woke: number[] = []
   let looked = 0
-  const stop = watchCanvases(7, (id) => woke.push(id), () => (looked += 1))
+  const stop = watchCanvases(7, { woke: (id) => woke.push(id), looked: () => (looked += 1) })
   const source = FakeSource.last
   if (!source) throw new Error('no stream was opened')
   return { woke, source, stop, looks: () => looked }
@@ -113,9 +113,7 @@ describe('what the page does with each kind of news', () => {
 
   test('changed content is handed over with its project, and a list it cannot read is not', () => {
     const heard: unknown[] = []
-    const stop = watchCanvases(7, () => {}, undefined, undefined, undefined, undefined, (project, changes) =>
-      heard.push([project, changes]),
-    )
+    const stop = watchCanvases(7, { woke: () => {}, rewritten: (project, changes) => heard.push([project, changes]) })
     const source = FakeSource.last
     const changes = [{ source: 'kehikot.journeys', epic: 'x', at: '2026-10-06T10:00:00.000Z' }]
     source?.send(JSON.stringify({ content: 3, changes }))
@@ -131,7 +129,7 @@ describe('what the page does with each kind of news', () => {
     /* The argument is optional, and a `registry` arriving at a listener that
        did not ask for it must not be a thrown error inside an event handler. */
     const woke: number[] = []
-    const stop = watchCanvases(7, (id) => woke.push(id))
+    const stop = watchCanvases(7, { woke: (id) => woke.push(id) })
     const source = FakeSource.last
     source?.send(JSON.stringify({ registry: true }))
     source?.send(JSON.stringify({ kehikko: 7 }))
@@ -166,7 +164,7 @@ describe('after the host went away', () => {
     const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
     const said: boolean[] = []
     let looked = 0
-    const stop = watchCanvases(7, () => {}, () => (looked += 1), undefined, undefined, undefined, undefined, undefined, (again) => said.push(again))
+    const stop = watchCanvases(7, { woke: () => {}, looked: () => (looked += 1), opened: (again) => said.push(again) })
     const first = FakeSource.last
     opened(first)
     expect(said).toEqual([false])
@@ -191,7 +189,7 @@ describe('after the host went away', () => {
 
   test('a stream that is only reconnecting by itself is left to do so', async () => {
     const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
-    const stop = watchCanvases(7, () => {})
+    const stop = watchCanvases(7, { woke: () => {} })
     const first = FakeSource.last
     if (!first) throw new Error('no stream was opened')
     first.readyState = 0
@@ -203,7 +201,7 @@ describe('after the host went away', () => {
 
   test('a page that stopped listening does not open another stream', async () => {
     const { REOPEN_FIRST_MS } = await import('../src/host/canvases.ts')
-    const stop = watchCanvases(7, () => {})
+    const stop = watchCanvases(7, { woke: () => {} })
     const first = FakeSource.last
     closedForGood(first)
     stop()

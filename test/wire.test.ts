@@ -637,7 +637,7 @@ describe('the context says which kehikko is being looked at', () => {
   test('the open canvas travels in hello, so a module knows where it is standing', () => {
     const { frame, sent } = frameAndWindow()
     const conversation = new Conversation(frame, 'kehikot.notifications', null, async () => nothing, quiet())
-    const here = toWireContext({ epic: null, project: null }, 'dark', [], { id: 7, name: 'workbench' })
+    const here = toWireContext({ epic: null, project: null }, 'dark', { kehikko: { id: 7, name: 'workbench' } })
 
     conversation.greet(here)
 
@@ -648,7 +648,7 @@ describe('the context says which kehikko is being looked at', () => {
   test('the kehikko’s key travels beside its row number, in hello and in every context after', () => {
     const { frame, sent } = frameAndWindow()
     const conversation = new Conversation(frame, 'kehikot.claude', null, async () => nothing, quiet())
-    const here = toWireContext({ epic: null, project: null }, 'dark', [], { id: 28, name: 'writing', key: '4072c9e5' })
+    const here = toWireContext({ epic: null, project: null }, 'dark', { kehikko: { id: 28, name: 'writing', key: '4072c9e5' } })
 
     conversation.greet(here)
     conversation.sendContext(here)
@@ -666,7 +666,7 @@ describe('the context says which kehikko is being looked at', () => {
   test('a key the protocol would not read is left off, and costs the context nothing else', () => {
     const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
     for (const key of ['Writing', 'a', '-writing', 'writing-', 'a'.repeat(33), '']) {
-      const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', ['gh#1'], { id: 2, name: 'reading', key })
+      const here = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', { selection: ['gh#1'], kehikko: { id: 2, name: 'reading', key } })
       expect(here.kehikko).toEqual({ id: 2, name: 'reading' })
       /* Absent, not undefined: the protocol's own reading of a kehikko without one. */
       expect(Object.hasOwn(here.kehikko!, 'key')).toBe(false)
@@ -677,7 +677,7 @@ describe('the context says which kehikko is being looked at', () => {
   })
 
   test('a host that has no key for a kehikko says the two fields it always said', () => {
-    expect(toWireContext({ epic: null, project: null }, 'dark', [], { id: 7, name: 'workbench' }).kehikko).toEqual({ id: 7, name: 'workbench' })
+    expect(toWireContext({ epic: null, project: null }, 'dark', { kehikko: { id: 7, name: 'workbench' } }).kehikko).toEqual({ id: 7, name: 'workbench' })
     expect(kehikkoOnWire(null)).toBeNull()
   })
 
@@ -691,9 +691,9 @@ describe('the context says which kehikko is being looked at', () => {
 
   test('an epic slug the schema refuses does not cost the module its bearings', () => {
     const webapp = { id: 1, name: 'webapp', path: '/Users/x/Projects/webapp', epics: true, git: true, shared: false }
-    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: webapp }, 'light', ['gh#1'], {
-      id: 2,
-      name: 'reading',
+    const here = toWireContext({ epic: 'NOT A SLUG '.repeat(40), project: webapp }, 'light', {
+      selection: ['gh#1'],
+      kehikko: { id: 2, name: 'reading' },
     })
     /* The epic and the selection go, because the refs were picked out of an
        epic this context no longer names. Where the canvas IS — which kehikko,
@@ -738,8 +738,8 @@ describe('the context says which project the kehikko is in, and where it is', ()
     const thesis = { id: 3, name: 'thesis_latex', path: '/Users/x/Claude/thesis_latex', epics: false, git: true, shared: false }
     const kehikko = { id: 7, name: 'writing' }
 
-    const before = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], kehikko)
-    const after = toWireContext({ epic: 'modes-are-modules', project: thesis }, 'dark', [], kehikko)
+    const before = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', { kehikko })
+    const after = toWireContext({ epic: 'modes-are-modules', project: thesis }, 'dark', { kehikko })
 
     expect(before.projectPath).not.toBe(after.projectPath)
     /* Everything else is the same object's worth of facts. A module is

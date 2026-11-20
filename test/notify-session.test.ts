@@ -163,7 +163,7 @@ describe('messages.notifySession', () => {
   })
 
   test('a page has no server to send from', () => {
-    expect(answer(WATCHER, 'messages.notifySession', { session: CONVERSATION, body: 'x' }, () => true)).toMatchObject({ ok: true, data: { outcome: 'declined' } })
+    expect(answer(WATCHER, 'messages.notifySession', { session: CONVERSATION, body: 'x' }, { knownModule: () => true })).toMatchObject({ ok: true, data: { outcome: 'declined' } })
   })
 })
 
@@ -184,11 +184,16 @@ describe('services.find', () => {
 
   test('answered with what the server was given, under services:read, and empty without it', () => {
     const grants = { may: (_id: string, capability: string) => capability === 'services:read', undeclared: () => {} }
-    const said = answer(WATCHER, 'services.find', { service: WORK_QUEUE, kehikko: writing.key }, () => true, () => {}, folder, undefined, null, null, null, grants, null, null, (service, root, kehikko) =>
-      providersOf(service, [{ id: 'stand.b', name: 'B', services: { [service]: QUEUE } }], root === folder && kehikko === writing.key ? () => true : null),
-    )
+    const said = answer(WATCHER, 'services.find', { service: WORK_QUEUE, kehikko: writing.key }, {
+      knownModule: () => true,
+      keep: () => {},
+      root: folder,
+      grants,
+      services: (service, root, kehikko) =>
+        providersOf(service, [{ id: 'stand.b', name: 'B', services: { [service]: QUEUE } }], root === folder && kehikko === writing.key ? () => true : null),
+    })
     expect(said).toEqual({ ok: true, data: { providers: [{ module: 'stand.b', name: 'B', descriptor: QUEUE, placed: true }] } })
-    expect(answer(WATCHER, 'services.find', { service: WORK_QUEUE }, () => true, () => {}, null, undefined, null, null, null, grants)).toEqual({ ok: true, data: { providers: [] } })
-    expect(answer(WATCHER, 'services.find', { service: WORK_QUEUE }, () => true, () => {}, null, undefined, null, null, null, { may: () => false, undeclared: () => {} }).ok).toBe(false)
+    expect(answer(WATCHER, 'services.find', { service: WORK_QUEUE }, { knownModule: () => true, keep: () => {}, grants })).toEqual({ ok: true, data: { providers: [] } })
+    expect(answer(WATCHER, 'services.find', { service: WORK_QUEUE }, { knownModule: () => true, keep: () => {}, grants: { may: () => false, undeclared: () => {} } }).ok).toBe(false)
   })
 })

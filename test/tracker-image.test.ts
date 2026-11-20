@@ -105,7 +105,7 @@ describe('the door', () => {
       },
     }
     const params = { ref: 'gl#4', url: 'https://gitlab.example.org/a.png' }
-    const got = await (await import('../server/answers.ts')).answerCall('kehikot.workitem', 'tracker.image', params, () => true, () => {}, '/p', () => ({ ok: false, why: '' }) as never, door as never)
+    const got = await (await import('../server/answers.ts')).answerCall('kehikot.workitem', 'tracker.image', params, { knownModule: () => true, keep: () => {}, root: '/p', mark: () => ({ ok: false, why: '' }) as never, trackers: door as never })
     expect(JSON.stringify(got)).toContain('declined')
     expect(asked).toEqual([['/p', 'gl#4', 'https://gitlab.example.org/a.png']])
     expect(typeof answer).toBe('function')

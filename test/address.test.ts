@@ -192,14 +192,14 @@ describe('the context', () => {
   const shared: SharedAddress = { url: URL_, intent: 'show', by: 'kehikot.flows', at: AT }
 
   test('carries the address on the kehikko, and none by default', () => {
-    const args = [subject, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], [], null] as const
-    expect(toWireContext(...args).address).toBeNull()
-    expect(toWireContext(...args, shared).address).toEqual(shared)
+    const extras = { selection: [], containers: [], dispositions: [], tracker: { at: null, refreshing: false }, content: [], parts: [], location: null }
+    expect(toWireContext(subject, 'light', extras).address).toBeNull()
+    expect(toWireContext(subject, 'light', { ...extras, address: shared }).address).toEqual(shared)
   })
 
   test('an address that would not parse is none, and the rest of the context stands', () => {
     const bad = { ...shared, url: 'javascript:alert(1)' } as SharedAddress
-    const context = toWireContext(subject, 'dark', [], null, null, [], [], { at: null, refreshing: false }, [], [], null, bad)
+    const context = toWireContext(subject, 'dark', { address: bad })
     expect(context.address).toBeNull()
     expect(context.theme).toBe('dark')
   })

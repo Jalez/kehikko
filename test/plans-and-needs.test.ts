@@ -36,7 +36,7 @@ afterEach(() => rmSync(folder, { recursive: true, force: true }))
 const ME = 'kehikot.reader'
 const known = (id: string) => id === ME || id === 'kehikot.planner'
 const asked = (method: string, params: unknown) => {
-  const said = answer(ME, method, params, known, () => {}, folder)
+  const said = answer(ME, method, params, { knownModule: known, keep: () => {}, root: folder })
   if (!said.ok) throw new Error(said.error)
   return said.data as Record<string, unknown>
 }
@@ -93,7 +93,7 @@ describe('steps.list: the union of every provider', () => {
 
   test('an epic the host has no file for is not an epic, whoever publishes for it', () => {
     writePlan(folder, 'kehikot.planner', 'nowhere', PLAN)
-    expect(answer(ME, 'steps.list', { epic: 'nowhere' }, known, () => {}, folder).ok).toBe(false)
+    expect(answer(ME, 'steps.list', { epic: 'nowhere' }, { knownModule: known, keep: () => {}, root: folder }).ok).toBe(false)
   })
 })
 
@@ -163,15 +163,15 @@ describe('parts.get and dispositions.get', () => {
   test('the parts with what the modules hold, nothing picked; the project’s marks', () => {
     const added = editParts(folder, 'seam', { add: { name: 'UI' } })
     setDisposition(folder, { ref: 'gh#9', value: 'done', note: '' }, 'Someone')
-    const parts = answer(ME, 'parts.get', { epic: 'seam' }, known, () => {}, folder, undefined, null, null, null, grants(['parts:read']))
+    const parts = answer(ME, 'parts.get', { epic: 'seam' }, { knownModule: known, keep: () => {}, root: folder, grants: grants(['parts:read']) })
     expect(parts).toEqual({ ok: true, data: { parts: [{ id: added.result.id!, heading: 'UI', refs: [], picked: false }] } })
-    const marks = answer(ME, 'dispositions.get', {}, known, () => {}, folder, undefined, null, null, null, grants(['dispositions:read']))
+    const marks = answer(ME, 'dispositions.get', {}, { knownModule: known, keep: () => {}, root: folder, grants: grants(['dispositions:read']) })
     expect(marks.ok && (marks.data as { dispositions: { ref: string }[] }).dispositions.map((one) => one.ref)).toEqual(['gh#9'])
   })
 
   test('each held to its own capability', () => {
-    expect(answer(ME, 'parts.get', { epic: 'seam' }, known, () => {}, folder, undefined, null, null, null, grants([])).ok).toBe(false)
-    expect(answer(ME, 'dispositions.get', {}, known, () => {}, folder, undefined, null, null, null, grants(['parts:read'])).ok).toBe(false)
+    expect(answer(ME, 'parts.get', { epic: 'seam' }, { knownModule: known, keep: () => {}, root: folder, grants: grants([]) }).ok).toBe(false)
+    expect(answer(ME, 'dispositions.get', {}, { knownModule: known, keep: () => {}, root: folder, grants: grants(['parts:read']) }).ok).toBe(false)
   })
 })
 
@@ -187,7 +187,7 @@ describe('a module’s server reads epics and steps with no page open', () => {
       may,
       projectAt: (path) => (path === folder ? folder : null),
       /* The page's own answer, as the server wires it: nothing about a page is needed. */
-      answer: (module, method, params, root) => answer(module, method, params, (id) => id === 'kehikot.planner', () => {}, root, undefined, null, null, null, { may }),
+      answer: (module, method, params, root) => answer(module, method, params, { knownModule: (id) => id === 'kehikot.planner', keep: () => {}, root, grants: { may } }),
       fetch: (async (url: string | URL | Request) => Response.json({ ok: true, minted: new URL(String(url)).searchParams.get('pass') === PASS })) as typeof fetch,
     }
     return serverAskDesk(deps).route

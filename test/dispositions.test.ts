@@ -107,7 +107,7 @@ describe('disposition.set from a framed module', () => {
     setDisposition(root, marking, module === ME ? 'Journeys' : module, AT)
 
   test('is answered by the server, written into the project, and signed with the module', () => {
-    const given = answer(ME, 'disposition.set', { ref: '#2274', value: 'wont-do' }, registered, undefined, folder, mark)
+    const given = answer(ME, 'disposition.set', { ref: '#2274', value: 'wont-do' }, { knownModule: registered, root: folder, mark })
     expect(given.ok).toBe(true)
     expect(marksOf(folder)[0]).toMatchObject({ ref: '#2274', value: 'wont-do', by: 'Journeys' })
   })
@@ -117,22 +117,19 @@ describe('disposition.set from a framed module', () => {
       ME,
       'disposition.set',
       { ref: '#1', value: 'done', target: '#2' },
-      registered,
-      undefined,
-      folder,
-      mark,
+      { knownModule: registered, root: folder, mark },
     )
     expect(given.ok).toBe(false)
     expect(existsSync(dispositionsFile(folder)!)).toBe(false)
   })
 
   test('a call with no project is refused in a sentence rather than kept nowhere', () => {
-    const given = answer(ME, 'disposition.set', { ref: '#1', value: 'done' }, registered, undefined, null, mark)
+    const given = answer(ME, 'disposition.set', { ref: '#1', value: 'done' }, { knownModule: registered, mark })
     expect(given.ok).toBe(false)
   })
 
   test('a host that was given nowhere to keep it says so', () => {
-    const given = answer(ME, 'disposition.set', { ref: '#1', value: 'done' }, registered)
+    const given = answer(ME, 'disposition.set', { ref: '#1', value: 'done' }, { knownModule: registered })
     expect(given.ok).toBe(false)
   })
 })
@@ -204,7 +201,7 @@ describe('the marks are in every module’s context', () => {
     const subject = { epic: null, project: null }
     expect(toWireContext(subject, 'light').dispositions).toEqual([])
     setDisposition(folder, { ref: '#1', value: 'done' }, 'you', AT)
-    const context = toWireContext(subject, 'light', [], null, null, [], marksOf(folder))
+    const context = toWireContext(subject, 'light', { dispositions: marksOf(folder) })
     expect(context.dispositions.map((d) => d.ref)).toEqual(['#1'])
   })
 })

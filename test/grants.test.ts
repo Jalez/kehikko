@@ -15,7 +15,7 @@ const ME = 'example.module'
 const known = (id: string) => id === ME
 const grantsOf = (uses: string[]): Grants => ({ may: (_module, capability) => uses.includes(capability) })
 const ask = (method: string, params: unknown, uses: string[]) =>
-  answer(ME, method, params, known, undefined, null, undefined, null, null, null, grantsOf(uses))
+  answer(ME, method, params, { knownModule: known, grants: grantsOf(uses) })
 
 /** Params each method accepts, so a refusal below is about the grant and nothing else. */
 const PARAMS: Record<string, unknown> = {
@@ -104,13 +104,22 @@ describe('the server holds every method it answers', () => {
   for (const method of ANSWERED_BY_THE_SERVER) {
     test(`${method} is not answered for a manifest that did not ask`, async () => {
       const capability = METHODS[method]
-      const out = await answerCall(ME, method, PARAMS[method], known, () => {
-        throw new Error('kept state for a module that may not keep any')
-      }, null, () => {
-        throw new Error('marked for a module that may not mark')
-      }, null, () => {
-        throw new Error('announced for a module that may not report')
-      }, { may: () => false, edit: () => { throw new Error('edited') } }, grantsOf([]))
+      const out = await answerCall(ME, method, PARAMS[method], {
+        knownModule: known,
+        keep: () => {
+          throw new Error('kept state for a module that may not keep any')
+        },
+        root: null,
+        mark: () => {
+          throw new Error('marked for a module that may not mark')
+        },
+        trackers: null,
+        report: () => {
+          throw new Error('announced for a module that may not report')
+        },
+        divide: { may: () => false, edit: () => { throw new Error('edited') } },
+        grants: grantsOf([]),
+      })
       if (method === 'parts.set' || method === 'tracker.refresh') {
         /* The protocol gives these an outcome for "the host will not". */
         expect(out.ok).toBe(true)
@@ -150,7 +159,7 @@ describe('the server holds every method it answers', () => {
   })
 
   test('with nobody to ask about manifests, nothing is held', () => {
-    expect(answer(ME, 'state.set', { state: 'x' }, known)).toEqual({ ok: true, data: { kept: true } })
+    expect(answer(ME, 'state.set', { state: 'x' }, { knownModule: known })).toEqual({ ok: true, data: { kept: true } })
   })
 })
 
