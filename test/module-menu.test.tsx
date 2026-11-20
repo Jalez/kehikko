@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ModuleList } from '../src/canvas/Modules.tsx'
 import { TooltipProvider } from '../src/components/ui/tooltip.tsx'
-import { arrange, attention, builtFrom, deprecatedSaid, HERE, matches, OTHER, projectsBoxSaid, rowsOf, shelfOf, uninstallSaid } from '../src/host/moduleMenu.ts'
+import { arrange, attention, builtFrom, deprecatedSaid, HERE, matches, modulesButton, NEEDS, OTHER, projectsBoxSaid, rowsOf, shelfOf, uninstallSaid } from '../src/host/moduleMenu.ts'
 import type { Presence, RegistryView } from '../src/host/registry.ts'
 
 /*
@@ -156,6 +156,42 @@ describe('which rows need a person', () => {
   })
 })
 
+describe('what needs a person comes first', () => {
+  const broken = presence({ id: 'a.b', name: 'Broken', tags: ['code'], reached: true, line: 'Something is answering, and it is not this.' })
+
+  test('a module that needs the person is under Needs you, before what is on this kehikko, even when it is placed', () => {
+    const sections = arrange(rowsOf([paper, diff, broken], new Set(['kehikot.diff', 'a.b'])))
+    expect(sections.map((s) => s.heading)).toEqual([NEEDS, HERE, 'Reading and writing'])
+    expect(sections[0]!.rows.map((r) => r.id)).toEqual(['a.b'])
+  })
+
+  test('nothing needing the person: no Needs you section', () => {
+    expect(arrange(rowsOf([paper, diff], new Set())).map((s) => s.heading)).not.toContain(NEEDS)
+  })
+
+  test('a search still narrows it', () => {
+    expect(arrange(rowsOf([paper, broken], new Set()), 'paper').map((s) => s.heading)).toEqual(['Reading and writing'])
+  })
+})
+
+describe('the module list button', () => {
+  const broken = (id: string, name?: string) => presence({ id, ...(name ? { name } : {}), reached: true, line: 'Something is answering, and it is not this.' })
+
+  test('nothing needs the person: the plain label and no mark', () => {
+    expect(modulesButton([paper, diff, tests])).toEqual({ needing: 0, label: 'Kehikko modules' })
+  })
+
+  test('one: the count and its registered name', () => {
+    expect(modulesButton([paper, broken('a.b', 'Source')])).toEqual({ needing: 1, label: 'Kehikko modules — 1 needs you: Source' })
+  })
+
+  test('several: each named, by id when it gave no name, and past three counted', () => {
+    expect(modulesButton([broken('a.b', 'One'), broken('c.d')]).label).toBe('Kehikko modules — 2 need you: One, c.d')
+    const five = ['A', 'B', 'C', 'D', 'E'].map((name) => broken(`x.${name}`, name))
+    expect(modulesButton(five)).toEqual({ needing: 5, label: 'Kehikko modules — 5 need you: A, B, C and 2 more' })
+  })
+})
+
 describe('the list, drawn', () => {
   const registry: RegistryView = {
     presences: [paper, diff, tests, presence({ id: 'a.b', name: 'Broken', reached: true, line: 'Something is answering, and it is not this.' })],
@@ -171,7 +207,25 @@ describe('the list, drawn', () => {
   test('is called Kehikko modules, has a search box, and is grouped', () => {
     expect(html).toContain('Kehikko modules')
     expect(html).toContain('type="search"')
-    for (const heading of [HERE, 'Reading and writing', 'Code', OTHER]) expect(html).toContain(`aria-label="${heading}"`)
+    for (const heading of [NEEDS, HERE, 'Reading and writing', 'Code']) expect(html).toContain(`aria-label="${heading}"`)
+  })
+
+  test('what needs the person is the first section', () => {
+    expect(html.indexOf(`aria-label="${NEEDS}"`)).toBeLessThan(html.indexOf(`aria-label="${HERE}"`))
+    expect(html.match(/aria-label="Needs you"[\s\S]*?<\/section>/)?.[0]).toContain('Broken')
+  })
+
+  test('opened with no rows asked for, a module that needs the person is open, with what to do', () => {
+    const plain = renderToStaticMarkup(
+      <TooltipProvider>
+        <ModuleList registry={registry} onCanvas={new Set(['kehikot.diff'])} onPlace={() => {}} onUnplace={() => {}} />
+      </TooltipProvider>,
+    )
+    const alerts = plain.match(/role="alert"[^>]*>[^<]*/g) ?? []
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toContain('Check what is running')
+    /* The rows that need nothing stay closed: their summaries are not drawn. */
+    expect(plain).not.toContain('The paper, read as prose.')
   })
 
   test('a sleeping module shows its summary and no sentence about not answering', () => {

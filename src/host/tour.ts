@@ -317,7 +317,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     kind: 'show',
     frames: [
       {
-        selectors: ['[data-tour="modules"]', 'button[aria-label="Kehikko modules"]'],
+        selectors: ['[data-tour="modules"]', 'button[aria-label^="Kehikko modules"]'],
         title: 'Kehikko modules',
         body:
           'Install, add and update modules here: the official list, or Install from repository… for one that is not on it.',
