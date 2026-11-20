@@ -41,6 +41,8 @@ function world(options: { keep?: boolean; overrides?: Partial<SupervisorDeps> } 
   let needed = new Set<string>([ID])
   let back = false
   let seen: Promise<Seen> | null = null
+  /* The modules a person's press of Start is in flight for (`Restarts.pressedStarts`). */
+  const pressed = new Set<string>()
 
   const presence = (): Presence => ({ id: ID, name: 'A', at: URL_A, reached, condition: reached ? 'ready' : 'silent' }) as Presence
   const registration = { id: ID, url: URL_A, dir: '/m/a', ...(options.keep ? { keep: true } : {}) } as Registration
@@ -97,7 +99,6 @@ function world(options: { keep?: boolean; overrides?: Partial<SupervisorDeps> } 
     builds: { busy: () => false, forgetAllBut: () => {} },
     auto: { pending: () => false, moved: () => Promise.resolve(), forgetAllBut: () => {} },
     development: { owes: () => false },
-    pressedStarts: { has: () => false },
     startup: { has: () => true, mark: () => {}, write: () => {} },
     wakes: { registryChanged: (view) => void wakes.push(view ?? null) },
     sweep,
@@ -109,7 +110,7 @@ function world(options: { keep?: boolean; overrides?: Partial<SupervisorDeps> } 
     bootHolds: () => false,
     bootPump: () => {},
     startable: () => ({ ok: true, run: RUNNABLE }),
-    startOnce: () => Promise.resolve(null),
+    restarts: { pressedStarts: { has: (id: string) => pressed.has(id) }, startOnce: () => Promise.resolve(null) } as unknown as SupervisorDeps['restarts'],
     installedPlace: () => null,
     checkWhenUp: () => {},
     backfilled: () => true,
@@ -177,6 +178,7 @@ function world(options: { keep?: boolean; overrides?: Partial<SupervisorDeps> } 
     setReached: (value: boolean) => void (reached = value),
     setNeeded: (ids: string[]) => void (needed = new Set(ids)),
     setBack: (value: boolean) => void (back = value),
+    pressed,
   }
 }
 
@@ -236,6 +238,21 @@ describe('the reaper', () => {
     await w.supervisor.tick()
     expect(w.spawned).toHaveLength(0)
     expect(w.said).toEqual([])
+  })
+})
+
+describe("a person's press", () => {
+  test('a module whose press of Start is in flight is not begun again by the loop', async () => {
+    const w = world()
+    w.pressed.add(ID)
+    await w.look()
+    await w.supervisor.tick()
+    expect(w.spawned).toHaveLength(0)
+    expect(w.said).toEqual([])
+    /* The press is answered (and its start, here, came to nothing): the ordinary rule starts it. */
+    w.pressed.delete(ID)
+    await w.look()
+    expect(w.spawned).toHaveLength(1)
   })
 })
 

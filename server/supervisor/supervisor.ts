@@ -1,13 +1,16 @@
 import { buildStamp } from 'kehikot-module-protocol'
 import { fetchManifest, type Presence } from '../discover.ts'
-import type { Nursery, Runnable, Startable } from '../launch.ts'
+import { nameFromId } from '../../src/host/skills.ts'
+import type { Nursery, Startable } from '../launch.ts'
 import {
   endedTooOftenLine,
   EXIT_RESTARTS_WINDOW_MS,
   exitedLine,
   inFlight,
+  lifecycleLine,
   lifecycleOf,
   MIN_RUN_MS,
+  silentSaid,
   STARTING_FOR_MS,
   THEIRS_TO_RESTART_MS,
   toStart,
@@ -28,6 +31,7 @@ import { Tethers } from '../tether.ts'
 import { because } from '../traffic.ts'
 import type { Place } from '../updates.ts'
 import type { Processes } from './processes.ts'
+import { ANSWERS_WITHIN_UPDATE_MS, type Restarts } from './restarts.ts'
 import type { ModuleStates } from './state.ts'
 
 /** How long after the open kehikko is up the timeline is written, and when it is written anyway. */
@@ -64,8 +68,11 @@ export interface SupervisorDeps<V extends Seen = Seen> {
   auto: { pending(id: string): boolean; moved(): Promise<void>; forgetAllBut(ids: Iterable<string>): void }
   /** Kehikko development: a module set to keep running that is not yet moved. */
   development: { owes(id: string, registration: Registration | null): boolean }
-  /** A person's press of Start, in flight (`startOnce.ts`). */
-  pressedStarts: { has(id: string): boolean }
+  /**
+   * The press path (`restarts.ts`): a person's press of Start in flight (`pressedStarts`), and the
+   * start a module set to keep running moves at (`startOnce`).
+   */
+  restarts: Pick<Restarts, 'pressedStarts' | 'startOnce'>
   startup: { has(step: string): boolean; mark(step: string): void; write(why: string): void }
   /** Tells the pages to read the modules again; with the reading, when there is one. */
   wakes: { registryChanged(view?: unknown): void }
@@ -88,8 +95,6 @@ export interface SupervisorDeps<V extends Seen = Seen> {
   /** A kehikko opened while copies are still being read at host start: its copies go first. */
   bootPump(): void
   startable(registration: Registration | null): Startable
-  /** A start through the press path (`startOnce`), waiting as an update does. */
-  startOnce(id: string, registration: Registration | null, runnable: Runnable): Promise<unknown>
   /** An installed module's place; null for anything else. */
   installedPlace(id: string): Place | null
   /** Whether a newer release is out, asked beside a start (`releaseWait.ts`). */
@@ -221,6 +226,44 @@ export class Supervisor<V extends Seen = Seen> {
     return lifecycleOf(presence.condition === 'silent', this.#doing(presence.id), now)
   }
 
+  /** A sweep as the page receives it, with the host's own lifecycle words on it. */
+  told<W extends Seen>(view: W): W {
+    const { nursery, states } = this.#deps
+    const { stoppedByPerson, failures, theirs } = states
+    const now = this.#now()
+    return {
+      ...view,
+      presences: view.presences.map((seen) => {
+        const startedAt = nursery.startedAt(seen.id)
+        const held = startedAt === null ? seen : { ...seen, run: startedAt }
+        /* Said only while nothing answers: a module somebody else started is running, whatever was pressed. */
+        const presence = stoppedByPerson.has(seen.id) && seen.condition === 'silent' && !seen.reached ? { ...held, stopped: true as const } : held
+        const lifecycle = this.saidOf(presence, now)
+        if (!lifecycle) {
+          if (presence.condition !== 'silent') return presence
+          /* Nothing is wrong and nothing is coming: said as that, with the one thing to do. */
+          if ('stopped' in presence && presence.stopped) {
+            return { ...presence, line: `${presence.name ?? nameFromId(presence.id)} was stopped. It stays stopped until you press Start.` }
+          }
+          const log = this.#logs.file(presence.id)
+          const said = silentSaid({ ...presence, name: presence.name ?? nameFromId(presence.id) }, {
+            failed: failures.get(presence.id) ?? null,
+            theirs: theirs.has(presence.id),
+            held: nursery.holds(presence.id),
+            log,
+            printed: () => this.#logs.tail(log),
+          })
+          return said ? { ...presence, ...said } : presence
+        }
+        /* The line is replaced, not appended to. `discover.ts` wrote a good
+           sentence about a program that is not running and does not know why;
+           this host DOES know why, and showing both would be the container saying
+           two things about one fact. See `lifecycle.ts` for the sentences. */
+        return { ...presence, lifecycle, line: lifecycleLine(lifecycle, presence.name ?? nameFromId(presence.id), presence.at) }
+      }),
+    }
+  }
+
   /**
    * Every fact the policy is allowed to consider, gathered in one place.
    *
@@ -305,7 +348,8 @@ export class Supervisor<V extends Seen = Seen> {
    * a container that says so, with the button on it, which is where this began.
    */
   begin(id: string, why = 'an open kehikko or project has it'): void {
-    const { states, nursery, releases, auto, builds, pressedStarts, development } = this.#deps
+    const { states, nursery, releases, auto, builds, development } = this.#deps
+    const { pressedStarts } = this.#deps.restarts
     const { theirs, stoppedByPerson, inHand } = states
     /* A host on its way out starts nothing: see `leave` in `server.ts`. */
     if (this.#deps.going()) return
@@ -334,7 +378,7 @@ export class Supervisor<V extends Seen = Seen> {
     if (!can.ok) return
     /* Set to keep running and not yet moved (Kehikko development): this start is its next restart, so it is moved first. */
     if (development.owes(id, registration)) {
-      void because('a module set to keep running moves at its next start', () => this.#deps.startOnce(id, registration, can.run)).catch(() => null)
+      void because('a module set to keep running moves at its next start', () => this.#deps.restarts.startOnce(id, registration, can.run, ANSWERS_WITHIN_UPDATE_MS)).catch(() => null)
       return
     }
     const ran = this.#deps.processes.run(id, can.run)

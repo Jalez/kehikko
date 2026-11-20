@@ -26,6 +26,7 @@ import { projectDesk } from './projectRoutes.ts'
 import { spaceDesk } from './spaceRoutes.ts'
 import { ModuleStates } from './supervisor/state.ts'
 import { Processes } from './supervisor/processes.ts'
+import { ANSWERS_WITHIN_UPDATE_MS, Restarts } from './supervisor/restarts.ts'
 import { Supervisor } from './supervisor/supervisor.ts'
 import { moduleDesk } from './moduleRoutes.ts'
 import { callDesk } from './callRoutes.ts'
@@ -63,15 +64,15 @@ import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
 import { RestartEnv, RestartHold, takeRestartReason, writeRestartReason, type RestartWhy } from './restartHold.ts'
 import { keptScope } from '../src/host/scope.ts'
 import { ManifestCache } from './manifests.ts'
-import { answered, gone, hostEnv, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Runnable, type Started, type Startable } from './launch.ts'
+import { answered, gone, hostEnv, Nursery, originEnv, setHostOrigin, setPageOrigins, setRestartEnv, start, startable as startableAsIs, type Startable } from './launch.ts'
 import { own as ownAddress, refusal } from './guard.ts'
-import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
+import { takesAnyPort } from './anyPort.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
 import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
 import { sourceOf } from './source.ts'
-import { proveListener, systemProcesses, takeOver } from './takeover.ts'
-import { answersAs, judge, movedLine, newPort, repoint as repointRegistration } from './portTaken.ts'
+import { systemProcesses, takeOver } from './takeover.ts'
+import { answersAs } from './portTaken.ts'
 import { headersDesk } from './headers.ts'
 import { Inbox } from './inbox.ts'
 import { inboxDesk } from './inboxRoutes.ts'
@@ -89,23 +90,19 @@ import { AgentMessages } from './agentMessages.ts'
 import { messageDesk } from './messageRoutes.ts'
 import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
-import { restartModuleDesk, STARTED_OUTSIDE } from './restartModule.ts'
+import { restartModuleDesk } from './restartModule.ts'
 import { stopModuleDesk } from './stopModule.ts'
-import { aim, anywayDesk, Arms, keptSentence, stopAnyway, type AnywayWorld } from './anyway.ts'
+import { aim, anywayDesk, Arms, type AnywayWorld } from './anyway.ts'
 import {
   doorWake,
-  exitedLine,
   personStoppedDoorLine,
   Idleness,
-  INSTALLING_FOR_MS,
-  lifecycleLine,
   namedLine,
-  silentSaid,
   wanted,
   type Wanted,
   type Standing,
 } from './lifecycle.ts'
-import { installing, logFile, readyLog, startOfRun, tail } from './moduleLog.ts'
+import { logFile, readyLog, startOfRun } from './moduleLog.ts'
 import { ensureKeepRunning, keepingOf } from './keepRunning.ts'
 import { foundIn, ReleaseWaits } from './releaseWait.ts'
 import { soundsRoute } from './chime.ts'
@@ -134,7 +131,6 @@ import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { doorPaces } from './mcp/paces.ts'
-import { InFlight, joinsStart } from './startOnce.ts'
 import { sweepAfter } from './sweepAfter.ts'
 import { Openness } from './open.ts'
 import { Wakes } from './wake.ts'
@@ -145,7 +141,7 @@ import { Contents, ContentWatch, folderSource } from './content.ts'
 import { epicsDir } from './hostData.ts'
 import { hasUpdate, headOf, hostNeedsRestart, incomingFiles, readCheckout, update, type Place, type Reading } from './updates.ts'
 import { releaseFollower } from './moduleReleases.ts'
-import { bundleDesk, isBundle, type Swapped } from './moduleBundles.ts'
+import { bundleDesk, isBundle } from './moduleBundles.ts'
 import { describeFolder, readMine } from './myModules.ts'
 import { feedbackDesk, githubRepo, spawnRunner } from './feedback.ts'
 import { APP_REPO, releaseNotesDesk } from './releaseNotes.ts'
@@ -184,7 +180,7 @@ import { ensureOnboarding } from './onboarding.ts'
 import { moduleIntros } from './moduleIntros.ts'
 import { ensurePinnedPlaces } from './pinnedPlaces.ts'
 import { ensureWhatsNew } from './whatsNew.ts'
-import { releaseVersion, steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
+import { steppedBackSaid, type ModuleRelease } from '../src/host/moduleReleases.ts'
 import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
@@ -879,7 +875,7 @@ async function moveModule(id: string, dir: string, how: { now?: boolean } = {}):
   const old = startable(before)
   const mine = !inHand.has(id)
   inHand.add(id)
-  settling.add(id)
+  restarts.settling.add(id)
   try {
     if (old.ok) {
       /* "Move now": the process is proven to be the module before it is stopped, as "Restart anyway" does (`anyway.ts`). */
@@ -889,7 +885,7 @@ async function moveModule(id: string, dir: string, how: { now?: boolean } = {}):
         if (!aimed.ok) return { ok: false, why: `${name} could not be stopped to move it: ${aimed.why}`, restored: false }
         forced = { pid: aimed.target.pid }
       }
-      const halted = await haltForRestart(id, before, old.run, forced)
+      const halted = await restarts.haltForRestart(id, before, old.run, forced)
       if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
     } else if (nursery.holds(id)) halt(id)
     const pointed = pointRegistrationAt(before.file, dir)
@@ -897,57 +893,21 @@ async function moveModule(id: string, dir: string, how: { now?: boolean } = {}):
     wakes.registryChanged()
     const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
     const can = startable(now)
-    const came = can.ok ? await bringUpOnce(id, can.run, ANSWERS_WITHIN_UPDATE_MS) : { ok: false as const, why: can.why }
+    const came = can.ok ? await restarts.bringUpOnce(id, can.run, ANSWERS_WITHIN_UPDATE_MS) : { ok: false as const, why: can.why }
     if (came.ok && came.answered) return { ok: true }
     /* It did not answer from there: everything goes back as it was. */
     if (nursery.holds(id)) halt(id)
     if (can.ok) await gone(can.run.url, WELL_KNOWN)
     restoreRegistration(before.file, pointed.before)
     wakes.registryChanged()
-    const back = was.reached && old.ok ? await bringUpOnce(id, old.run, ANSWERS_WITHIN_UPDATE_MS) : null
+    const back = was.reached && old.ok ? await restarts.bringUpOnce(id, old.run, ANSWERS_WITHIN_UPDATE_MS) : null
     const runs = back ? (back.ok && back.answered ? ', and runs from there again' : '') : ''
     console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
     return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
   } finally {
-    settling.delete(id)
+    restarts.settling.delete(id)
     if (mine) inHand.delete(id)
     wakes.registryChanged()
-  }
-}
-
-/** Modules whose move is being made now, so the start inside it does not move them again (`bringUpSettled`). */
-const settling = new Set<string>()
-
-/**
- * `bringUp`, after the move a module set to keep running was owed (`development.beforeStart`): the
- * module is not running — a restart stopped it, or it had ended — and is about to be started, so this
- * is its next restart. Its release (or folder) is put in place, its registration pointed there, and it
- * is started from there; when it does not answer, the registration goes back and the old one starts.
- */
-async function bringUpSettled(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
-  /* The registration as it is on disk now: `registered` is the last sweep's, and a start asked a moment after
-     a registration was edited (`keep` added by hand, or by a press) would otherwise judge the one before it
-     and owe no move. A press reads the disk for the same reason (`/host/start`). */
-  const was = (await readRegistrations()).registrations.find((r) => r.id === id) ?? registered.get(id) ?? null
-  if (settling.has(id) || !development.owes(id, was)) return bringUp(id, runnable, within, onInstalling, onStarted)
-  settling.add(id)
-  try {
-    const moved = await development.beforeStart(id)
-    if (!moved) return bringUp(id, runnable, within, onInstalling, onStarted)
-    const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
-    const can = startable(now)
-    const came = can.ok ? await bringUp(id, can.run, within, onInstalling, onStarted) : ({ ok: false, why: can.why } as const)
-    if (came.ok && came.answered) {
-      await moved.finish(true)
-      return came
-    }
-    /* It did not answer from there: what was started stops, and the registration and the old one are back. */
-    if (nursery.holds(id)) halt(id)
-    if (can.ok) await gone(can.run.url, WELL_KNOWN)
-    await moved.finish(false, came.ok ? `it did not answer. What it printed is in ${logFile(id)}.` : came.why)
-    return bringUp(id, runnable, within, onInstalling, onStarted)
-  } finally {
-    settling.delete(id)
   }
 }
 
@@ -1317,21 +1277,6 @@ const manifests = new ManifestCache((registration) => look(registration).then((p
 function strangerNotHeld(presence: Presence, registration: Registration): Presence {
   if (!ADDRESSES || presence.module || !presence.reached || !presence.served || nursery.holds(presence.id)) return presence
   return takesAnyPort(registration.dir) ? { ...presence, reached: false } : presence
-}
-
-/**
- * Wait, up to `within`, for a module started on any port to answer where its registration says
- * now, as the process started with `token`. The registration is read from disk on each ask: the
- * module rewrites it once it has bound.
- */
-async function answeredAnywhere(id: string, token: string, within: number): Promise<boolean> {
-  const until = Date.now() + within
-  for (;;) {
-    const registration = (await readRegistrations()).registrations.find((one) => one.id === id)
-    if (registration && (await answersAsStarted(registration.url, id, token))) return true
-    if (Date.now() >= until) return false
-    await new Promise((wake) => setTimeout(wake, Math.min(300, Math.max(0, until - Date.now()))))
-  }
 }
 
 /** When each module was last on a kehikko somebody had open. */
@@ -1789,7 +1734,7 @@ const moduleSettings = moduleSettingsDesk({
  * last answered. Named here as before; the operations that change several at once are on `states`.
  */
 const states = new ModuleStates()
-const { starting, sleeping, runs, exits, stoppedByPerson, failures, working, inHand, theirs, scopeRead, answeredBy } = states
+const { starting, sleeping, stoppedByPerson, failures, working, inHand, theirs, scopeRead, answeredBy } = states
 
 /** What an update has reached, per checkout, for a page that was not there when it began. */
 const progress = new Map<string, UpdateStep>()
@@ -1850,12 +1795,47 @@ function wantedNow(now = Date.now()): Wanted {
 
 
 /**
+ * The press path (`supervisor/restarts.ts`): a person's Start or Restart, an update's restart, the
+ * start a module set to keep running moves at, and settling or rolling back a swapped-in version.
+ * `releases`, `builds` and `anywayWorld` are made further down, so they are handed over as getters.
+ */
+const restarts: Restarts<Swept> = new Restarts<Swept>({
+  states,
+  processes,
+  nursery,
+  registered,
+  manifests,
+  development,
+  get releases() {
+    return releases
+  },
+  get builds() {
+    return builds
+  },
+  bundles,
+  restartEnv,
+  wakes,
+  get anyway() {
+    return anywayWorld
+  },
+  addresses: () => ADDRESSES,
+  startable,
+  installedPlace,
+  spokenName,
+  knownName,
+  firstPort: (id) => official.current().find((one) => one.id === id)?.port ?? null,
+  tellRolledBack,
+  sweepSince,
+  told: (view: Swept): Swept => supervisor.told(view),
+})
+
+/**
  * The module supervisor (`supervisor/supervisor.ts`): which module to start and stop, and when; what
  * a run that ended means; the tethers, the watch and the reaper. What it reads of the rest of the
- * host is handed over here. `releases`, `auto`, `builds`, `pressedStarts` and `backfilled` are made
- * further down, so they are handed over as getters and functions, read when they are used.
+ * host is handed over here. `releases`, `auto`, `builds` and `backfilled` are made further down, so
+ * they are handed over as getters and functions, read when they are used.
  */
-const supervisor = new Supervisor<Swept>({
+const supervisor: Supervisor<Swept> = new Supervisor<Swept>({
   states,
   processes,
   nursery,
@@ -1874,9 +1854,7 @@ const supervisor = new Supervisor<Swept>({
     return auto
   },
   development,
-  get pressedStarts() {
-    return pressedStarts
-  },
+  restarts,
   startup,
   wakes,
   sweep,
@@ -1888,7 +1866,6 @@ const supervisor = new Supervisor<Swept>({
   bootHolds,
   bootPump,
   startable,
-  startOnce: (id, registration, runnable) => startOnce(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS),
   installedPlace,
   checkWhenUp,
   backfilled: () => backfilled,
@@ -2315,7 +2292,7 @@ async function level(place: Place): Promise<void> {
   if (!hasUpdate(reading) || reading.blocked) return
   const done = await update(place)
   /* Swapped in while stopped: settled or rolled back at the start that follows. */
-  if (done.ok && done.swapped) unsettled.set(place.id, done.swapped)
+  if (done.ok && done.swapped) restarts.unsettled.set(place.id, done.swapped)
   /* A step back put in place on its own (`moduleReleases.ts`): the person is told. */
   if (done.ok && reading.release?.back && reading.release.target) auto.movedBack(place.id, place.name, reading.release.installed, reading.release.target)
   console.log(
@@ -2348,11 +2325,6 @@ async function whileStopped(id: string, url: string): Promise<void> {
       .then((view) => govern(view.presences))
       .catch(() => null)
   }
-}
-
-/** Run one module's script: `Processes.run`, the only place this host does (`supervisor/processes.ts`). */
-function run(id: string, runnable: Runnable): Started {
-  return processes.run(id, runnable)
 }
 
 /** Stop a module this host holds, on purpose: its exit is not news (`Processes.halt`). */
@@ -2417,48 +2389,12 @@ async function pageView(view: Swept, press = false): Promise<Swept & { pins: Awa
   pins.recordLatest(open, view.presences)
   /* The pinned versions' manifests are kept as the registered modules' are (`Pins`): this
      answer is read on every look, and every look used to ask every running version. */
-  const page = told(view)
+  const page = supervisor.told(view)
   const pinned = await pins.views(open, press)
   return {
     ...page,
     presences: page.presences.map((presence) => addressed(presence)),
     pins: pinned.map((pin) => (pin.presence ? { ...pin, presence: addressed(pin.presence, pin.version) } : pin)),
-  }
-}
-
-/** A sweep as the page receives it, with the host's own lifecycle words on it. */
-function told(view: Swept): Swept {
-  const now = Date.now()
-  return {
-    ...view,
-    presences: view.presences.map((seen) => {
-      const startedAt = nursery.startedAt(seen.id)
-      const held = startedAt === null ? seen : { ...seen, run: startedAt }
-      /* Said only while nothing answers: a module somebody else started is running, whatever was pressed. */
-      const presence = stoppedByPerson.has(seen.id) && seen.condition === 'silent' && !seen.reached ? { ...held, stopped: true as const } : held
-      const lifecycle = supervisor.saidOf(presence, now)
-      if (!lifecycle) {
-        if (presence.condition !== 'silent') return presence
-        /* Nothing is wrong and nothing is coming: said as that, with the one thing to do. */
-        if ('stopped' in presence && presence.stopped) {
-          return { ...presence, line: `${presence.name ?? nameFromId(presence.id)} was stopped. It stays stopped until you press Start.` }
-        }
-        const log = logFile(presence.id)
-        const said = silentSaid({ ...presence, name: presence.name ?? nameFromId(presence.id) }, {
-          failed: failures.get(presence.id) ?? null,
-          theirs: theirs.has(presence.id),
-          held: nursery.holds(presence.id),
-          log,
-          printed: () => tail(log),
-        })
-        return said ? { ...presence, ...said } : presence
-      }
-      /* The line is replaced, not appended to. `discover.ts` wrote a good
-         sentence about a program that is not running and does not know why;
-         this host DOES know why, and showing both would be the container saying
-         two things about one fact. See `lifecycle.ts` for the sentences. */
-      return { ...presence, lifecycle, line: lifecycleLine(lifecycle, presence.name ?? nameFromId(presence.id), presence.at) }
-    }),
   }
 }
 
@@ -2497,8 +2433,6 @@ async function judgeStaleness(press = false): Promise<void> {
 
 /** How long a pressed start waits for an answer before saying it has not come yet. */
 const ANSWERS_WITHIN_PRESS_MS = 6_000
-/** How long an update waits for the module it restarted: it may be installing, and pre-bundling after. */
-const ANSWERS_WITHIN_UPDATE_MS = 120_000
 
 /** For each module checkout that is behind and running: what its update would do. See `previewUpdate`. */
 async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<string, UpdatePreview>> {
@@ -2519,35 +2453,6 @@ async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<str
   return said
 }
 
-/** `kept`: refused because the registration says `keep`, which only a person's two presses get past. */
-type Halted =
-  | { ok: true; was: 'running' | 'not-running'; moved?: Moved }
-  | { ok: false; why: string; kept?: boolean }
-
-/** A module started on another port because another program held its own: where it goes, and what to say. */
-type Moved = { runnable: Runnable; line: string }
-
-/**
- * Run a module somewhere else when the program on its port is not it — see
- * `portTaken.ts`. Nothing is stopped: a free port is claimed the way the
- * module would claim one itself, written into its registration, and the
- * start that follows uses it.
- */
-async function moveOff(id: string, registration: Registration, runnable: Runnable): Promise<{ ok: true; moved: Moved } | { ok: false; why: string }> {
-  if (runnable.port === null || !registration.file) return { ok: false, why: `${id} has no port set, so it can't be moved.` }
-  const first = official.current().find((one) => one.id === id)?.port ?? null
-  const to = await newPort({ id, taken: runnable.port, first, registry: registryDir() })
-  if (!to.ok) return to
-  const written = repointRegistration(registration.file, to.url)
-  if (!written.ok) return written
-  const line = movedLine(knownName(id) ?? id, runnable.port, to.port)
-  console.log(`kehikko: ${line} (${id}: ${runnable.url} -> ${to.url}; the program on ${runnable.port} was left running)`)
-  return {
-    ok: true,
-    moved: { runnable: { ...runnable, port: to.port, url: to.url, command: `PORT=${to.port} ${runnable.script}` }, line },
-  }
-}
-
 /** What `anyway.ts` may know about, and do to, running programs: the nursery, and the proof in `takeover.ts`. */
 const anywayWorld: AnywayWorld = {
   ours: (id) => nursery.pidOf(id),
@@ -2556,311 +2461,12 @@ const anywayWorld: AnywayWorld = {
   answersAs: (url) => answersAs(url),
 }
 
-/**
- * Stop a module so that it can be started again, if this host may.
- *
- * Stopping is only ever something this host may do to a program it started,
- * and `keep` is how somebody says not even then — see the essay in
- * `lifecycle.ts`. The one widening: a module the nursery does not hold may
- * still be stopped when the program on its port is proven to be running from
- * the registered directory — the modules a previous host started and this one
- * inherited. The proof and its limits are in `takeover.ts`.
- *
- * `anyway` is a person having pressed "Restart anyway" twice on a module that
- * is kept, with the pid the first press named. Nothing else passes it — see
- * `anyway.ts`, which is also where that process is proven and stopped.
- */
-async function haltForRestart(
-  id: string,
-  registration: Registration | null,
-  runnable: Runnable,
-  anyway?: { pid: number },
-  heldOnly = false,
-): Promise<Halted> {
-  const standing = registration ? await look(registration) : null
-  if (!standing?.reached) {
-    /* Nothing answers, but a process this host started may still be there —
-       compiling, or hung. It goes first, or two copies race for the port. */
-    if (nursery.holds(id)) halt(id)
-    return { ok: true, was: 'not-running' }
-  }
-  /* "Restart module" (`heldOnly`): something answers, and it is not the child this host holds.
-     Nothing is proven, taken over or moved off — that program is left exactly as it is. */
-  if (heldOnly && !nursery.holds(id)) return { ok: false, why: STARTED_OUTSIDE }
-  /* Something answers there. When it is not the module — no manifest, or
-     another module's, from somewhere other than the module's directory —
-     the module is run on another port instead, and the program there is left
-     alone. Before `keep`, because nothing of the module's is stopped; except
-     a kept module whose own process this host still holds, which is not
-     stopped to do it. See `portTaken.ts`. */
-  if (registration && !(registration.keep === true && nursery.holds(id))) {
-    const occupied = judge(id, await proveListener(runnable, systemProcesses), await answersAs(runnable.url))
-    if (occupied.kind === 'foreign') {
-      const moved = await moveOff(id, registration, runnable)
-      if (!moved.ok) return { ok: false, why: moved.why }
-      /* A copy this host started that never got the port goes too, or it and the new one are two. */
-      if (nursery.holds(id)) halt(id)
-      return { ok: true, was: 'not-running', moved: moved.moved }
-    }
-  }
-  if (registration?.keep === true) {
-    if (!anyway) return { ok: false, kept: true, why: keptSentence(id, runnable.url) }
-    const stopped = await stopAnyway(id, runnable, anyway.pid, anywayWorld)
-    if (!stopped.ok) return { ok: false, kept: true, why: stopped.why }
-    console.log(
-      `kehikko: stopped ${id} (process ${stopped.target.pid}${stopped.killed ? ', killed' : ''}) to restart it — `
-      + `its registration says to keep it, and a person pressed Restart anyway twice`
-      + (stopped.target.whose === 'ours' ? '' : `; this host had not started it, and it answered as ${id} from ${runnable.dir}`),
-    )
-    await gone(runnable.url, WELL_KNOWN)
-    return { ok: true, was: 'running' }
-  }
-  const stopped = halt(id)
-  /* Its child ended between the look and the stop, and something else answers there now. */
-  if (heldOnly && stopped !== 'stopped') return { ok: false, why: STARTED_OUTSIDE }
-  if (stopped === 'not-ours') {
-    const taken = await takeOver(id, runnable, systemProcesses)
-    if (taken.kind === 'refused') return { ok: false, why: taken.why }
-    if (taken.kind === 'stopped') {
-      console.log(
-        `kehikko: stopped ${id} (process group ${taken.pgid}${taken.killed ? ', killed' : ''}) `
-        + `to restart it — it was running from ${runnable.dir}`,
-      )
-    }
-  }
-  /* Its own port has to come free before the replacement asks for it, or the
-     new process finds the old one still listening, decides a copy of itself is
-     already running, and exits. */
-  await gone(runnable.url, WELL_KNOWN)
-  return { ok: true, was: 'running' }
-}
-
-type Came =
-  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null; waited: number; installing: boolean }
-  | { ok: false; why: string; detail?: string[] }
-
-/** From this long a wait on, a module that is still installing is waited for. See `bringUp`. */
-const PATIENT_FROM_MS = 60_000
-
-/**
- * Run a module's script and wait for it to answer, for at most `within`.
- *
- * Started is not running, so the module is given time to come up and is then
- * asked. The wait ends early when the process ends: a script that has exited
- * will not answer, and the reason is in what it printed.
- */
-/**
- * Versions swapped in while their module was not running (`level`, or an
- * update of a module nothing had open): settled at their first start that
- * answers, rolled back at one that does not. By id.
- */
-const unsettled = new Map<string, Swapped & { from: string | null }>()
-
-/** The swapped-in version answers: keep one previous, and remove a git checkout it replaced (`moduleBundles.ts`). */
-function settleSwap(id: string): void {
-  unsettled.delete(id)
-  bundles.settle(id)
-}
-
 /** Said in every project's Inbox, by the host: a new version did not start, and the one before runs again. */
 function tellRolledBack(sentence: string): void {
   for (const project of listProjects(db)) {
     const out = inbox.notice(project.id, HOST_BY.module, HOST_BY.name, { epic: '', message: sentence, level: 'done', refs: [] }, undefined, 'normal')
     wakes.inboxChanged(project.id, out.rev)
   }
-}
-
-/**
- * The version an update swapped in did not answer: stop what was started, put
- * the previous version back at the same folder, start it, and say so. Nothing
- * of the person's is lost: only the program folder moves.
- */
-async function rollBack(id: string, registration: Registration | null, runnable: Runnable, swapped: Swapped & { from: string | null }, failed: Extract<ModuleOutcome, { ran: 'failed' }>): Promise<ModuleOutcome> {
-  unsettled.delete(id)
-  await haltForRestart(id, registration, runnable)
-  if (!bundles.rollback(id)) return failed
-  const name = spokenName(id)
-  const back = swapped.from ? releaseVersion(swapped.from) : 'the version before'
-  const to = swapped.to ? releaseVersion(swapped.to) : 'the new version'
-  console.log(`kehikko: ${id} ${to} did not answer after the update; rolled back to ${back}`)
-  const came = await bringUpOnce(id, runnable, ANSWERS_WITHIN_UPDATE_MS)
-  const why = `${name} ${to} did not answer after the update, so it was put back on ${back}${came.ok && came.answered ? ', which runs again' : ''}. What it printed is in ${logFile(id)}.`
-  tellRolledBack(why)
-  return { ran: 'failed', why, detail: failed.detail }
-}
-
-async function bringUp(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
-  const came = await bringUpOnce(id, runnable, within, onInstalling, onStarted)
-  const swapped = unsettled.get(id)
-  if (!swapped) return came
-  if (came.ok && came.answered) {
-    settleSwap(id)
-    return came
-  }
-  /* Its first start after a swap did not answer: the version before goes back, and is started instead. */
-  unsettled.delete(id)
-  halt(id)
-  await gone(runnable.url, WELL_KNOWN)
-  if (!bundles.rollback(id)) return came
-  const back = swapped.from ? releaseVersion(swapped.from) : 'the version before'
-  const to = swapped.to ? releaseVersion(swapped.to) : 'the new version'
-  console.log(`kehikko: ${id} ${to} did not answer at its first start; rolled back to ${back}`)
-  tellRolledBack(`${spokenName(id)} ${to} did not start, so it was put back on ${back}. What it printed is in ${logFile(id)}.`)
-  return bringUpOnce(id, runnable, within, onInstalling, onStarted)
-}
-
-async function bringUpOnce(id: string, runnable: Runnable, within: number, onInstalling?: () => void, onStarted?: () => void): Promise<Came> {
-  exits.delete(id)
-  const ran = run(id, runnable)
-  if (!ran.ok) return { ok: false, why: ran.why ?? 'it could not be started' }
-  onStarted?.()
-  const alive = () => !ran.child || ran.child.alive()
-  const paths = [WELL_KNOWN]
-  const began = Date.now()
-  const until = began + within
-  const log = logFile(id)
-  let up = false
-  let said = false
-  /*
-   * Asked a second and a half at a time, so an exit ends the wait soon after
-   * it happens.
-   *
-   * A wait of `PATIENT_FROM_MS` or more is one somebody is watching a row for,
-   * and it does not end while the module is still installing: a first
-   * `bun install` on a slow connection outlasts two minutes, and "failed" over
-   * a process that is doing exactly what it should sent people looking for a
-   * fault. It ends when the module answers, when its process ends — a real
-   * failure, said with what it printed — or at `INSTALLING_FOR_MS`, past which
-   * a process still silent is hung (the same bound the container's own
-   * "installing" has).
-   */
-  const patient = within >= PATIENT_FROM_MS
-  for (;;) {
-    if (up || !alive()) break
-    const now = Date.now()
-    const busy = patient && now - began < INSTALLING_FOR_MS && installing(log)
-    if (busy && !said) {
-      said = true
-      onInstalling?.()
-    }
-    if (now >= until && !busy) break
-    const budget = busy ? 1500 : Math.max(1, Math.min(1500, until - now))
-    up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, budget) : await answered(runnable.url, paths, budget)
-  }
-  let answeredAt = Date.now()
-  /* The process ended and something else may answer there: the module was
-     already running, and the copy just started stepped aside. */
-  if (!up && !alive()) {
-    up = ran.anyPort && ran.token ? await answeredAnywhere(id, ran.token, 600) : await answered(runnable.url, paths, 600)
-    answeredAt = Date.now()
-  }
-  if (!up && !alive()) {
-    const detail = tail(log)
-    starting.delete(id)
-    runs.delete(id)
-    failures.set(id, { line: exitedLine(spokenName(id), runnable.url, exits.get(id) ?? null, log), detail })
-    return { ok: false, why: `${spokenName(id)} was started and stopped again without answering. All of what it printed is in ${log}.`, detail }
-  }
-  /* Read after it answered, not from a sweep that began before (`sweepAfter.ts`), and not from
-     the refusal a read just before it answered kept for `UNANSWERED_MS` (`manifests.ts`): either
-     one says "silent, starting" about a module that is up, and nothing tells the page otherwise
-     until the watch looks. */
-  if (up) manifests.forget(id)
-  const view = told(await sweepSince(answeredAt))
-  return {
-    ok: true,
-    answered: up,
-    detail: up ? [] : tail(log),
-    presence: view.presences.find((p) => p.id === id) ?? null,
-    waited: Date.now() - began,
-    installing: !up && installing(log),
-  }
-}
-
-type Restarted =
-  | { ok: true; answered: boolean; detail: string[]; presence: Presence | null; moved?: Moved }
-  | { ok: false; why: string; detail?: string[]; refused?: boolean; kept?: boolean }
-
-/**
- * Stop a module if it is running, start it, and say what came of it.
- *
- * One path for the Start button on a container, the retry in the Updates
- * panel, and the restart an update does by itself — so what "restart" means,
- * and every reason it is refused, is written once.
- */
-async function restart(
-  id: string,
-  registration: Registration | null,
-  runnable: Runnable,
-  within: number,
-  anyway?: { pid: number },
-  heldOnly = false,
-): Promise<Restarted> {
-  /* A press, an update or a retry: the count of ends begins again, and nothing waits. */
-  states.pressed(id)
-  const mine = !inHand.has(id)
-  inHand.add(id)
-  try {
-    const halted = await haltForRestart(id, registration, runnable, anyway, heldOnly)
-    if (!halted.ok) return { ...halted, refused: true }
-    /* Said only of a module that was running: one that was not is starting. */
-    if (halted.was === 'running') {
-      working.set(id, 'restarting')
-      restartEnv.note(id, 'module-restart')
-    }
-    wakes.registryChanged()
-    /* A release a check found while it ran goes in now, while it is down
-       (and is built as it goes in); else a build put off while it ran. */
-    const waiting = releases.waiting(id) === null ? null : installedPlace(id)
-    if (waiting) await releases.apply(waiting)
-    else if (builds.owes(id)) {
-      const place = installedPlace(id)
-      if (place) await builds.stopped({ id, name: place.name, dir: place.dir })
-    }
-    const target = halted.moved?.runnable ?? runnable
-    const came = await bringUpSettled(id, target, within)
-    if (!halted.moved) return came
-    return came.ok ? { ...came, moved: halted.moved } : { ...came, why: `${halted.moved.line} ${came.why}` }
-  } finally {
-    working.delete(id)
-    if (mine) inHand.delete(id)
-    wakes.registryChanged()
-  }
-}
-
-/** The presses on Start in flight, one per module (`startOnce.ts`). */
-const pressedStarts = new InFlight<Restarted>()
-
-/**
- * Start on a person's press, once per module at a time: a press while one is in
- * flight has its answer, and a press while the host's own start is still coming
- * up waits for that one instead of stopping it. See `startOnce.ts`.
- */
-function startOnce(id: string, registration: Registration | null, runnable: Runnable, within: number): Promise<Restarted> {
-  return pressedStarts.run(id, async () => {
-    if (joinsStart({ held: nursery.holds(id), starting: starting.has(id), inHand: inHand.has(id) })) {
-      console.log(`kehikko: ${id} is already starting — the press waits for that start instead of starting it again`)
-      const joined = await joinStart(id, runnable, within)
-      if (joined) return joined
-    }
-    return restart(id, registration, runnable, within)
-  })
-}
-
-/** Wait for a start already coming up, as `bringUp` waits; null when its process ended first. */
-async function joinStart(id: string, runnable: Runnable, within: number): Promise<Restarted | null> {
-  const token = nursery.tokenOf(id)
-  const anyPort = ADDRESSES && runnable.port !== null && takesAnyPort(runnable.dir)
-  const until = Date.now() + within
-  let up = false
-  while (!up && nursery.holds(id) && Date.now() < until) {
-    const budget = Math.max(1, Math.min(1500, until - Date.now()))
-    up = anyPort && token ? await answeredAnywhere(id, token, budget) : await answered(runnable.url, [WELL_KNOWN], budget)
-  }
-  if (!up && !nursery.holds(id)) return null
-  if (up) manifests.forget(id)
-  const view = told(await sweepSince(Date.now()))
-  return { ok: true, answered: up, detail: up ? [] : tail(logFile(id)), presence: view.presences.find((p) => p.id === id) ?? null }
 }
 
 /** The modules whose registration says `keep` and that answered the last sweep. */
@@ -3418,7 +3024,7 @@ const anyway = anywayDesk({
   world: anywayWorld,
   arms: new Arms(),
   /* As long as an update waits for the module it restarted. */
-  restart: (id, registration, runnable, armed) => restart(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS, { pid: armed }),
+  restart: (id, registration, runnable, armed) => restarts.restart(id, registration, runnable, ANSWERS_WITHIN_UPDATE_MS, { pid: armed }),
   patient: (request) => patient(request),
 })
 
@@ -3433,7 +3039,7 @@ const restartModuleDoor = restartModuleDesk({
   restart: (id, registration, runnable, within) => {
     /* A person's press on Restart starts it again, so it is no longer stopped. */
     stoppedByPerson.pressed(id)
-    return restart(id, registration, runnable, within, undefined, true)
+    return restarts.restart(id, registration, runnable, within, undefined, true)
   },
   patient: (request) => patient(request),
 })
@@ -3570,7 +3176,7 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
           working.set(id, 'updating')
           wakes.registryChanged()
         }
-        const halted = await haltForRestart(id, registration, can.run)
+        const halted = await restarts.haltForRestart(id, registration, can.run)
         if (!halted.ok) {
           working.delete(id)
           wakes.registryChanged()
@@ -3604,7 +3210,7 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
       job.say('starting')
       restartEnv.note(id, 'module-update')
       /* The row says it is installing while that is what the wait is for. */
-      const came = await bringUpSettled(
+      const came = await restarts.bringUpSettled(
         id,
         can.run,
         ANSWERS_WITHIN_UPDATE_MS,
@@ -3631,9 +3237,9 @@ async function updateModuleNow(place: Place, signal: AbortSignal, phase: Phase, 
        settled; one nothing started yet is settled or rolled back at its start. */
     if (done.swapped) {
       const now = outcome as ModuleOutcome
-      if (now.ran === 'failed' && can.ok) outcome = await rollBack(id, registration, can.run, done.swapped, now)
-      else if (now.ran === 'restarted' || now.ran === 'started') settleSwap(id)
-      else unsettled.set(id, done.swapped)
+      if (now.ran === 'failed' && can.ok) outcome = await restarts.rollBack(id, registration, can.run, done.swapped, now)
+      else if (now.ran === 'restarted' || now.ran === 'started') restarts.settleSwap(id)
+      else restarts.unsettled.set(id, done.swapped)
     }
     /* Assigned inside the hook, which the compiler does not follow. */
     const came = outcome as ModuleOutcome
@@ -3805,7 +3411,7 @@ const moduleRoutes = moduleDesk({
   pins,
   startable,
   stoppedByPerson,
-  startOnce,
+  startOnce: (id, registration, runnable, within) => restarts.startOnce(id, registration, runnable, within),
   answersWithinPressMs: ANSWERS_WITHIN_PRESS_MS,
 })
 const callRoutes = callDesk({
