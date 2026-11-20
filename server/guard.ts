@@ -1,9 +1,12 @@
 import { ADOPT_ROUTES } from './adoptRoutes.ts'
+import { AGENT_ROUTES } from './agentRoutes.ts'
 import { CALL_ROUTES } from './callRoutes.ts'
 import { CANVAS_ROUTES } from './canvasRoutes.ts'
 import { DEVELOPMENT_ROUTES } from './developmentRoutes.ts'
+import { HOST_ROUTES } from './hostRoutes.ts'
 import { KEHIKKO_ROUTES } from './kehikkoRoutes.ts'
 import { LOG_ROUTES } from './logRoutes.ts'
+import { MCP_ROUTES } from './mcpRoutes.ts'
 import { MODULE_ROUTES } from './moduleRoutes.ts'
 import { PERSON_ROUTES } from './personRoutes.ts'
 import { PROJECT_ROUTES } from './projectRoutes.ts'
@@ -167,7 +170,7 @@ export interface Refusal {
  */
 export const PAGE_ONLY: readonly string[] = [
   /* Declared on their routes: a desk's table says which of its writes are the page's alone (`routes.ts`). */
-  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES),
+  ...pageOnlyPaths(LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES, AGENT_ROUTES, HOST_ROUTES, MCP_ROUTES),
   ...ADOPT_ROUTES,
   /* Not yet in a table: still routed inline in `server.ts` or by their own desks. */
   '/host/restart-anyway',
@@ -196,7 +199,6 @@ export const PAGE_ONLY: readonly string[] = [
   '/host/sounds',
   '/host/sounds/rename',
   '/host/sounds/remove',
-  '/host/startup',
 ]
 
 /** The names a browser on this machine reaches a loopback listener by. This host binds 127.0.0.1 only. */

@@ -15,7 +15,7 @@ import { projectsMine } from './projectsMine.ts'
 import { deliveryKnocker } from './doorMessages.ts'
 import { providersOf } from './services.ts'
 import { epicPlacesByRef, epicRefs, epicsByRef, Trackers } from './trackers/reading.ts'
-import { json, moduleIn } from './routes.ts'
+import { json } from './routes.ts'
 import { logDesk } from './logRoutes.ts'
 import { trackerDesk } from './trackerRoutes.ts'
 import { updateDesk, type Phase, type UpdateStep } from './updateRoutes.ts'
@@ -29,6 +29,10 @@ import { callDesk } from './callRoutes.ts'
 import { personDesk } from './personRoutes.ts'
 import { settingsRouteDesk } from './settingsRoutes.ts'
 import { developmentRouteDesk } from './developmentRoutes.ts'
+import { agentDesk } from './agentRoutes.ts'
+import { hostDesk } from './hostRoutes.ts'
+import { mcpDesk } from './mcpRoutes.ts'
+import type { Door as McpDoor } from './mcp/door.ts'
 import { nameFromId } from '../src/host/skills.ts'
 import { loadsSkillsHere, providesHere, skillLoaders } from '../src/host/providers.ts'
 import { runsAgents, type ConnectionModule } from '../src/host/connections.ts'
@@ -50,7 +54,7 @@ import {
 import { adopt, followProjects, knowFolders, listProjects, projectAt, projectById } from './projects.ts'
 import { HOST_ID, keep, syncEvery, syncProject } from './kehikot.ts'
 import { editEpicRef, editParts, epicSlugs, epicsIn, listEpics, readParts, type PartsEdited } from './holdings.ts'
-import { agentKnows, awarenessOf, scopeOf, type AgentAwareness } from './agents.ts'
+import { agentKnows, awarenessOf, type AgentAwareness } from './agents.ts'
 import { fetchManifest, look, type FramedModule, type Presence } from './discover.ts'
 import { AcceptedTasks, callModule, reportSaid } from './agentSession.ts'
 import { RestartEnv, RestartHold, takeRestartReason, writeRestartReason, type RestartWhy } from './restartHold.ts'
@@ -61,7 +65,7 @@ import { own as ownAddress, refusal } from './guard.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from './anyPort.ts'
 import { portToHand } from './modulePorts.ts'
 import { ModuleProxy, moduleSockets, SOCKET_BUFFER_MOST, type SocketData, type Upgrader } from './moduleProxy.ts'
-import { frameOriginFor, idOfHost, routeOf, sameVersion, stableDoorUrl, type ModuleRoute } from '../src/host/moduleAddress.ts'
+import { frameOriginFor, idOfHost, sameVersion, stableDoorUrl } from '../src/host/moduleAddress.ts'
 import { addressesOn, moduleAddresses } from './moduleAddresses.ts'
 import { sourceOf } from './source.ts'
 import { proveListener, systemProcesses, takeOver } from './takeover.ts'
@@ -128,33 +132,25 @@ import { behindCheckout, Staleness } from './stale.ts'
 import { Tethers } from './tether.ts'
 import { idOfFile, readRegistrations, registryDir, type Registration, type RegistrationSweep } from './registrations.ts'
 import {
-  addArgs,
   awarenessAt,
-  connect,
-  disconnect,
   doorFor,
   doorName,
   heldName,
   hostDoor,
   nameRefusal,
-  repoint,
-  SCOPE,
-  staleAt,
   type Door,
   type NoDoor,
 } from './register.ts'
-import { toolsAt } from './tools.ts'
 import { claudeSkillsDir, everywhereFor, skillsRoute } from './skills.ts'
 import { ownSkillAt, ownSkillDeclarations, withHost } from './ownSkills.ts'
-import { ensureSettings, forgetMade, readSettings, recordMade, settingsRoute } from './agentSettings.ts'
+import { ensureSettings, readSettings, settingsRoute } from './agentSettings.ts'
 import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { doorPaces } from './mcp/paces.ts'
 import { InFlight, joinsStart } from './startOnce.ts'
-import { framedFetch, movedFrom, pageMovedLine, quietEntry, whyQuiet } from './quiet.ts'
 import { sweepAfter } from './sweepAfter.ts'
-import { nextConnection, Openness, WATCH_RETRY_MS } from './open.ts'
+import { Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { moved, watchRegistry } from './registryWatch.ts'
 import { TrackerNotices } from './trackerNotices.ts'
@@ -207,7 +203,7 @@ import { appVersionsIn } from '../src/host/worksWith.ts'
 import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
 import { JobSteps, SLOTS, type Job } from './jobSteps.ts'
-import { pageStep, StartupTimeline } from './startupTimeline.ts'
+import { StartupTimeline } from './startupTimeline.ts'
 import { bootReadsNow, DEFER_FOR_MS, deferredMayRun } from './startOrder.ts'
 
 /* When each step of this start happened, from the process's own start: `startupTimeline.ts`. */
@@ -4341,12 +4337,6 @@ function addressed<T extends { id: string; module?: FramedModule }>(presence: T,
   return address ? { ...presence, module: { ...presence.module, address } } : presence
 }
 
-/** A frame's route at one of the stable frame addresses, or null: what `/host/quiet` asks through the proxy. */
-function frameRouteOf(host: string, pathname: string): ModuleRoute | null {
-  const route = routeOf(host, pathname)
-  return route?.kind === 'frame' ? route : null
-}
-
 /** A request for a module at one of its stable addresses (`ModuleProxy.handle`), or null: not one, or the addresses are off. */
 async function forModule(request: Request, srv: Upgrader): Promise<Response | 'upgraded' | null> {
   if (!ADDRESSES) return null
@@ -4436,6 +4426,118 @@ const callRoutes = callDesk({
 const personRoutes = personDesk({ db, intros, installedCopies, follower, progress, auto, mentions, wakes })
 const settingsRoutes = settingsRouteDesk({ db, storage, settingsListed, moduleSettings, personGrants, setupDeps, agentSync })
 const developmentRoutes = developmentRouteDesk({ uninstalling, development })
+/*
+ * What the host's own door is handed for one call (`mcpRoutes.ts`, `mcp.ts`): this host's state,
+ * and the place the call is in — the token on the URL, or the binding of its MCP session.
+ */
+async function mcpDoor(request: Request, url: URL, body: Record<string, unknown>, session: string | null): Promise<McpDoor> {
+  return {
+    db,
+    ...(await (async () => {
+      /* A tool call from a connection with no place settles it in one, with nobody asked (`settle` in placeRoutes.ts). */
+      /* The conversation's key: on the URL, or passed once as `placeToken` and bound to this connection (protocol 2.95.0, `doorToken`). */
+      const args = body.method === 'tools/call' ? (body.params as { arguments?: unknown } | undefined)?.arguments : undefined
+      const token = doorToken(db, url.searchParams.get(PLACE_PARAM), session, args)
+      const { here, unrecorded, settled } = await placeRoutes.resolve(token, session, body.method === 'tools/call')
+      /* Who is asking, for the record of traffic: a session its place token names is that module's, in that place. */
+      const place = here ? placeSaid(here) : null
+      if (here?.via === 'token' && here.module) {
+        tag(request, { by: here.module, via: 'process', caller: { kind: 'session', name: `${receivedFrom.nameOf!(here.module)} session${place ? ` on ${place}` : ''}`.slice(0, LIMITS.TRAFFIC_CALLER), how: 'token', ...(place ? { place } : {}) } })
+      } else if (place) tag(request, { place })
+      return { here, unrecorded, settled: settled === true }
+    })()),
+    session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
+    places: placeRoutes.places,
+    messaging: {
+      serverAnswer: (module, method, params) => messageRoutes.serverAnswer(module, method, params),
+      deliverers: () => servicesHere(AGENT_DELIVERY, null, null),
+    },
+    which: () => openness.open(),
+    watched: () => openness.every(),
+    wake: (kehikko, folded, arranged) =>
+      arranged ? wakes.arranged(kehikko, arranged) : folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko),
+    arranging: (kehikko) => arranging.busy(kehikko),
+    arranges: paces.arranges,
+    jumps: paces.jumps,
+    epicsChanged: (project) => wakes.epicsChanged(project),
+    epicWritten: (project, slug) => {
+      const root = projectById(db, project)?.path
+      if (root) epicWritten(root, slug)
+    },
+    dispositionsChanged: (project) => wakes.dispositionsChanged(project),
+    storage: (fresh) => storage.read(fresh),
+    moduleSettings: {
+      list: settingsListed,
+      read: (module, project) => moduleSettings.read(module, project),
+    },
+    headers: headerDesk.door,
+    inbox,
+    /* An agent's proposal for adopting an item: fills the person's dialog, adopts nothing. `adoption.ts`. */
+    adoption: {
+      propose: (project, ref, proposal) => {
+        const id = trackerNotices.idOfRef(project, ref)
+        if (!id) return { ok: false, why: `No tracker item ${ref} is held in this project. Spell the ref as your brief does.` }
+        const root = projectById(db, project)?.path
+        if (!root || !epicsIn(root) || !listEpics(epicsIn(root)!).some((one) => one.slug === proposal.epic)) return { ok: false, why: `This project has no epic ${proposal.epic}.` }
+        adoption.propose(project, id, proposal)
+        return { ok: true, said: `Proposed ${ref} → ${proposal.epic}. The person confirms it in Kehikot with one press, or changes it; nothing is written until then.` }
+      },
+    },
+    /* An agent's offer filed in a project's Inbox (`offer_jump`): every page reads it again. */
+    inboxChanged: (project, rev) => wakes.inboxChanged(project, rev),
+    /* How many messages between agent sessions a project keeps (protocol 2.41.0), for my_place. Never their words. */
+    messages: agentMessages,
+    trackers,
+    versions: {
+      list: (module, kehikko) => pins.list(module, kehikko, true),
+      pin: (kehikko, module, version) => pins.pin(kehikko, module, version),
+    },
+    /* A sweep, so that an agent reading a canvas is told which of the
+       containers on it hold a program that is actually answering. It is
+       the same sweep the page asks for on load — N requests to N
+       localhost programs — and unlike `/host/tools` it handshakes with
+       nobody's MCP server, so the objection in `tools.ts` does not
+       apply. */
+    seen: async () =>
+      (await sweep()).presences.map((presence) => ({
+        id: presence.id,
+        name: presence.name ?? null,
+        condition: presence.condition,
+        summary: presence.module?.summary || undefined,
+        guidance: presence.module?.guidance || undefined,
+        /* Whether it can show "All epics" (protocol 2.9.0); absent is one epic at a time. */
+        scopes: presence.module?.declares?.scopes,
+        /* The scopes it can work at and the default (protocol 2.29.0). */
+        modes: presence.module?.modes,
+        /* It and this Kehikot do not fit (protocol 2.22.0): the protocol's words for which side is behind. */
+        ...(presence.fit ? { fit: `${presence.fit.title}. ${presence.fit.line}` } : {}),
+        /* What the connections between the modules on a kehikko are read from (`src/host/connections.ts`). */
+        ...(presence.module ? { manifest: presence.module as ConnectionModule } : {}),
+      })),
+  }
+}
+const agentRoutes = agentDesk({ db, doorOf, lastPresences })
+const hostRoutes = hostDesk({
+  hostVersion: HOST_VERSION,
+  port: PORT,
+  bundled: BUNDLED,
+  addresses: ADDRESSES,
+  startup,
+  registered,
+  manifests,
+  sweep,
+  govern,
+  standings,
+  wakes,
+  versionRuns,
+  moduleProxy,
+  openness,
+  headers: headerDesk,
+  arranging,
+  patient,
+  watchOpenProjects,
+})
+const mcpRoutes = mcpDesk({ mcp, door: mcpDoor, about: { name: HOST_ID, version: HOST_VERSION } })
 const restartRoutes = restartDesk({
   db,
   restartFile: RESTART_FILE,
@@ -4662,504 +4764,21 @@ async function answerRequest(request: Request): Promise<Response> {
     const visitsAnswer = await visitsDesk(request, url)
     if (visitsAnswer) return visitsAnswer
 
-    /*
-     * What one module's door offers, and what the agent has been told about it.
-     *
-     * Asked when a modal opens and at no other time. See the essay in
-     * `tools.ts`: a sweep that handshakes with eleven MCP servers is a host that
-     * hangs whenever somebody asks it to look again, and the person pressing
-     * "look again" would have no way to know that is what they were waiting for.
-     *
-     * Everything acted on here is derived from the id — see `doorFor`.
-     */
-    if (url.pathname === '/host/tools' && request.method === 'GET') {
-      const id = moduleIn(url.searchParams.get('module'))
-      if (!id) return json({ ok: false, why: 'A request for tools names one module.' }, 400)
+    /* What a module's door offers, and the press that tells the agent about it. `agentRoutes.ts`. */
+    const agentAnswer = await agentRoutes.route(request, url)
+    if (agentAnswer) return agentAnswer
 
-      const found = await doorOf(id)
-      if (!found.ok) {
-        /* A door whose name is refused is not connected, and an entry made
-           before the refusal may still point at it. Said, with where it is,
-           so the window can offer to remove it. See `staleAt`. */
-        const stale = staleAt(found, agentKnows())
-        return json(
-          { ok: false, why: found.why, ...(stale ? { stale: { as: stale, configuredIn: scopeOf(stale) } } : {}) },
-          found.status,
-        )
-      }
-      const door = found.door
-
-      const agent = awarenessAt(door, agentKnows())
-      /* Which scope the EXISTING entry is in, when there is one. The name to ask
-         about is the one that was found, not the one this host would write —
-         a server pointing here may be called anything at all. */
-      const existing =
-        agent.kind === 'told' || agent.kind === 'elsewhere' || agent.kind === 'renamed' ? agent.as : null
-
-      return json({
-        ok: true,
-        module: id,
-        /* Which kind of thing the window is describing. The server says it,
-           rather than the page guessing from the id, because the server is the
-           one that decided — see `doorOf`. */
-        about: id === HOST_ID ? 'host' : 'module',
-        as: door.as,
-        url: door.url,
-        transport: door.transport,
-        agent,
-        /* Named before anything is written, which is the whole reason it is in
-           the answer rather than only in the code. */
-        writesTo: SCOPE,
-        configuredIn: existing ? scopeOf(existing) : null,
-        command: `claude ${addArgs(door).join(' ')}`,
-        tools: await toolsAt(door.url),
-      })
-    }
-
-    /*
-     * Tell the agent about a module's door, or stop telling it.
-     *
-     * The press `agents.ts` said would be a separate decision. It is a POST
-     * because it changes something, and it changes something on the person's
-     * own machine outside this host — so it happens on an explicit press, and
-     * the answer says exactly what was run.
-     *
-     * The host does not edit `~/.claude.json`. It runs `claude mcp add` and
-     * `claude mcp remove`, for the reasons set out in `register.ts`: the CLI
-     * owns that file's format, it knows what a scope is, and that file holds
-     * far more of a person's state than MCP servers.
-     */
-    if (url.pathname === '/host/agent' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as {
-        module?: unknown
-        press?: unknown
-      } | null
-
-      const id = moduleIn(body?.module)
-      const press = body?.press
-      if (!id || (press !== 'connect' && press !== 'disconnect' && press !== 'repoint')) {
-        return json({ ok: false, why: 'A press names one module and one of connect, disconnect or repoint.' }, 400)
-      }
-
-      const found = await doorOf(id)
-      if (!found.ok) {
-        /* The one press a door with a refused name still takes: removing the
-           entry that points at it. The name comes from the configuration as
-           read now, by the door's address — never from the request, and never
-           the name the module asks for, which is another door's. */
-        const stale = press === 'disconnect' ? staleAt(found, agentKnows()) : null
-        if (stale === null) return json({ ok: false, why: found.why }, found.status)
-        return json({ ...(await disconnect(stale)), stale: staleAt(found, agentKnows()) })
-      }
-      const door = found.door
-
-      /* Read the configuration again at the moment of the press rather than
-         trusting what the modal was shown. The window may have been open for a
-         while, and `claude mcp add` in another terminal is exactly the sort of
-         thing that happens in between. The NAME being removed comes from this
-         read — never from the request. */
-      const before = awarenessAt(door, agentKnows())
-
-      let ran
-      if (press === 'connect') {
-        if (before.kind === 'told') {
-          return json({ ok: false, why: `The agent has already been told about this door, as "${before.as}".` }, 409)
-        }
-        if (before.kind === 'elsewhere') {
-          return json(
-            {
-              ok: false,
-              why: `A server called "${before.as}" already exists and points at ${before.pointsAt}. Repointing it is a different press, because it rewrites an entry this host did not create.`,
-            },
-            409,
-          )
-        }
-        /* Connected under the name this host used to derive, and the module
-           now declares another: the old name is removed and the new one
-           written, in that order and only if the remove worked — `repoint`'s
-           two steps. `renamed` is only ever said of an entry whose url IS this
-           door, read a moment ago, so the name removed cannot be a server that
-           points anywhere else. */
-        ran = before.kind === 'renamed' ? await repoint(before.as, door) : await connect(door)
-      } else if (press === 'repoint') {
-        if (before.kind !== 'elsewhere') {
-          return json(
-            { ok: false, why: 'There is no entry of that name pointing somewhere else, so there is nothing to repoint.' },
-            409,
-          )
-        }
-        ran = await repoint(before.as, door)
-      } else {
-        if (before.kind !== 'told' && before.kind !== 'elsewhere' && before.kind !== 'renamed') {
-          return json({ ok: false, why: 'The agent has not been told about this door, so there is nothing to remove.' }, 409)
-        }
-        ran = await disconnect(before.as)
-      }
-
-      /* What Kehikot made is what the Settings sync may later re-point or
-         remove (`agent_made`, `agentSettings.ts`); what it removed is not its. */
-      if (ran.ok && press === 'disconnect') forgetMade(db, id)
-      else if (ran.ok) recordMade(db, { module: id, name: door.as, url: door.url, title: id === HOST_ID ? 'Kehikot' : (lastPresences.get(id)?.name ?? id) })
-
-      /* Read back rather than assume. The CLI is the thing that decides whether
-         it worked, and reporting the awareness this host can now READ is the
-         only claim it is in a position to make. */
-      return json({ ...ran, agent: awarenessAt(door, agentKnows()) })
-    }
-
-    /*
-     * A page saying which kehikko it has open, or that it has gone away.
-     *
-     * The one fact this server deliberately does not store — see the essay at
-     * the top of `canvases.ts` — and it is still not stored: this is held in
-     * memory, per page, and dies with the process. What it is FOR is the MCP
-     * door, which has to answer "which kehikko did you mean" without guessing.
-     *
-     * The page id is the page's own, minted per tab. It is not a credential and
-     * there is nothing behind it: the worst a second program on this machine
-     * can do by posting one is make the door refuse, by claiming a second
-     * kehikko is open — which is a refusal with both ids in it and not a wrong
-     * answer, and is exactly what the door does when two windows really are
-     * open.
-     */
-    /**
-     * Why a module that loaded its page said nothing.
-     *
-     * Asked by the page, on the greeting deadline, because the page CANNOT ask
-     * the module itself: a framed module is cross-origin and sets no CORS
-     * headers, on purpose. This server has no such limit — it fetches every
-     * module's manifest on every sweep — so the question comes here and the
-     * looking happens with the same eyes `discover.ts` uses.
-     *
-     * The registration is the source of the address, never the caller. A page
-     * that could name any origin and have this host fetch it would be a request
-     * forgery door in a program whose whole job is talking to loopback ports.
-     */
-    /**
-     * Who is on this port.
-     *
-     * The one endpoint that exists to be asked by another copy of this program
-     * rather than by a page. A host starting up needs to tell three things
-     * apart on the address it wants — nothing, a stranger, and itself — and
-     * without a way to say "I am a Kehikot host" the third is indistinguishable
-     * from the second. See `server/ports.ts`.
-     *
-     * Deliberately tiny and deliberately unauthenticated: it says only what any
-     * program that connected could already infer, and it must be answerable
-     * before this host has decided anything at all.
-     */
-    if (url.pathname === '/host/hello' && request.method === 'GET') {
-      return json({ ok: true, kehikko: true, version: HOST_VERSION, api: PORT, page: BUNDLED ? PORT : PORT + 1 })
-    }
-
-    /* When each step of this start happened (`startupTimeline.ts`), and the page's own steps, told by it. */
-    if (url.pathname === '/host/startup' && request.method === 'GET') return json({ ok: true, steps: startup.list() })
-    if (url.pathname === '/host/startup' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as { step?: unknown; at?: unknown } | null
-      const step = pageStep(body?.step)
-      if (!step) return json({ ok: false, error: 'Not a step a page reports.' }, 400)
-      /* The page's wall clock, the same machine's: turned into this process's own time. */
-      const at = typeof body?.at === 'number' && Number.isFinite(body.at) ? body.at - performance.timeOrigin : undefined
-      startup.mark(step, at)
-      return json({ ok: true })
-    }
-
-    /* Whether this host is up, for the desktop app that started it. */
-    if (url.pathname === '/host/health' && request.method === 'GET') {
-      return json({ ok: true, version: HOST_VERSION, bundled: BUNDLED })
-    }
-
-    if (url.pathname === '/host/quiet' && request.method === 'GET') {
-      const id = url.searchParams.get('id') ?? ''
-      const registration = registered.get(id)
-      if (!registration) {
-        return json({ ok: false, error: 'No module is registered under that id.' }, 404)
-      }
-      /* Asked now, whatever was kept: the page says its module went quiet. */
-      const presence = await manifests.read(registration, { fresh: true })
-      if (!presence.reached) {
-        /* A page reported that its module stopped answering, and nothing is
-           listening there: the container must not wait for the watch to say so. */
-        void sweep()
-          .then((view) => govern(view.presences))
-          .catch(() => null)
-          .finally(() => wakes.registryChanged())
-      }
-      if (presence.condition !== 'ready' || !presence.module) {
-        /* It is not answering at all any more, which `discover.ts` already has
-           a careful sentence for. Hand that back rather than inventing a second
-           reading of the same fact. */
-        return json({ ok: true, kind: 'gone', line: presence.line })
-      }
-      /* The address the frame was given, held to the module's stable one or its own
-         (`quietEntry`), and asked through the proxy when it is the stable one. */
-      const stable = ADDRESSES ? frameOriginFor(id, PORT) : null
-      const framed = url.searchParams.get('framed')
-      /* The frame holds a page from before the module was started again elsewhere: fetching the
-         module where it is NOW would find everything in order and blame it for a page it never
-         served. Said as what it is, and the page loads the frame again from the new address. */
-      const pinnedAt = versionRuns.all().filter((one) => one.id === id).map((one) => one.origin)
-      const from = movedFrom(presence.module.entry, framed, stable, pinnedAt)
-      if (from) return json({ ok: true, kind: 'moved', line: pageMovedLine(presence.module.name, from, presence.module.entry), checked: presence.module.entry })
-      const checked = quietEntry(presence.module.entry, framed, stable)
-      const via = checked === presence.module.entry ? fetch : framedFetch(frameRouteOf, (asked, route) => moduleProxy.answer(asked, route))
-      const said = await whyQuiet(presence.module.name, checked, via)
-      return json({ ok: true, kind: said.kind, line: said.line, checked })
-    }
-
-    if (url.pathname === '/host/open' && request.method === 'POST') {
-      const body = (await request.json().catch(() => null)) as {
-        page?: unknown
-        kehikko?: unknown
-      } | null
-      const page = typeof body?.page === 'string' && body.page.length > 0 && body.page.length <= 64 ? body.page : null
-      if (!page) return json({ ok: false, error: 'A report of what is open names the page making it.' }, 400)
-      const kehikko =
-        typeof body?.kehikko === 'number' && Number.isInteger(body.kehikko) && body.kehikko > 0
-          ? body.kehikko
-          : null
-      openness.reported(page, kehikko)
-      if (kehikko !== null) startup.mark('page reported its kehikko')
-      /* A page on its way out has no frames left to have declared anything. */
-      if (kehikko === null) {
-        headerDesk.held.forget(page)
-        arranging.forget(page)
-      }
-      /* A kehikko was just opened, so the set of modules anybody is looking at
-         has just changed — which is the whole trigger this design runs on. The
-         sweep reads the kept manifests (`manifests`), so this costs no request
-         to a module that has not changed, and is awaited: the answer says
-         whether anything was started, and the page sweeps after it only then
-         (`arrive` in `src/host/looks.ts`). A withdrawal decides nothing new. */
-      if (kehikko === null) return json({ ok: true, started: false })
-      try {
-        const view = await sweep()
-        const started = toStart(standings(view.presences, Date.now())).length > 0
-        govern(view.presences)
-        return json({ ok: true, started })
-      } catch {
-        /* A sweep that failed is a decision not made, which is the safe one; the page looks. */
-        return json({ ok: true, started: true })
-      }
-    }
-
-    /*
-     * The stream a page listens on to hear that a kehikko changed under it.
-     *
-     * Server-sent events, one id per message, and nothing else on it — see
-     * `wake.ts` for why what travels is that there IS news rather than the news
-     * itself.
-     *
-     * The comment sent on connect is not decoration: it flushes the headers, so
-     * a proxy in the middle — Vite's, here — hands the stream to the page
-     * immediately instead of holding it until the first real event, which might
-     * be an hour away.
-     *
-     * ## It is also how a page stops saying it has a kehikko open
-     *
-     * `/host/open` is a page SAYING what it has open, and it has one hole: a
-     * page that dies without running `pagehide` — a crashed tab, a force-quit
-     * browser, a headless one closed abruptly — never withdraws, and `open.ts`
-     * deliberately keeps believing it for half a day rather than make the page
-     * poll. Nothing was harmed by that while only an agent read the report. Now
-     * the lifecycle policy reads it too, and a report nobody is behind is a
-     * kehikko's worth of modules kept running for a screen that stopped
-     * existing.
-     *
-     * A socket is the honest answer, because it costs nothing per tick and it
-     * ends exactly when the browser does. So this URL carries the same two
-     * facts `/host/open` carries and is treated the same way: the report stands
-     * while the stream is open and is withdrawn when it closes. The page puts
-     * the kehikko on the url rather than sending it once, because `EventSource`
-     * reconnects on its own and a reconnection that said nothing would withdraw
-     * a report it then never restored.
-     */
-    if (url.pathname === '/host/watch' && request.method === 'GET') {
-      /* No idle timeout on this one. Nothing is sent until something happens,
-         so the server's thirty seconds closed every quiet stream, and a wake
-         sent while the page was reconnecting was a wake nobody heard — a
-         container left on what was true before a restart. */
-      patient(request)
-      const encoder = new TextEncoder()
-      let stop: (() => void) | null = null
-      const said = url.searchParams.get('page')
-      const page = said && said.length > 0 && said.length <= 64 ? said : null
-      const asked = Number(url.searchParams.get('kehikko'))
-      const kehikko = Number.isInteger(asked) && asked > 0 ? asked : null
-      /* This connection's own identity. A stream is evidence that a screen
-         exists, and it is kept under the connection rather than the page
-         because a page has several of these over its life — see the essay at
-         the top of `open.ts`. */
-      const connection = nextConnection()
-      const stream = new ReadableStream({
-        start(controller) {
-          /* `retry` sets how soon the browser reconnects after this stream
-             drops — a restart of this server, above all. Its own default is
-             a few seconds, and a page that waits that long is a page the MCP
-             door says has nothing open for that long. */
-          controller.enqueue(encoder.encode(`: listening\nretry: ${WATCH_RETRY_MS}\n\n`))
-          if (page && kehikko !== null) {
-            openness.streamed(connection, page, kehikko)
-            /* A report, so acted on like one: what that kehikko has is started
-               now, whatever became of the page's own POST and sweep. A page
-               that has made those makes nothing more until it is focused or
-               pressed, and this stream is the one request it is sure to hold.
-               The pages are told only when something was started — a wake
-               makes every page sweep, and a stream opens on every switch. */
-            void sweep()
-              .then((view) => {
-                const begins = toStart(standings(view.presences, Date.now())).length > 0
-                govern(view.presences)
-                if (begins) wakes.registryChanged()
-              })
-              .catch(() => {
-                /* A sweep that failed is a decision not made, which is the safe one. */
-              })
-          }
-          /* A screen is standing in a project: its `.kehikot/` is watched for
-             as long as one is. See `ContentWatch`. */
-          watchOpenProjects()
-          /* The news is written as it was given. `Wakes` decides what shapes
-             travel — see `News` there — and a server that rebuilt the object
-             here would be a second place for the two ends to disagree. */
-          stop = wakes.listen((news) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(news)}\n\n`))
-          }, page)
-        },
-        cancel() {
-          stop?.()
-          /* This stream's own evidence, withdrawn rather than left to go stale
-             — which is the whole reason the page identifies itself here. What
-             any other connection or the page itself has said is untouched. */
-          openness.closed(connection)
-          watchOpenProjects()
-        },
-      })
-      return new Response(stream, {
-        headers: {
-          'content-type': 'text/event-stream',
-          'cache-control': 'no-store',
-          connection: 'keep-alive',
-        },
-      })
-    }
+    /* Who is on this port, whether it is up, its start, and a page's line to it: quiet, open, watch. `hostRoutes.ts`. */
+    const hostAnswer = await hostRoutes.route(request, url)
+    if (hostAnswer) return hostAnswer
 
     if (url.pathname.startsWith('/host/')) {
       return json({ ok: false, reason: 'unknown-method', error: 'No such endpoint.' }, 404)
     }
 
-    /*
-     * The host's own door, for an agent.
-     *
-     * Not under `/host/` — that prefix is the page's own vocabulary, proxied by
-     * Vite so the page talks to one origin. This is spoken to directly, on this
-     * port, by something that is not a browser. `/mcp` is where every module in
-     * this workspace puts its door and an agent's configuration is one line
-     * shorter for the host's being in the same place.
-     */
-    if (url.pathname === '/mcp') {
-      if (request.method !== 'POST') {
-        return json({ ok: false, error: 'the MCP door takes POST' }, 405)
-      }
-      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-      if (!body || typeof body.method !== 'string') {
-        return json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'not a request' } }, 400)
-      }
-      /* The place this call is in: the token on the URL, or the binding of its MCP session. */
-      const session = request.headers.get('mcp-session-id')
-      const answered = await mcp(
-        body,
-        {
-          db,
-          ...(await (async () => {
-            /* A tool call from a connection with no place settles it in one, with nobody asked (`settle` in placeRoutes.ts). */
-            /* The conversation's key: on the URL, or passed once as `placeToken` and bound to this connection (protocol 2.95.0, `doorToken`). */
-            const args = body.method === 'tools/call' ? (body.params as { arguments?: unknown } | undefined)?.arguments : undefined
-            const token = doorToken(db, url.searchParams.get(PLACE_PARAM), session, args)
-            const { here, unrecorded, settled } = await placeRoutes.resolve(token, session, body.method === 'tools/call')
-            /* Who is asking, for the record of traffic: a session its place token names is that module's, in that place. */
-            const place = here ? placeSaid(here) : null
-            if (here?.via === 'token' && here.module) {
-              tag(request, { by: here.module, via: 'process', caller: { kind: 'session', name: `${receivedFrom.nameOf!(here.module)} session${place ? ` on ${place}` : ''}`.slice(0, LIMITS.TRAFFIC_CALLER), how: 'token', ...(place ? { place } : {}) } })
-            } else if (place) tag(request, { place })
-            return { here, unrecorded, settled: settled === true }
-          })()),
-          session: session && /^[A-Za-z0-9_-]{16,64}$/.test(session) ? session : null,
-          places: placeRoutes.places,
-          messaging: {
-            serverAnswer: (module, method, params) => messageRoutes.serverAnswer(module, method, params),
-            deliverers: () => servicesHere(AGENT_DELIVERY, null, null),
-          },
-          which: () => openness.open(),
-          watched: () => openness.every(),
-          wake: (kehikko, folded, arranged) =>
-            arranged ? wakes.arranged(kehikko, arranged) : folded ? wakes.folded(kehikko, folded) : wakes.woke(kehikko),
-          arranging: (kehikko) => arranging.busy(kehikko),
-          arranges: paces.arranges,
-          jumps: paces.jumps,
-          epicsChanged: (project) => wakes.epicsChanged(project),
-          epicWritten: (project, slug) => {
-            const root = projectById(db, project)?.path
-            if (root) epicWritten(root, slug)
-          },
-          dispositionsChanged: (project) => wakes.dispositionsChanged(project),
-          storage: (fresh) => storage.read(fresh),
-          moduleSettings: {
-            list: settingsListed,
-            read: (module, project) => moduleSettings.read(module, project),
-          },
-          headers: headerDesk.door,
-          inbox,
-          /* An agent's proposal for adopting an item: fills the person's dialog, adopts nothing. `adoption.ts`. */
-          adoption: {
-            propose: (project, ref, proposal) => {
-              const id = trackerNotices.idOfRef(project, ref)
-              if (!id) return { ok: false, why: `No tracker item ${ref} is held in this project. Spell the ref as your brief does.` }
-              const root = projectById(db, project)?.path
-              if (!root || !epicsIn(root) || !listEpics(epicsIn(root)!).some((one) => one.slug === proposal.epic)) return { ok: false, why: `This project has no epic ${proposal.epic}.` }
-              adoption.propose(project, id, proposal)
-              return { ok: true, said: `Proposed ${ref} → ${proposal.epic}. The person confirms it in Kehikot with one press, or changes it; nothing is written until then.` }
-            },
-          },
-          /* An agent's offer filed in a project's Inbox (`offer_jump`): every page reads it again. */
-          inboxChanged: (project, rev) => wakes.inboxChanged(project, rev),
-          /* How many messages between agent sessions a project keeps (protocol 2.41.0), for my_place. Never their words. */
-          messages: agentMessages,
-          trackers,
-          versions: {
-            list: (module, kehikko) => pins.list(module, kehikko, true),
-            pin: (kehikko, module, version) => pins.pin(kehikko, module, version),
-          },
-          /* A sweep, so that an agent reading a canvas is told which of the
-             containers on it hold a program that is actually answering. It is
-             the same sweep the page asks for on load — N requests to N
-             localhost programs — and unlike `/host/tools` it handshakes with
-             nobody's MCP server, so the objection in `tools.ts` does not
-             apply. */
-          seen: async () =>
-            (await sweep()).presences.map((presence) => ({
-              id: presence.id,
-              name: presence.name ?? null,
-              condition: presence.condition,
-              summary: presence.module?.summary || undefined,
-              guidance: presence.module?.guidance || undefined,
-              /* Whether it can show "All epics" (protocol 2.9.0); absent is one epic at a time. */
-              scopes: presence.module?.declares?.scopes,
-              /* The scopes it can work at and the default (protocol 2.29.0). */
-              modes: presence.module?.modes,
-              /* It and this Kehikot do not fit (protocol 2.22.0): the protocol's words for which side is behind. */
-              ...(presence.fit ? { fit: `${presence.fit.title}. ${presence.fit.line}` } : {}),
-              /* What the connections between the modules on a kehikko are read from (`src/host/connections.ts`). */
-              ...(presence.module ? { manifest: presence.module as ConnectionModule } : {}),
-            })),
-        },
-        { name: HOST_ID, version: HOST_VERSION },
-      )
-      if (answered.body === null) return new Response(null, { status: answered.status, ...(answered.headers ? { headers: answered.headers } : {}) })
-      const out = json(answered.body, answered.status)
-      for (const [name, value] of Object.entries(answered.headers ?? {})) out.headers.set(name, value)
-      return out
-    }
+    /* The host's own door, for an agent: `POST /mcp`. `mcpRoutes.ts`. */
+    const mcpAnswer = await mcpRoutes.route(request, url)
+    if (mcpAnswer) return mcpAnswer
 
     /* Bundled, everything that is not the API is the page. */
     if (PAGE && !url.pathname.startsWith('/host/')) {
