@@ -168,7 +168,10 @@ describe('what a person stopped stays stopped', () => {
     const source = readFileSync(join(import.meta.dir, '../server/server.ts'), 'utf8')
     expect(source).toContain('failed: failures.has(presence.id) || stoppedByPerson.has(presence.id)')
     expect(source).toMatch(/function begin\(id: string(?:, why = [^)]*)?\): void \{[\s\S]*?if \(stoppedByPerson\.has\(id\)\) return/)
-    expect(source).toContain('stoppedByPerson.pressed(named)')
+    /* Start is `POST /host/start` in the modules desk, handed this host's own record. */
+    const modules = readFileSync(join(import.meta.dir, '../server/moduleRoutes.ts'), 'utf8')
+    expect(modules).toContain('stoppedByPerson.pressed(named)')
+    expect(source).toMatch(/moduleDesk\(\{[\s\S]*?\bstoppedByPerson,[\s\S]*?\}\)/)
     expect(source).toContain('stoppedByPerson.pressed(id)')
   })
 })
