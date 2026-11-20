@@ -3,7 +3,7 @@ import { COLUMNS } from '../../../src/host/canvases.ts'
 import { FOLDED_ROWS } from '../../../src/host/columns.ts'
 import { CANVAS_ROWS, MIN_W } from '../../../src/host/fit.ts'
 import { ARRANGING_SAID } from '../../arranging.ts'
-import { editCanvas, type Canvas } from '../../canvases.ts'
+import { editCanvas, type Canvas, type Placement } from '../../canvases.ts'
 import { keep } from '../../kehikot.ts'
 import { MAX_ID, MAX_MODULES, modulesIn } from '../bounds.ts'
 import { canvasText } from '../canvasText.ts'
@@ -117,80 +117,14 @@ async function arrangeOn(
   }
 
   /* What was asked, bounded before it is looked at. */
-  const asks: ArrangeAsk[] = []
-  const said: string[] = []
-  if (args.containers !== undefined) {
-    if (!Array.isArray(args.containers) || args.containers.length > MAX_MODULES) {
-      return refuse(`containers is a list of at most ${MAX_MODULES} entries, each { module, size?, columns?, rows?, column?, row? }.`)
-    }
-    const whole = (value: unknown, least: number, most: number): value is number =>
-      typeof value === 'number' && Number.isInteger(value) && value >= least && value <= most
-    for (const entry of args.containers) {
-      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-        return refuse('every entry in containers is an object: { module, size?, columns?, rows?, column?, row? }.')
-      }
-      const one = entry as Record<string, unknown>
-      if (typeof one.module !== 'string' || !one.module.trim() || one.module.length > MAX_ID) {
-        return refuse('every entry in containers names module: a module id as read_canvas prints it, e.g. "kehikot.<name>".')
-      }
-      const ask: ArrangeAsk = { i: one.module.trim() }
-      if (one.size !== undefined && one.columns !== undefined) return refuse(`${ask.i}: give size or columns, not both.`)
-      if (one.size !== undefined) {
-        if (typeof one.size !== 'string' || !(one.size in NAMED_WIDTHS)) {
-          return refuse(`${ask.i}: size is one of ${Object.keys(NAMED_WIDTHS).join(', ')}.`)
-        }
-        ask.w = NAMED_WIDTHS[one.size as NamedWidth]
-      }
-      if (one.columns !== undefined) {
-        if (!whole(one.columns, MIN_W, COLUMNS)) return refuse(`${ask.i}: columns is a whole number from ${MIN_W} to ${COLUMNS}.`)
-        ask.w = one.columns
-      }
-      if (one.rows !== undefined) {
-        if (!whole(one.rows, FOLDED_ROWS + 1, CANVAS_ROWS)) {
-          return refuse(`${ask.i}: rows is a whole number from ${FOLDED_ROWS + 1} to ${CANVAS_ROWS}; to fold a container, use fold_modules.`)
-        }
-        ask.h = one.rows
-      }
-      if (one.column !== undefined) {
-        if (!whole(one.column, 0, COLUMNS - 1)) return refuse(`${ask.i}: column is a whole number from 0 to ${COLUMNS - 1}.`)
-        ask.x = one.column
-      }
-      if (one.row !== undefined) {
-        if (!whole(one.row, 0, CANVAS_ROWS - 1)) return refuse(`${ask.i}: row is a whole number from 0 to ${CANVAS_ROWS - 1}.`)
-        ask.y = one.row
-      }
-      if (ask.w === undefined && ask.h === undefined && ask.x === undefined && ask.y === undefined) {
-        return refuse(`${ask.i}: say what it is to become — size or columns, rows, column or row.`)
-      }
-      asks.push(ask)
-    }
-  }
-  let show: string[] = []
-  if (args.show !== undefined && args.show !== null) {
-    const ids = modulesIn(args.show, 'fold_modules', 'show')
-    if (!ids.ok) return refuse(ids.why)
-    show = [...new Set(ids.ids)]
-  }
-  if (!asks.length && !show.length) {
-    return refuse('arrange_modules needs containers (what each is to become) or show (what to bring into view), or both.')
-  }
+  const asked = arrangeAsksOf(args)
+  if (!asked.ok) return refuse(asked.why)
+  const { asks, show } = asked
 
   /* Only the conversation's own kehikko — or the one a page shows in a project the call named. */
   const here = door.here ?? null
-  const projectNamed = args.project !== undefined && args.project !== null
-  if (!projectNamed && !here?.canvas) {
-    return refuse(
-      `arrange_modules acts only on this conversation’s own kehikko, and this conversation has none recorded${
-        here ? ` (its place in ${here.project.name} names no kehikko there now)` : ''
-      }. my_place says what it has; set_my_place records one; pass project to arrange the kehikko a page shows in a project — or ask the person to arrange kehikko ${canvas.id} (${canvas.name}).`,
-    )
-  }
-  if (!projectNamed && here?.canvas && here.canvas.id !== canvas.id) {
-    return refuse(
-      `kehikko ${canvas.id} (${canvas.name}) is not this conversation’s own: that is kehikko ${here.canvas.id} (${here.canvas.name}). `
-      + 'arrange_modules never rearranges another kehikko by its number — leave kehikko out to act on its own, or pass project to arrange the one a page shows in that project.',
-    )
-  }
+  const notOwn = notOwnSaid(here, canvas, args.project !== undefined && args.project !== null)
+  if (notOwn) return refuse(notOwn)
 
   /* Seen, as a fold is. */
   const which = door.which()
@@ -205,22 +139,9 @@ async function arrangeOn(
     return refuse(`${ARRANGING_SAID}. Their hand comes first: ask again once they have let go, and read_canvas first, because what you planned from has changed.`)
   }
 
-  const on = new Map(canvas.placements.map((p) => [p.i, p]))
   const named = [...new Set([...asks.map((a) => a.i), ...show])]
-  const strangers = named.filter((id) => !on.has(id))
-  if (strangers.length) {
-    return refuse(
-      `${strangers.join(', ')} ${strangers.length === 1 ? 'is not a container' : 'are not containers'} on kehikko ${canvas.id} `
-      + `(${canvas.name}); place_modules puts one on. What is on it: ${on.size ? [...on.keys()].join(', ') : 'nothing at all'}.`,
-    )
-  }
-  const tiles = asks.filter((a) => (a.w !== undefined || a.h !== undefined) && on.get(a.i)?.tiled && !show.includes(a.i)).map((a) => a.i)
-  if (tiles.length) {
-    return refuse(
-      `${tiles.join(', ')} ${tiles.length === 1 ? 'is a tile' : 'are tiles'}, which a person cannot resize either — the page draws a tile without a corner. `
-      + 'Put it in show as well, and it is put back at its size and place first and then resized.',
-    )
-  }
+  const unfit = unfitSaid(canvas, asks, show, named)
+  if (unfit) return refuse(unfit)
 
   /* Paced, per conversation. */
   const now = door.now ? door.now() : Date.now()
@@ -229,13 +150,7 @@ async function arrangeOn(
   const caller = here ? `${here.via}:${here.token ?? door.session ?? here.conversation ?? here.key ?? 'unnamed'}` : `session:${door.session ?? 'unnamed'}`
   const made = (recent.get(caller) ?? []).filter((at) => now - at < ARRANGE_WINDOW_MS)
   recent.set(caller, made)
-  if (made.length >= ARRANGE_PER_MINUTE) {
-    const wait = Math.ceil((ARRANGE_WINDOW_MS - (now - made[0]!)) / 1000)
-    return refuse(
-      `This conversation has changed the arrangement ${made.length} times in the last minute, and ${ARRANGE_PER_MINUTE} is as many as a person can follow. `
-      + `Ask again in ${wait} s — and make fewer, larger changes: one call can arrange several containers.`,
-    )
-  }
+  if (made.length >= ARRANGE_PER_MINUTE) return refuse(pacedSaid(made, now))
 
   /* Nothing is awaited between reading the arrangement and writing it, as in `foldOn`. */
   const before = canvas.placements
@@ -252,9 +167,9 @@ async function arrangeOn(
   if (written) keep(door.db, written.project)
   if (!written) return refuse(`kehikko ${canvas.id} was there a moment ago and is not now.`)
   made.push(now)
-  const asked = new Set(named)
-  const changed = moved.filter((p) => asked.has(p.i)).map((p) => p.i)
-  const pushed = moved.filter((p) => !asked.has(p.i))
+  const askedIds = new Set(named)
+  const changed = moved.filter((p) => askedIds.has(p.i)).map((p) => p.i)
+  const pushed = moved.filter((p) => !askedIds.has(p.i))
   door.wake(canvas.id, undefined, {
     by: SIGNED,
     changed: changed.length ? changed : moved.map((p) => p.i),
@@ -262,8 +177,133 @@ async function arrangeOn(
     after: written.placements.map(geometryOf),
   })
 
-  const where = (p: { x: number; y: number; w: number; h: number; collapsed: boolean; tiled?: boolean }) =>
-    `column ${p.x}, row ${p.y}, ${p.w} wide and ${p.h} tall${p.collapsed ? ', folded' : p.tiled ? ', a tile' : ''}`
+  const said = arrangedSaid(asks, show, after, was)
+  const back = backSaid(moved, askedIds, was)
+  return {
+    text:
+      `Arranged kehikko ${canvas.id} (${canvas.name}), ${how}, of ${COLUMNS} columns and ${CANVAS_ROWS} rows: ${said.join(' ')}`
+      + (pushed.length ? ` Moved by the grid to make room, as under a person’s drag: ${pushed.map((p) => `${p.i} to ${whereSaid(p)}`).join('; ')}.` : '')
+      + ' Nothing was removed and no module was told.'
+      + ` On the page the containers changed are marked "arranged by ${SIGNED}", with Undo, which puts back the arrangement before exactly with one press; say what you did anyway (${AGENT}).`
+      + (back.length ? ` To put it back yourself, close to how it was: arrange_modules with containers: [${back.join(', ')}] — only if the person has not arranged it since; read_canvas says how it is now.` : '')
+      + `\n\n${canvasText({ db: door.db, canvas: written, how, seen: await door.seen() })}`,
+    failed: false,
+  }
+}
+
+const whole = (value: unknown, least: number, most: number): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= least && value <= most
+
+/** What `arrange_modules` was asked, read and bounded: each container's ask, and the ids to show. Or why not, without "Nothing was changed.". */
+export function arrangeAsksOf(args: Record<string, unknown>): { ok: true; asks: ArrangeAsk[]; show: string[] } | { ok: false; why: string } {
+  const asks: ArrangeAsk[] = []
+  if (args.containers !== undefined) {
+    if (!Array.isArray(args.containers) || args.containers.length > MAX_MODULES) {
+      return { ok: false, why: `containers is a list of at most ${MAX_MODULES} entries, each { module, size?, columns?, rows?, column?, row? }.` }
+    }
+    for (const entry of args.containers) {
+      const ask = arrangeAskOf(entry)
+      if (typeof ask === 'string') return { ok: false, why: ask }
+      asks.push(ask)
+    }
+  }
+  let show: string[] = []
+  if (args.show !== undefined && args.show !== null) {
+    const ids = modulesIn(args.show, 'fold_modules', 'show')
+    if (!ids.ok) return { ok: false, why: ids.why }
+    show = [...new Set(ids.ids)]
+  }
+  if (!asks.length && !show.length) {
+    return { ok: false, why: 'arrange_modules needs containers (what each is to become) or show (what to bring into view), or both.' }
+  }
+  return { ok: true, asks, show }
+}
+
+/** One entry of `containers` as an ask, or why it is refused. */
+export function arrangeAskOf(entry: unknown): ArrangeAsk | string {
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    return 'every entry in containers is an object: { module, size?, columns?, rows?, column?, row? }.'
+  }
+  const one = entry as Record<string, unknown>
+  if (typeof one.module !== 'string' || !one.module.trim() || one.module.length > MAX_ID) {
+    return 'every entry in containers names module: a module id as read_canvas prints it, e.g. "kehikot.<name>".'
+  }
+  const ask: ArrangeAsk = { i: one.module.trim() }
+  if (one.size !== undefined && one.columns !== undefined) return `${ask.i}: give size or columns, not both.`
+  if (one.size !== undefined) {
+    if (typeof one.size !== 'string' || !(one.size in NAMED_WIDTHS)) return `${ask.i}: size is one of ${Object.keys(NAMED_WIDTHS).join(', ')}.`
+    ask.w = NAMED_WIDTHS[one.size as NamedWidth]
+  }
+  if (one.columns !== undefined) {
+    if (!whole(one.columns, MIN_W, COLUMNS)) return `${ask.i}: columns is a whole number from ${MIN_W} to ${COLUMNS}.`
+    ask.w = one.columns
+  }
+  if (one.rows !== undefined) {
+    if (!whole(one.rows, FOLDED_ROWS + 1, CANVAS_ROWS)) return `${ask.i}: rows is a whole number from ${FOLDED_ROWS + 1} to ${CANVAS_ROWS}; to fold a container, use fold_modules.`
+    ask.h = one.rows
+  }
+  if (one.column !== undefined) {
+    if (!whole(one.column, 0, COLUMNS - 1)) return `${ask.i}: column is a whole number from 0 to ${COLUMNS - 1}.`
+    ask.x = one.column
+  }
+  if (one.row !== undefined) {
+    if (!whole(one.row, 0, CANVAS_ROWS - 1)) return `${ask.i}: row is a whole number from 0 to ${CANVAS_ROWS - 1}.`
+    ask.y = one.row
+  }
+  if (ask.w === undefined && ask.h === undefined && ask.x === undefined && ask.y === undefined) {
+    return `${ask.i}: say what it is to become — size or columns, rows, column or row.`
+  }
+  return ask
+}
+
+/** Why this kehikko is not the conversation's own to arrange; null when it is, or when a project was named. */
+export function notOwnSaid(here: Door['here'] | null, canvas: Pick<Canvas, 'id' | 'name'>, projectNamed: boolean): string | null {
+  if (projectNamed) return null
+  if (!here?.canvas) {
+    return `arrange_modules acts only on this conversation’s own kehikko, and this conversation has none recorded${
+      here ? ` (its place in ${here.project.name} names no kehikko there now)` : ''
+    }. my_place says what it has; set_my_place records one; pass project to arrange the kehikko a page shows in a project — or ask the person to arrange kehikko ${canvas.id} (${canvas.name}).`
+  }
+  if (here.canvas.id !== canvas.id) {
+    return `kehikko ${canvas.id} (${canvas.name}) is not this conversation’s own: that is kehikko ${here.canvas.id} (${here.canvas.name}). `
+      + 'arrange_modules never rearranges another kehikko by its number — leave kehikko out to act on its own, or pass project to arrange the one a page shows in that project.'
+  }
+  return null
+}
+
+/** Why what was named cannot be arranged here: not on the kehikko, or a tile asked to resize without being shown. Null when it can. */
+export function unfitSaid(canvas: Pick<Canvas, 'id' | 'name' | 'placements'>, asks: readonly ArrangeAsk[], show: readonly string[], named: readonly string[]): string | null {
+  const on = new Map(canvas.placements.map((p) => [p.i, p]))
+  const strangers = named.filter((id) => !on.has(id))
+  if (strangers.length) {
+    return `${strangers.join(', ')} ${strangers.length === 1 ? 'is not a container' : 'are not containers'} on kehikko ${canvas.id} `
+      + `(${canvas.name}); place_modules puts one on. What is on it: ${on.size ? [...on.keys()].join(', ') : 'nothing at all'}.`
+  }
+  const tiles = asks.filter((a) => (a.w !== undefined || a.h !== undefined) && on.get(a.i)?.tiled && !show.includes(a.i)).map((a) => a.i)
+  if (tiles.length) {
+    return `${tiles.join(', ')} ${tiles.length === 1 ? 'is a tile' : 'are tiles'}, which a person cannot resize either — the page draws a tile without a corner. `
+      + 'Put it in show as well, and it is put back at its size and place first and then resized.'
+  }
+  return null
+}
+
+/** The pace refused: how many changes in the last minute, and when to ask again. `made` is the window's, oldest first. */
+export function pacedSaid(made: readonly number[], now: number): string {
+  const wait = Math.ceil((ARRANGE_WINDOW_MS - (now - made[0]!)) / 1000)
+  return `This conversation has changed the arrangement ${made.length} times in the last minute, and ${ARRANGE_PER_MINUTE} is as many as a person can follow. `
+    + `Ask again in ${wait} s — and make fewer, larger changes: one call can arrange several containers.`
+}
+
+/** Where a container is, as the answer says it. */
+export function whereSaid(p: { x: number; y: number; w: number; h: number; collapsed: boolean; tiled?: boolean }): string {
+  return `column ${p.x}, row ${p.y}, ${p.w} wide and ${p.h} tall${p.collapsed ? ', folded' : p.tiled ? ', a tile' : ''}`
+}
+
+type Geometry = ReturnType<typeof geometryOf>
+
+/** Where each asked container ended up, with what it got short of the ask; then each one shown. */
+export function arrangedSaid(asks: readonly ArrangeAsk[], show: readonly string[], after: readonly Placement[], was: ReadonlyMap<string, Geometry>): string[] {
+  const said: string[] = []
   for (const ask of asks) {
     const got = after.find((p) => p.i === ask.i)!
     const short: string[] = []
@@ -271,28 +311,23 @@ async function arrangeOn(
     if (ask.h !== undefined && got.h !== ask.h) short.push(`${ask.h} tall asked, its column grants ${got.h}`)
     if (ask.y !== undefined && got.y !== ask.y) short.push(`row ${ask.y} asked, the grid compacts it to row ${got.y}`)
     if (ask.x !== undefined && got.x !== ask.x) short.push(`column ${ask.x} asked, it fits at column ${got.x}`)
-    said.push(`${ask.i} is at ${where(got)}${short.length ? ` (${short.join('; ')})` : ''}.`)
+    said.push(`${ask.i} is at ${whereSaid(got)}${short.length ? ` (${short.join('; ')})` : ''}.`)
   }
   for (const id of show) {
     if (asks.some((a) => a.i === id)) continue
     const got = after.find((p) => p.i === id)!
     const had = was.get(id)!
-    said.push(had.collapsed || had.tiled ? `${id} is shown, at ${where(got)}.` : `${id} was already in view.`)
+    said.push(had.collapsed || had.tiled ? `${id} is shown, at ${whereSaid(got)}.` : `${id} was already in view.`)
   }
-  const back = moved
+  return said
+}
+
+/** The asks that would put each asked container back close to where it was. */
+export function backSaid(moved: readonly Placement[], asked: ReadonlySet<string>, was: ReadonlyMap<string, Geometry>): string[] {
+  return moved
     .filter((p) => asked.has(p.i))
     .map((p) => {
       const old = was.get(p.i)!
       return `{ module: ${JSON.stringify(p.i)}, columns: ${old.w}, rows: ${old.wish}, column: ${old.x}, row: ${old.y} }`
     })
-  return {
-    text:
-      `Arranged kehikko ${canvas.id} (${canvas.name}), ${how}, of ${COLUMNS} columns and ${CANVAS_ROWS} rows: ${said.join(' ')}`
-      + (pushed.length ? ` Moved by the grid to make room, as under a person’s drag: ${pushed.map((p) => `${p.i} to ${where(p)}`).join('; ')}.` : '')
-      + ' Nothing was removed and no module was told.'
-      + ` On the page the containers changed are marked "arranged by ${SIGNED}", with Undo, which puts back the arrangement before exactly with one press; say what you did anyway (${AGENT}).`
-      + (back.length ? ` To put it back yourself, close to how it was: arrange_modules with containers: [${back.join(', ')}] — only if the person has not arranged it since; read_canvas says how it is now.` : '')
-      + `\n\n${canvasText({ db: door.db, canvas: written, how, seen: await door.seen() })}`,
-    failed: false,
-  }
 }

@@ -667,7 +667,7 @@ export interface CanvasWatchers {
  * that works only until it is first tested.
  */
 export function watchCanvases(kehikko: number | null, on: CanvasWatchers): () => void {
-  const { woke, looked, wrote, marked, read, rewritten, ordered, opened, inboxed, relisted, addressed, jumped } = on
+  const { looked, opened } = on
   /*
    * Which page this is and what it has open, on the URL of the stream itself.
    *
@@ -727,58 +727,7 @@ export function watchCanvases(kehikko: number | null, on: CanvasWatchers): () =>
   }
   const heard = (event: MessageEvent<string>) => {
     try {
-      const parsed: unknown = JSON.parse(event.data)
-      const id = (parsed as { kehikko?: unknown })?.kehikko
-      if (typeof id === 'number' && Number.isInteger(id)) {
-        woke(id, foldNoteIn((parsed as { folded?: unknown }).folded), arrangeNoteIn((parsed as { arranged?: unknown }).arranged))
-      }
-      /* Checked for `=== true` rather than for truthiness, so that a future
-         server sending something else under this name is news this page does
-         not understand rather than news it half-understands. */
-      /* With the reading itself when the host had it in hand (its wait for a module it started
-         ended): taken as a look's answer, so no page asks for it again. Without one, look. */
-      if ((parsed as { registry?: unknown })?.registry === true) {
-        const carried = (parsed as { modules?: unknown }).modules
-        looked?.(carried === undefined ? undefined : (registryIn(carried) ?? undefined))
-      }
-      if ((parsed as { projects?: unknown })?.projects === true) relisted?.()
-      /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
-         menu and What's new read again, each on its own (`onUpdatesChanged`). */
-      if ((parsed as { updates?: unknown })?.updates === true) announceUpdatesChanged()
-      /* An app restart held behind queued work moved (protocol 2.110.0): the Updates menu reads it again. */
-      if ((parsed as { restart?: unknown })?.restart === true) announceRestartChanged()
-      /* An install or update began, changed step or ended (`server/jobSteps.ts`): the steps are read again. */
-      if ((parsed as { steps?: unknown })?.steps === true) announceStepsChanged()
-      const project = (parsed as { epics?: unknown })?.epics
-      if (typeof project === 'number' && Number.isInteger(project)) wrote?.(project)
-      const inbox = (parsed as { inbox?: unknown })?.inbox
-      if (typeof inbox === 'number' && Number.isInteger(inbox)) {
-        const rev = (parsed as { rev?: unknown }).rev
-        inboxed?.(inbox, typeof rev === 'number' && Number.isInteger(rev) ? rev : null)
-      }
-      /* Messages between agent sessions changed (protocol 2.41.0): the view reads again. */
-      const messaged = (parsed as { messages?: unknown })?.messages
-      if (typeof messaged === 'number' && Number.isInteger(messaged)) announceMessagesChanged(messaged)
-      const disposed = (parsed as { dispositions?: unknown })?.dispositions
-      if (typeof disposed === 'number' && Number.isInteger(disposed)) marked?.(disposed)
-      const tracked = parsed as { tracker?: unknown; at?: unknown; refreshing?: unknown }
-      if (
-        typeof tracked?.tracker === 'number' && Number.isInteger(tracked.tracker)
-        && (tracked.at === null || typeof tracked.at === 'string') && typeof tracked.refreshing === 'boolean'
-      ) {
-        read?.(tracked.tracker, { at: tracked.at, refreshing: tracked.refreshing })
-      }
-      const changed = parsed as { content?: unknown; changes?: unknown }
-      if (typeof changed?.content === 'number' && Number.isInteger(changed.content)) {
-        const changes = contentSignalSchema.safeParse(changed.changes)
-        if (changes.success) rewritten?.(changed.content, changes.data)
-      }
-      const order = pressOrderIn((parsed as { press?: unknown })?.press)
-      if (order) ordered?.(order)
-      const asked = addressOrderIn((parsed as { address?: unknown })?.address)
-      if (asked) addressed?.(asked)
-      const jump = jumpOrderIn((parsed as { jump?: unknown })?.jump)
-      if (jump) jumped?.(jump)
+      heardWake(JSON.parse(event.data), on)
     } catch {
       /* Not something this page understands. A malformed wake is a wake that
          does not happen, and the page is no worse off than before this existed. */
@@ -790,6 +739,85 @@ export function watchCanvases(kehikko: number | null, on: CanvasWatchers): () =>
     if (again !== null) clearTimeout(again)
     stream.close()
   }
+}
+
+/** One message of `/host/watch`, as parsed; every field is read as unknown and checked. */
+type Wake = Record<string, unknown> | null | undefined
+
+const whole = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value)
+
+/**
+ * One message of `/host/watch`, told to whichever of `on` it is news for. A field this page does not
+ * understand is not news: each is checked for exactly what it should be, and anything else is left.
+ */
+export function heardWake(parsed: unknown, on: CanvasWatchers): void {
+  const wake = parsed as Wake
+  const id = wake?.kehikko
+  if (whole(id)) on.woke(id, foldNoteIn(wake!.folded), arrangeNoteIn(wake!.arranged))
+  heardSignals(wake, on)
+  heardCounts(wake, on)
+  heardTracker(wake, on)
+  heardOrders(wake, on)
+}
+
+/** The flags that say only that something is to be read again. */
+function heardSignals(wake: Wake, { looked, relisted }: CanvasWatchers): void {
+  /* Checked for `=== true` rather than for truthiness, so that a future
+     server sending something else under this name is news this page does
+     not understand rather than news it half-understands. */
+  /* With the reading itself when the host had it in hand (its wait for a module it started
+     ended): taken as a look's answer, so no page asks for it again. Without one, look. */
+  if (wake?.registry === true) {
+    const carried = wake.modules
+    looked?.(carried === undefined ? undefined : (registryIn(carried) ?? undefined))
+  }
+  if (wake?.projects === true) relisted?.()
+  /* An automatic module update began, ended or now waits (`server/autoUpdates.ts`): the Updates
+     menu and What's new read again, each on its own (`onUpdatesChanged`). */
+  if (wake?.updates === true) announceUpdatesChanged()
+  /* An app restart held behind queued work moved (protocol 2.110.0): the Updates menu reads it again. */
+  if (wake?.restart === true) announceRestartChanged()
+  /* An install or update began, changed step or ended (`server/jobSteps.ts`): the steps are read again. */
+  if (wake?.steps === true) announceStepsChanged()
+}
+
+/** The news that names a project: its epics, its inbox (with its revision), its messages, its dispositions. */
+function heardCounts(wake: Wake, { wrote, inboxed, marked }: CanvasWatchers): void {
+  const project = wake?.epics
+  if (whole(project)) wrote?.(project)
+  const inbox = wake?.inbox
+  if (whole(inbox)) {
+    const rev = wake!.rev
+    inboxed?.(inbox, whole(rev) ? rev : null)
+  }
+  /* Messages between agent sessions changed (protocol 2.41.0): the view reads again. */
+  const messaged = wake?.messages
+  if (whole(messaged)) announceMessagesChanged(messaged)
+  const disposed = wake?.dispositions
+  if (whole(disposed)) marked?.(disposed)
+}
+
+/** A tracker reading moved, and a module's content changed. */
+function heardTracker(wake: Wake, { read, rewritten }: CanvasWatchers): void {
+  const tracked = wake as { tracker?: unknown; at?: unknown; refreshing?: unknown } | null | undefined
+  if (whole(tracked?.tracker) && (tracked.at === null || typeof tracked.at === 'string') && typeof tracked.refreshing === 'boolean') {
+    read?.(tracked.tracker, { at: tracked.at, refreshing: tracked.refreshing })
+  }
+  const changed = wake as { content?: unknown; changes?: unknown } | null | undefined
+  if (whole(changed?.content)) {
+    const changes = contentSignalSchema.safeParse(changed.changes)
+    if (changes.success) rewritten?.(changed.content, changes.data)
+  }
+}
+
+/** An order to this page: a press, an address to show, a jump. */
+function heardOrders(wake: Wake, { ordered, addressed, jumped }: CanvasWatchers): void {
+  const order = pressOrderIn(wake?.press)
+  if (order) ordered?.(order)
+  const asked = addressOrderIn(wake?.address)
+  if (asked) addressed?.(asked)
+  const jump = jumpOrderIn(wake?.jump)
+  if (jump) jumped?.(jump)
 }
 
 /** `EventSource.CLOSED`, spelled out so this file does not need the global to read it. */

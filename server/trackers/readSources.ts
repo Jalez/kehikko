@@ -48,14 +48,16 @@ export interface SourceRead {
   thin: string[]
 }
 
+/** Refs a read was handed back without everything, and why. */
+type Unread = NonNullable<Extract<Read, { ok: true }>['unread']>
+
 /** Read one source as its plan says; null when nothing is asked of it. */
 export async function readSource(adapter: Adapter, { source, list, wanted }: SourcePlan, at: ReadAt): Promise<SourceRead | null> {
-  const key = sourceKey(source)
   if (!list && !wanted.size) return null
   const out: SourceRead = { error: null, failedOutright: false, listedWhole: false, rows: [], gone: [], thin: [] }
   const failed = (why: string): SourceRead => ({ ...out, error: why, failedOutright: true })
   let got: TrackerRow[] = []
-  let unread: { why: string; refs: Array<{ number: number; kind: 'issue' | 'change' | null }> } | undefined
+  let unread: Unread | undefined
   let partial: string | undefined
   /* Whether this read knows everything in the source that changed since the last one. */
   let covered = false
@@ -65,44 +67,20 @@ export async function readSource(adapter: Adapter, { source, list, wanted }: Sou
     ? await adapter.changed(source).catch(() => UNKNOWN)
     : UNKNOWN
   if (list) {
-    const how = listHowFor(source, at.listedBefore.get(key), at.nowMs, at.by)
-    if (how.since && probe.changed === false) {
-      /* Nothing in the source was updated since the last listing: there is nothing to list. */
-      covered = true
-      out.listed = { since: true }
-    } else {
-      const read = await adapter.list(source, at.listLimit, at.now, how)
-      if (!read.ok) return failed(read.why)
-      got = read.rows
-      /* A listing that stopped part way did not see everything recent: the rows it did not reach
-         stay. So do a listing of only what changed: the rest did not change. */
-      if (read.partial) partial = read.partial
-      else {
-        out.listed = { since: Boolean(how.since) }
-        if (!how.since) out.listedWhole = true
-        covered = Boolean(how.since) && !read.unread
-        if (!read.unread) probe.keep()
-      }
-      unread = read.unread
-      if (read.boards) out.boards = read.boards
-      out.people = read.people?.unreadable ?? null
-    }
+    const listed = await listSource(adapter, source, at, probe, out)
+    if ('why' in listed) return failed(listed.why)
+    ;({ got, unread, partial, covered } = listed)
   } else if (probe.changed === false) covered = true
   const have = new Set(got.map(rowIdentity))
   const rest = [...wanted.entries()].filter(([id]) => !have.has(id) && readAgain(at.held.get(id), source, covered, at)).map(([id, w]) => ({ ...w, id }))
   /* And the source's open changes whose CI was still running at the last read, named or not:
      their checks finishing is news no listing of what changed carries. Batched with the rest. */
-  if (at.whole) {
-    for (const [id, row] of at.held) {
-      if (sourceKey(row) !== key || have.has(id) || wanted.has(id) || !checking(row)) continue
-      rest.push({ number: row.number, kind: source.tracker === 'github' ? null : row.kind, refs: [row.ref], id })
-    }
-  }
+  if (at.whole) rest.push(...stillChecking(at.held, source, have, wanted))
   if (rest.length) {
     const read: Read = await adapter.refs(source, rest, at.now)
     if (!read.ok) return failed(read.why)
     got = [...got, ...read.rows]
-    if (read.unread) unread = unread ? { why: unread.why, refs: [...unread.refs, ...read.unread.refs] } : read.unread
+    unread = withUnread(unread, read.unread)
     if (read.people || out.people === undefined) out.people = read.people?.unreadable ?? null
     const joined = joinBoards(out.boards, read.boards)
     if (joined) out.boards = joined
@@ -113,15 +91,74 @@ export async function readSource(adapter: Adapter, { source, list, wanted }: Sou
   if (!list && !unread && probe.changed) probe.keep()
   out.thin = [...refused]
   out.rows = got
-  /* Asked for, answered for, and not among the rows: either the tracker
-     said so, or what it said would not make a row. Either way it is not
-     asked again until something names it afresh, so no question and no
-     read can chase each other. Only what was asked: a held row this read
-     did not ask again is not gone. */
-  const made = new Set(got.map(rowIdentity))
-  const askedNow = new Set([...have, ...rest.map((w) => w.id)])
-  for (const [id] of wanted) if (askedNow.has(id) && !made.has(id) && !refused.has(id)) out.gone.push(id)
+  out.gone = goneOf(wanted, new Set([...have, ...rest.map((w) => w.id)]), got, refused)
   return out
+}
+
+/** What listing a source came to, besides what it says on `out` (listed, boards, people). */
+interface Listed {
+  got: TrackerRow[]
+  unread: Unread | undefined
+  partial: string | undefined
+  covered: boolean
+}
+
+/** List one source — only what changed when the plan says so — and say on `out` how it listed. */
+async function listSource(adapter: Adapter, source: Source, at: ReadAt, probe: Probe, out: SourceRead): Promise<Listed | { why: string }> {
+  const how = listHowFor(source, at.listedBefore.get(sourceKey(source)), at.nowMs, at.by)
+  if (how.since && probe.changed === false) {
+    /* Nothing in the source was updated since the last listing: there is nothing to list. */
+    out.listed = { since: true }
+    return { got: [], unread: undefined, partial: undefined, covered: true }
+  }
+  const read = await adapter.list(source, at.listLimit, at.now, how)
+  if (!read.ok) return { why: read.why }
+  let covered = false
+  /* A listing that stopped part way did not see everything recent: the rows it did not reach
+     stay. So do a listing of only what changed: the rest did not change. */
+  if (!read.partial) {
+    out.listed = { since: Boolean(how.since) }
+    if (!how.since) out.listedWhole = true
+    covered = Boolean(how.since) && !read.unread
+    if (!read.unread) probe.keep()
+  }
+  if (read.boards) out.boards = read.boards
+  out.people = read.people?.unreadable ?? null
+  return { got: read.rows, unread: read.unread, partial: read.partial || undefined, covered }
+}
+
+/** The source's held open changes whose CI was still running, not already read or asked for: asked again by name. */
+export function stillChecking(
+  held: ReadonlyMap<string, TrackerRow>,
+  source: Source,
+  have: ReadonlySet<string>,
+  wanted: ReadonlyMap<string, unknown>,
+): Array<{ number: number; kind: 'issue' | 'change' | null; refs: string[]; id: string }> {
+  const key = sourceKey(source)
+  const out: Array<{ number: number; kind: 'issue' | 'change' | null; refs: string[]; id: string }> = []
+  for (const [id, row] of held) {
+    if (sourceKey(row) !== key || have.has(id) || wanted.has(id) || !checking(row)) continue
+    out.push({ number: row.number, kind: source.tracker === 'github' ? null : row.kind, refs: [row.ref], id })
+  }
+  return out
+}
+
+/** Two reads' unread refs as one: the first's sentence, every ref. */
+export function withUnread(was: Unread | undefined, more: Unread | undefined): Unread | undefined {
+  if (!more) return was
+  return was ? { why: was.why, refs: [...was.refs, ...more.refs] } : more
+}
+
+/**
+ * Asked for, answered for, and not among the rows: either the tracker
+ * said so, or what it said would not make a row. Either way it is not
+ * asked again until something names it afresh, so no question and no
+ * read can chase each other. Only what was asked: a held row this read
+ * did not ask again is not gone.
+ */
+export function goneOf(wanted: ReadonlyMap<string, unknown>, askedNow: ReadonlySet<string>, got: readonly TrackerRow[], refused: ReadonlySet<string>): string[] {
+  const made = new Set(got.map(rowIdentity))
+  return [...wanted.keys()].filter((id) => askedNow.has(id) && !made.has(id) && !refused.has(id))
 }
 
 /** What the reads of every source came to, gathered as each lands. */
