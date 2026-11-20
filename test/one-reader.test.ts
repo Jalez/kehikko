@@ -507,16 +507,16 @@ describe('only one file opens an epic', () => {
   test('and nothing but the reader takes an epic apart on the server', () => {
     /* `readEpic` is imported by the two files that answer from it. More
        importers are fine — `inboxText.ts` asks `listEpics` for an epic's title
-       and its parts' headings, to say a place in words, and `mcp.ts` asks it
+       and its parts' headings, to say a place in words, and `mcp/tools/jump.ts` asks it
        for the slugs and titles a `jump` names, and `pinnedPlaces.ts` for the
        titles a pinned place is labelled with and whether its epic is still there; a file that parses an
        epic's JSON without it is not, and the check above is what finds that one. */
     const importing = sources(join(HERE, 'server'))
-      .filter((path) => /import \{[^}]*\b(readEpic|readSteps|listEpics)\b[^}]*\} from '\.\.?\/holdings\.ts'/.test(readFileSync(path, 'utf8')))
+      .filter((path) => /import \{[^}]*\b(readEpic|readSteps|listEpics)\b[^}]*\} from '(?:\.\.?\/)+holdings\.ts'/.test(readFileSync(path, 'utf8')))
       .map((path) => relative(HERE, path))
       .sort()
     /* `spaces.ts` lists the epics (titles and parts) as the top two levels of the tree of spaces. */
-    expect(importing).toEqual(['server/answers.ts', 'server/inboxText.ts', 'server/mcp.ts', 'server/pinnedPlaces.ts', 'server/server.ts', 'server/spaces.ts', 'server/trackers/reading.ts'])
+    expect(importing).toEqual(['server/answers.ts', 'server/inboxText.ts', 'server/mcp/tools/jump.ts', 'server/pinnedPlaces.ts', 'server/server.ts', 'server/spaces.ts', 'server/trackers/reading.ts'])
   })
 
   test('and only the reader opens the Journeys module’s file, through the protocol', () => {
