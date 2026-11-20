@@ -18,7 +18,7 @@
  * page and nowhere else — not in the database and not in the project's
  * `kehikot.json`, because "an agent folded this" is a fact about a moment on a
  * screen and not about the arrangement. It is drawn ON the fold control (see
- * `Container.tsx`) and takes no room of its own.
+ * `ContainerHeader.tsx`) and takes no room of its own.
  *
  * ## When it goes
  *

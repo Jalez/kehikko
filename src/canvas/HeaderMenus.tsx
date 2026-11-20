@@ -744,7 +744,7 @@ function Menu({
             {...modal}
             /* `pointer-events-auto` because the container is not, and the press
                is stopped before the grid reads it as the start of a drag — both
-               as every control in this header does; see `Container.tsx`. */
+               as every control in this header does; see `ContainerHeader.tsx`. */
             className={
               mode === 'words'
                 ? `${failed ? 'text-destructive hover:text-destructive' : busy ? 'text-foreground' : 'text-muted-foreground hover:text-foreground data-[state=open]:text-foreground'} data-[state=open]:bg-accent pointer-events-auto relative h-6 shrink-0 cursor-default px-1.5 text-xs font-normal ${KEYBOARD_RING}`

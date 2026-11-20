@@ -167,7 +167,7 @@ export function FilterButton({
                muted variant it existed to undo. */
             className="text-foreground pointer-events-auto size-6 cursor-default"
             /* Stops the grid reading the press as the start of a drag, which
-               would make this button unpressable — see `Container.tsx`. */
+               would make this button unpressable — see `ContainerHeader.tsx`. */
             onMouseDown={(event) => event.stopPropagation()}
           >
             {/* Solid when something is narrowed, hollow when everything is

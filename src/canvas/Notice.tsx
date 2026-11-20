@@ -10,7 +10,7 @@ import { Start, Update, UpdateFor } from './Start.tsx'
 /**
  * What a container shows in place of its module's page when there is no page
  * to frame: the sentence, and the one press that changes it. Drawn by the
- * container (`Container.tsx`) over its hollow body; decided by `noticeOf`.
+ * container (`ContainerBody.tsx`) over its hollow body; decided by `noticeOf`.
  *
  * A module that does not fit this Kehikot (protocol `fitOf`) gets the
  * protocol's words: "Monitor needs a newer Kehikot" over "It uses the call log,

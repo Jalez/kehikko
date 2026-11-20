@@ -132,7 +132,7 @@ export function ClearButton({
               'text-foreground size-6 cursor-default'
         }
         /* Stops the grid reading the press as the start of a drag, which would
-           make this button unpressable — see `Container.tsx`. */
+           make this button unpressable — see `ContainerHeader.tsx`. */
         onMouseDown={(event) => event.stopPropagation()}
         onClick={() => {
           if (armed) {
