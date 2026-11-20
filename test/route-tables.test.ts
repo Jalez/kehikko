@@ -3,13 +3,16 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { ADOPT_ROUTES } from '../server/adoptRoutes.ts'
+import { AGENT_ROUTES } from '../server/agentRoutes.ts'
 import { CALL_ROUTES } from '../server/callRoutes.ts'
 import { CANVAS_ROUTES, canvasDesk } from '../server/canvasRoutes.ts'
 import { createCanvas, open } from '../server/canvases.ts'
 import { DEVELOPMENT_ROUTES } from '../server/developmentRoutes.ts'
 import { PAGE_ONLY } from '../server/guard.ts'
+import { HOST_ROUTES } from '../server/hostRoutes.ts'
 import { KEHIKKO_ROUTES } from '../server/kehikkoRoutes.ts'
 import { LOG_ROUTES } from '../server/logRoutes.ts'
+import { MCP_ROUTES, mcpDesk } from '../server/mcpRoutes.ts'
 import { MODULE_ROUTES } from '../server/moduleRoutes.ts'
 import { PERSON_ROUTES } from '../server/personRoutes.ts'
 import { PROJECT_ROUTES } from '../server/projectRoutes.ts'
@@ -28,7 +31,7 @@ import { UPDATE_ROUTES } from '../server/updateRoutes.ts'
  * write to it.
  */
 
-const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES }
+const TABLES: Record<string, RouteTable> = { LOG_ROUTES, TRACKER_ROUTES, UPDATE_ROUTES, RESTART_ROUTES, CANVAS_ROUTES, KEHIKKO_ROUTES, PROJECT_ROUTES, SPACE_ROUTES, MODULE_ROUTES, CALL_ROUTES, PERSON_ROUTES, SETTINGS_ROUTES, DEVELOPMENT_ROUTES, AGENT_ROUTES, HOST_ROUTES, MCP_ROUTES }
 const specs = Object.entries(TABLES).flatMap(([table, routes]) => Object.entries(routes).map(([name, spec]) => ({ table, name, ...spec })))
 
 const ok = (what: string) => () => new Response(what)
@@ -130,6 +133,27 @@ describe('the settings desk: every POST under /host/module-settings, as before',
   })
 })
 
+describe('the MCP desk: POST /mcp, and a 405 for any other method there', () => {
+  const asked: unknown[] = []
+  const desk = mcpDesk({
+    mcp: (async (rpc: unknown) => (asked.push(rpc), { status: 200, body: { jsonrpc: '2.0', id: 1, result: {} } })) as never,
+    door: async () => ({}) as never,
+    about: { name: 'kehikko', version: '0.0.0' },
+  })
+  const send = (method: string, path: string, body?: unknown) => {
+    const request = new Request(`http://127.0.0.1${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }) })
+    return desk.route(request, new URL(request.url))
+  }
+
+  test('a call is handed to the door, and anything that is not one is refused', async () => {
+    expect((await send('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list' }))!.status).toBe(200)
+    expect(asked).toHaveLength(1)
+    expect((await send('POST', '/mcp', { nothing: true }))!.status).toBe(400)
+    expect((await send('GET', '/mcp'))!.status).toBe(405)
+    expect(await send('POST', '/mcp/other', {})).toBeNull()
+  })
+})
+
 describe('PAGE_ONLY and the route tables say the same', () => {
   test('every route a table declares page-only is in PAGE_ONLY', () => {
     for (const spec of specs.filter((one) => one.pageOnly)) expect(PAGE_ONLY).toContain(spec.path)
@@ -144,10 +168,11 @@ describe('PAGE_ONLY and the route tables say the same', () => {
     expect(pageOnlyPaths(...Object.values(TABLES)).sort()).toEqual(
       ['/host/log', '/host/logs/open', '/host/module-addresses/check', '/host/restart/now', '/host/restart/queue', '/host/steps/cancel', '/host/tracker/refresh', '/host/trackers', '/host/updates/cancel', '/host/updates/step-back',
         '/host/layouts', '/host/connections', '/host/kehikot/copy', '/host/kehikko-skills', '/host/kehikko-settings', '/host/projects/followed', '/host/projects/locate', '/host/base-branch',
-        '/host/onboarding', '/host/pinned-places', '/host/whats-new', '/host/whats-new/mentions', '/host/storage', '/host/module-settings', '/host/module-settings/list', '/host/module-settings/file', '/host/module-settings/set', '/host/uninstall', '/host/development', '/host/unused-folders'].sort(),
+        '/host/onboarding', '/host/pinned-places', '/host/whats-new', '/host/whats-new/mentions', '/host/storage', '/host/module-settings', '/host/module-settings/list', '/host/module-settings/file', '/host/module-settings/set', '/host/uninstall', '/host/development', '/host/unused-folders',
+        '/host/startup'].sort(),
     )
     /* Answered to programs too, as before. */
-    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts', '/host/modules', '/host/versions', '/host/start', '/host/call']) expect(PAGE_ONLY).not.toContain(path)
+    for (const path of ['/host/updates', '/host/restart', '/host/canvases', '/host/projects', '/host/subject', '/host/epics', '/host/spaces', '/host/parts', '/host/modules', '/host/versions', '/host/start', '/host/call', '/host/tools', '/host/agent', '/host/hello', '/host/health', '/host/quiet', '/host/open', '/host/watch', '/mcp']) expect(PAGE_ONLY).not.toContain(path)
   })
 
   test('adopting is listed once, by its desk', () => {
@@ -179,6 +204,6 @@ describe('server.ts routes a table’s paths only through its desk', () => {
   })
 
   test('every desk is asked', () => {
-    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes', 'canvasRoutes', 'kehikkoRoutes', 'projectRoutes', 'spaceRoutes', 'moduleRoutes', 'callRoutes', 'personRoutes', 'settingsRoutes', 'developmentRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
+    for (const desk of ['logRoutes', 'trackerRoutes', 'updateRoutes', 'restartRoutes', 'canvasRoutes', 'kehikkoRoutes', 'projectRoutes', 'spaceRoutes', 'moduleRoutes', 'callRoutes', 'personRoutes', 'settingsRoutes', 'developmentRoutes', 'agentRoutes', 'hostRoutes', 'mcpRoutes']) expect(server).toContain(`await ${desk}.route(request, url)`)
   })
 })

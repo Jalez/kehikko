@@ -184,26 +184,30 @@ describe('nothing writes to the agent’s configuration except a press', () => {
 
   test('the server calls a writer from the /host/agent route and from nowhere else', () => {
     const source = readFileSync(join(import.meta.dir, '..', 'server', 'server.ts'), 'utf8')
+    /* `POST /host/agent` is `agent` in the agent desk; the server only wires it. */
+    const desk = readFileSync(join(import.meta.dir, '..', 'server', 'agentRoutes.ts'), 'utf8')
+    expect(desk).toContain("agent: { method: 'POST', path: '/host/agent' }")
+    expect(source).not.toMatch(/\bawait (connect|disconnect|repoint)\(/)
 
-    const start = source.indexOf("url.pathname === '/host/agent'")
+    const start = desk.indexOf('    agent: async (request) => {')
     expect(start).toBeGreaterThan(0)
-    const end = source.indexOf('url.pathname ===', start + 1)
+    const end = desk.indexOf('\n    },\n', start)
     expect(end).toBeGreaterThan(start)
 
     const writers = /\bawait (connect|disconnect|repoint)\(/g
     const found: { name: string; line: number; inside: boolean }[] = []
-    for (const hit of source.matchAll(writers)) {
+    for (const hit of desk.matchAll(writers)) {
       const at = hit.index ?? -1
       found.push({
         name: hit[1]!,
-        line: source.slice(0, at).split('\n').length,
+        line: desk.slice(0, at).split('\n').length,
         inside: at > start && at < end,
       })
     }
     /* All three presses exist, and every one of them is inside the route. */
     expect(new Set(found.map((f) => f.name))).toEqual(new Set(['connect', 'disconnect', 'repoint']))
     for (const call of found) {
-      expect(call.inside, `${call.name} is called on line ${call.line}, outside the /host/agent route`).toBe(true)
+      expect(call.inside, `${call.name} is called on line ${call.line} of agentRoutes.ts, outside the /host/agent route`).toBe(true)
     }
 
     /* And the sweep, specifically, names none of them. `survey` is where the
