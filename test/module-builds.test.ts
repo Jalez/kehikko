@@ -501,22 +501,23 @@ describe('none at start', () => {
   /* What starts a module — `begin`, `run`, `start` — never builds; `begin`
      only waits for a build already under way of that one module. */
   const server = readFileSync(join(import.meta.dir, '..', 'server', 'server.ts'), 'utf8')
-  /* `begin` is the supervisor's (`supervisor/supervisor.ts`), a method there; `run` is `Processes.run`. */
+  /* `begin` is the supervisor's (`supervisor/supervisor.ts`), a method there; `run` is `Processes.run`, and a press's start is `Restarts.bringUpOnce`. */
   const supervisor = readFileSync(join(import.meta.dir, '..', 'server', 'supervisor', 'supervisor.ts'), 'utf8')
   const processes = readFileSync(join(import.meta.dir, '..', 'server', 'supervisor', 'processes.ts'), 'utf8')
+  const restarts = readFileSync(join(import.meta.dir, '..', 'server', 'supervisor', 'restarts.ts'), 'utf8')
   const body = (name: string) => {
     const at = server.indexOf(`\nfunction ${name}(`)
     expect(at).toBeGreaterThan(-1)
     return server.slice(at, server.indexOf('\n}\n', at))
   }
   const method = (source: string, name: string) => {
-    const at = source.indexOf(`\n  ${name}(`)
+    const at = Math.max(source.indexOf(`\n  ${name}(`), source.indexOf(`\n  async ${name}(`))
     expect(at).toBeGreaterThan(-1)
     return source.slice(at, source.indexOf('\n  }\n', at))
   }
 
   test('starting a module builds nothing', () => {
-    for (const code of [body('begin'), body('run'), method(supervisor, 'begin'), method(processes, 'run')]) {
+    for (const code of [body('begin'), method(supervisor, 'begin'), method(processes, 'run'), method(restarts, 'bringUpOnce')]) {
       expect(code).not.toMatch(/builds\.(build|backfill|stopped)\(|buildPlace\(|runBuild\(/)
     }
     expect(method(supervisor, 'begin')).toContain('builds.busy(id)')
