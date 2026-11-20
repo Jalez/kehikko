@@ -7,7 +7,7 @@
  *
  * With "Keep modules up to date automatically" on, a restart brings the
  * modules along: an installed copy whose own tags hold a newer release is put
- * on it before its module first starts (`bootAutoUpdates` in `server.ts`).
+ * on it before its module first starts (`BootWindow.firstLook` in `supervisor/boot.ts`).
  * That needs each copy read first — a dozen local git calls. The host used to
  * read every installed copy at once and start none until all were read, so
  * the open kehikko's modules waited for the twenty-odd it does not show: two

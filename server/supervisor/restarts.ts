@@ -1,8 +1,8 @@
 import { WELL_KNOWN } from 'kehikot-module-protocol'
 import { releaseVersion } from '../../src/host/moduleReleases.ts'
 import { answersAs as answersAsStarted, takesAnyPort } from '../anyPort.ts'
-import { keptSentence, stopAnyway, type AnywayWorld } from '../anyway.ts'
-import type { developmentDesk } from '../development.ts'
+import { aim, keptSentence, stopAnyway, type AnywayWorld } from '../anyway.ts'
+import { pointRegistrationAt, restoreRegistration, type developmentDesk, type Moved as DevMoved } from '../development.ts'
 import { look, type Presence } from '../discover.ts'
 import { answered, gone, type Nursery, type Runnable, type Startable } from '../launch.ts'
 import { exitedLine, INSTALLING_FOR_MS } from '../lifecycle.ts'
@@ -443,6 +443,65 @@ export class Restarts<V extends Viewed = Viewed> {
       return came.ok ? { ...came, moved: halted.moved } : { ...came, why: `${halted.moved.line} ${came.why}` }
     } finally {
       working.delete(id)
+      if (mine) inHand.delete(id)
+      wakes.registryChanged()
+    }
+  }
+
+  /**
+   * Run a module from another folder (`development.ts`): stopped from where it runs now — as a
+   * restart stops it, so a module a previous host started is proven before it is stopped — then its
+   * registration pointed at `dir` and started from there. It must answer within an update's wait;
+   * when it does not, the old registration goes back word for word and, if it was running, the old
+   * one is started again. A module set to keep running is never stopped for this.
+   */
+  async moveModule(id: string, dir: string, how: { now?: boolean } = {}): Promise<DevMoved> {
+    const { nursery, wakes } = this.#deps
+    const { inHand } = this.#deps.states
+    const halt = (one: string) => this.#deps.processes.halt(one)
+    const name = this.#deps.spokenName(id)
+    const before = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+    if (!before?.file) return { ok: false, why: `${name} is not registered on this computer any more.`, restored: false }
+    const from = before.dir ?? 'where it was'
+    const was = await look(before)
+    /* Set to keep running and running: not stopped for this. It moves at its next restart (`beforeStart`), or on a person's "Move now". */
+    if (before.keep === true && was.reached && !how.now) {
+      return { ok: false, why: `${name} is set to keep running, so it still runs from ${from} and moves at its next restart.`, restored: false, later: true }
+    }
+    const old = this.#deps.startable(before)
+    const mine = !inHand.has(id)
+    inHand.add(id)
+    this.settling.add(id)
+    try {
+      if (old.ok) {
+        /* "Move now": the process is proven to be the module before it is stopped, as "Restart anyway" does (`anyway.ts`). */
+        let forced: { pid: number } | undefined
+        if (before.keep === true && was.reached) {
+          const aimed = await aim(id, old.run, this.#deps.anyway)
+          if (!aimed.ok) return { ok: false, why: `${name} could not be stopped to move it: ${aimed.why}`, restored: false }
+          forced = { pid: aimed.target.pid }
+        }
+        const halted = await this.haltForRestart(id, before, old.run, forced)
+        if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
+      } else if (nursery.holds(id)) halt(id)
+      const pointed = pointRegistrationAt(before.file, dir)
+      if (!pointed.ok) return { ok: false, why: pointed.why, restored: false }
+      wakes.registryChanged()
+      const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
+      const can = this.#deps.startable(now)
+      const came = can.ok ? await this.bringUpOnce(id, can.run, ANSWERS_WITHIN_UPDATE_MS) : { ok: false as const, why: can.why }
+      if (came.ok && came.answered) return { ok: true }
+      /* It did not answer from there: everything goes back as it was. */
+      if (nursery.holds(id)) halt(id)
+      if (can.ok) await gone(can.run.url, WELL_KNOWN)
+      restoreRegistration(before.file, pointed.before)
+      wakes.registryChanged()
+      const back = was.reached && old.ok ? await this.bringUpOnce(id, old.run, ANSWERS_WITHIN_UPDATE_MS) : null
+      const runs = back ? (back.ok && back.answered ? ', and runs from there again' : '') : ''
+      console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
+      return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
+    } finally {
+      this.settling.delete(id)
       if (mine) inHand.delete(id)
       wakes.registryChanged()
     }

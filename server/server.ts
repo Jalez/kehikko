@@ -28,6 +28,8 @@ import { ModuleStates } from './supervisor/state.ts'
 import { Processes } from './supervisor/processes.ts'
 import { ANSWERS_WITHIN_UPDATE_MS, Restarts } from './supervisor/restarts.ts'
 import { Supervisor } from './supervisor/supervisor.ts'
+import { Sweeper } from './supervisor/sweep.ts'
+import { BootWindow } from './supervisor/boot.ts'
 import { moduleDesk } from './moduleRoutes.ts'
 import { callDesk } from './callRoutes.ts'
 import { personDesk } from './personRoutes.ts'
@@ -92,7 +94,7 @@ import { PersonGrants } from './personGrants.ts'
 import { PLACE_PARAM, doorToken, tokensOf } from './doorPlaces.ts'
 import { restartModuleDesk } from './restartModule.ts'
 import { stopModuleDesk } from './stopModule.ts'
-import { aim, anywayDesk, Arms, type AnywayWorld } from './anyway.ts'
+import { anywayDesk, Arms, type AnywayWorld } from './anyway.ts'
 import {
   doorWake,
   personStoppedDoorLine,
@@ -131,7 +133,6 @@ import { automatic } from '../src/host/agentSettings.ts'
 import { AgentSync, settingsInbox, type ModuleSeen, type SyncDeps } from './agentSync.ts'
 import { mcp } from './mcp.ts'
 import { doorPaces } from './mcp/paces.ts'
-import { sweepAfter } from './sweepAfter.ts'
 import { Openness } from './open.ts'
 import { Wakes } from './wake.ts'
 import { moved, watchRegistry } from './registryWatch.ts'
@@ -152,7 +153,7 @@ import { githubGateway } from './github.ts'
 import { anonymousBudget, budgetRows, githubAccount, pressed, pressedRequest } from './githubAccount.ts'
 import { PageLog } from './pageLog.ts'
 import { logsDir } from './machineDirs.ts'
-import { because, needsLookup, noteFree, noteHeld, reasonNow, receivedRow, recordThisProcess, routeReason, SWEEP_REASON, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
+import { because, needsLookup, noteFree, noteHeld, receivedRow, recordThisProcess, routeReason, tag, tagOf, trafficDoor, TrafficRecord, type ReceivedFrom } from './traffic.ts'
 import { PeerLookup, type Found, type Root } from './callers.ts'
 import { ListenerTable, ProcessSampler } from './trafficProcesses.ts'
 import { installDesk } from './installs.ts'
@@ -160,7 +161,7 @@ import { myModulesDesk } from './myModules.ts'
 import { HOST_REPO, OFFICIAL, RETIRED, type Official } from './official.ts'
 import { listUrl, officialSource } from './officialSource.ts'
 import { proposalDesk } from './proposals.ts'
-import { developmentDesk, pointRegistrationAt, restoreRegistration, type Moved as DevMoved } from './development.ts'
+import { developmentDesk, pointRegistrationAt } from './development.ts'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { appProtocolsFile, githubAccountFile, githubCacheFile, installsDir, myModulesFile, officialListFile, versionsDir } from './machineDirs.ts'
@@ -186,7 +187,6 @@ import { readDataVersions, recordedFor } from './dataVersions.ts'
 import pkg from '../package.json' with { type: 'json' }
 import { JobSteps, SLOTS, type Job } from './jobSteps.ts'
 import { StartupTimeline } from './startupTimeline.ts'
-import { bootReadsNow, DEFER_FOR_MS, deferredMayRun } from './startOrder.ts'
 
 /* When each step of this start happened, from the process's own start: `startupTimeline.ts`. */
 const startup = new StartupTimeline()
@@ -830,7 +830,7 @@ const development = developmentDesk({
   registrations: async () => (await readRegistrations()).registrations.map((r) => ({ id: r.id, dir: r.dir, keep: r.keep === true })),
   nameOf: (id) => knownName(id),
   copy: (entry) => installs.copy(entry),
-  move: (id, dir, how) => moveModule(id, dir, how),
+  move: (id, dir, how) => restarts.moveModule(id, dir, how),
   point: async (id, dir) => {
     const found = (await readRegistrations()).registrations.find((r) => r.id === id)
     if (!found?.file) return { ok: false, why: `${spokenName(id)} is not registered on this computer any more.` }
@@ -854,62 +854,6 @@ void official
   .catch(() => {})
   .then(() => development.boot())
   .catch((error: unknown) => console.log(`kehikko: Kehikko development could not be read: ${String(error)}`))
-
-/**
- * Run a module from another folder (`development.ts`): stopped from where it runs now — as a
- * restart stops it, so a module a previous host started is proven before it is stopped — then its
- * registration pointed at `dir` and started from there. It must answer within an update's wait;
- * when it does not, the old registration goes back word for word and, if it was running, the old
- * one is started again. A module set to keep running is never stopped for this.
- */
-async function moveModule(id: string, dir: string, how: { now?: boolean } = {}): Promise<DevMoved> {
-  const name = spokenName(id)
-  const before = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
-  if (!before?.file) return { ok: false, why: `${name} is not registered on this computer any more.`, restored: false }
-  const from = before.dir ?? 'where it was'
-  const was = await look(before)
-  /* Set to keep running and running: not stopped for this. It moves at its next restart (`beforeStart`), or on a person's "Move now". */
-  if (before.keep === true && was.reached && !how.now) {
-    return { ok: false, why: `${name} is set to keep running, so it still runs from ${from} and moves at its next restart.`, restored: false, later: true }
-  }
-  const old = startable(before)
-  const mine = !inHand.has(id)
-  inHand.add(id)
-  restarts.settling.add(id)
-  try {
-    if (old.ok) {
-      /* "Move now": the process is proven to be the module before it is stopped, as "Restart anyway" does (`anyway.ts`). */
-      let forced: { pid: number } | undefined
-      if (before.keep === true && was.reached) {
-        const aimed = await aim(id, old.run, anywayWorld)
-        if (!aimed.ok) return { ok: false, why: `${name} could not be stopped to move it: ${aimed.why}`, restored: false }
-        forced = { pid: aimed.target.pid }
-      }
-      const halted = await restarts.haltForRestart(id, before, old.run, forced)
-      if (!halted.ok) return { ok: false, why: `${name} could not be stopped to move it: ${halted.why}`, restored: false }
-    } else if (nursery.holds(id)) halt(id)
-    const pointed = pointRegistrationAt(before.file, dir)
-    if (!pointed.ok) return { ok: false, why: pointed.why, restored: false }
-    wakes.registryChanged()
-    const now = (await readRegistrations()).registrations.find((r) => r.id === id) ?? null
-    const can = startable(now)
-    const came = can.ok ? await restarts.bringUpOnce(id, can.run, ANSWERS_WITHIN_UPDATE_MS) : { ok: false as const, why: can.why }
-    if (came.ok && came.answered) return { ok: true }
-    /* It did not answer from there: everything goes back as it was. */
-    if (nursery.holds(id)) halt(id)
-    if (can.ok) await gone(can.run.url, WELL_KNOWN)
-    restoreRegistration(before.file, pointed.before)
-    wakes.registryChanged()
-    const back = was.reached && old.ok ? await restarts.bringUpOnce(id, old.run, ANSWERS_WITHIN_UPDATE_MS) : null
-    const runs = back ? (back.ok && back.answered ? ', and runs from there again' : '') : ''
-    console.log(`kehikko: ${id} did not answer from ${dir}; its registration was put back on ${from}`)
-    return { ok: false, why: `${name} did not start from ${dir}, so it was put back on ${from}${runs}. What it printed is in ${logFile(id)}.`, restored: true }
-  } finally {
-    restarts.settling.delete(id)
-    if (mine) inHand.delete(id)
-    wakes.registryChanged()
-  }
-}
 
 /* Proposing a registered module for that list, as an issue in this host's
    repository. See `proposals.ts`. */
@@ -1170,85 +1114,29 @@ async function doorOf(id: string): Promise<{ ok: true; door: Door } | NoDoor> {
 }
 
 /**
- * The sweep, with two of them never running at once.
- *
- * A sweep is one HTTP request to every registered program. Two overlapping ones
- * are twice that for one answer, and there are now three things that can ask
- * for a sweep at nearly the same moment: the page on load, the page on focus,
- * and a person switching kehikko — which reports what is open and then wants to
- * know what is running there. Whoever asks second gets the answer the first is
- * already waiting for.
- *
- * Safe to share because a sweep is a question about the disk and the ports and
- * about nothing the caller brought with it. What each caller does with the
- * answer differs; the answer does not.
+ * The sweep (`supervisor/sweep.ts`): one at a time, shared by whoever asks meanwhile, and the last
+ * one kept (`seen`) so the reaper never needs one. The first sweep is also when "Keep modules up to
+ * date automatically" reads the copies (`BootWindow.firstLook`).
  */
-let sweeping: Promise<Swept> | null = null
-/** When the sweep out began (`sweepAfter`). */
-let sweepingSince = 0
-/** Whether the sweep out reads only what is kept (`sweep({ kept: true })`). */
-let sweepingKept = false
+const sweeper = new Sweeper<Swept>({
+  survey,
+  refresh: () => manifests.refresh(),
+  began: (running) => {
+    if (boot.waiting) void because('auto-update’s first look', () => boot.firstLook(running))
+  },
+})
+
 /**
- * At host start, with "Keep modules up to date automatically" on, an installed copy is not started
- * until its own tags were read (`bootAutoUpdates`, on the first sweep): `booting` until then.
- */
-let booting = readAutoUpdates(db)
-let bootRead = false
-/**
- * `fresh`: every manifest asked again, not read from `manifests` — for a person's press. A sweep
- * already out may have read kept ones, so a fresh one waits for it and then asks.
+ * `fresh`: every manifest asked again, not read from `manifests` — for a person's press (`Sweeper.sweep`).
  */
 function sweep(how: boolean | { kept: true } = false): Promise<Swept> {
-  const fresh = how === true
-  const kept = typeof how === 'object'
-  /* `refresh` declines a press right behind another press: what that one read stands. */
-  if (fresh && manifests.refresh()) {
-    if (sweeping) return sweeping.catch(() => null).then(() => sweep())
-  }
-  /* A sweep of what is kept may share any sweep out; any other does not share one of those. */
-  if (sweeping && (kept || !sweepingKept)) return sweeping
-  if (sweeping) return sweeping.catch(() => null).then(() => sweep(how))
-  /* A sweep is shared by whoever asks next, and is asked from callbacks with no reason of their own:
-     it says its own, unless the one that started it gave a nearer one. */
-  const running = because(reasonNow() ?? SWEEP_REASON, () => survey(kept)).finally(() => {
-    if (sweeping === running) sweeping = null
-    seen = running
-  })
-  void running.then((swept) => {
-    for (const presence of swept.presences) if (presence.module) holdsSaid.set(presence.id, presence.module.holds)
-  }, () => undefined)
-  sweeping = running
-  sweepingSince = Date.now()
-  sweepingKept = kept
-  /* The first sweep is also when "Keep modules up to date automatically" reads the copies (`bootAutoUpdates`). */
-  if (booting && !bootRead) void because('auto-update’s first look', () => bootAutoUpdates(running))
-  return running
+  return sweeper.sweep(how)
 }
 
 /** A sweep that began at or after `at`: see `sweepAfter.ts`. What a start reads once its module answered. */
 function sweepSince(at: number): Promise<Swept> {
-  return sweepAfter(() => (sweeping ? { running: sweeping, since: sweepingSince } : null), at, () => sweep())
+  return sweeper.sweepSince(at)
 }
-
-/**
- * The last sweep, kept so that stopping does not need a new one.
- *
- * The reaper runs on a timer and the whole point of it is to run when NOBODY is
- * looking — so it must not sweep, because a sweep is thirteen requests, and a
- * host making thirteen requests a minute forever to save memory would be
- * spending the saving on the saving. What it needs from a sweep is one bit per
- * module: is anything there. That bit going stale costs at most one tick of
- * delay in either direction, and `Nursery` refuses anything whose process has
- * since died, so a stale belief cannot become a wrong signal.
- */
-let seen: Promise<Swept> | null = null
-
-/**
- * What each module's manifest last said it holds (protocol 2.33.0, `holds`), by id, for what has to
- * be answered without a sweep: whether an automatic update may restart it (`holdsShells`). A module
- * that never answered is not here, which reads as having said nothing.
- */
-const holdsSaid = new Map<string, readonly string[] | undefined>()
 
 /**
  * The programs the host started, and when.
@@ -1832,8 +1720,8 @@ const restarts: Restarts<Swept> = new Restarts<Swept>({
 /**
  * The module supervisor (`supervisor/supervisor.ts`): which module to start and stop, and when; what
  * a run that ended means; the tethers, the watch and the reaper. What it reads of the rest of the
- * host is handed over here. `releases`, `auto`, `builds` and `backfilled` are made further down, so
- * they are handed over as getters and functions, read when they are used.
+ * host is handed over here. `releases`, `auto`, `builds`, `boot` and `backfilled` are made further
+ * down, so they are handed over as getters and functions, read when they are used.
  */
 const supervisor: Supervisor<Swept> = new Supervisor<Swept>({
   states,
@@ -1844,33 +1732,37 @@ const supervisor: Supervisor<Swept> = new Supervisor<Swept>({
   manifests,
   idleness,
   staleness,
-  get releases() {
-    return releases
+  holds: {
+    get releases() {
+      return releases
+    },
+    get builds() {
+      return builds
+    },
+    get auto() {
+      return auto
+    },
   },
-  get builds() {
-    return builds
-  },
-  get auto() {
-    return auto
+  boot: {
+    holds: (id) => boot.holds(id),
+    pump: () => boot.pump(),
+    checkWhenUp: (place) => boot.checkWhenUp(place),
+    runHeldChecks: () => boot.runHeldChecks(),
+    backfilled: () => backfilled,
+    backfill,
   },
   development,
   restarts,
   startup,
   wakes,
   sweep,
-  seen: () => seen,
-  sweeping: () => sweeping,
+  seen: () => sweeper.seen,
+  sweeping: () => sweeper.sweeping,
   pageView: (view) => pageView(view),
   going: () => going,
   wanted: wantedNow,
-  bootHolds,
-  bootPump,
   startable,
   installedPlace,
-  checkWhenUp,
-  backfilled: () => backfilled,
-  backfill,
-  runHeldChecks,
   /* A module that is not registered (uninstalled; its containers say so) runs no pinned version. */
   reconcileVersions: (now, mayStart) => {
     const canvases = listCanvases(db).map((canvas) => ({ ...canvas, placements: canvas.placements.filter((p) => registered.has(p.i)) }))
@@ -1965,7 +1857,7 @@ const auto = new AutoUpdates({
       pinned: pinSummary(listCanvases(db))[id]?.versions ?? [],
       running: nursery.holds(id) || answeredBy.has(id),
       onScreen: neededNow().has(id),
-      holdsShells: holdsShells({ id, holds: holdsSaid.get(id) }),
+      holdsShells: holdsShells({ id, holds: sweeper.holdsSaid.get(id) }),
       kept: registration.keep === true,
       busy: progress.has(id) || inHand.has(id) || releases.applying(id) || builds.busy(id),
     }
@@ -2008,115 +1900,28 @@ async function applyAutomatically(id: string): Promise<Applied> {
 }
 
 /**
- * At host start, with the switch on: every installed copy whose own tags hold
- * a newer release it can run — fetched by a check before the restart — is put
- * on it before the module is first started, so "Restart to update" brings the
- * modules along in the same restart. Nothing is asked of the network; a copy
- * read takes a few git calls. Until its own copy is read, a module is not
- * started (`bootHolds`, at most `BOOT_READ_MS`) — and the copies of the modules
- * on screen are read first, all together, the rest a few at a time
- * (`bootReadsNow` in `startOrder.ts`, which says why).
+ * The host's first moments (`supervisor/boot.ts`): at host start, with "Keep modules up to date
+ * automatically" on, an installed copy is held back until its own copy was read, those on screen
+ * first; and a release check waits until the open kehikko is up, or `DEFER_FOR_MS` after this host
+ * began.
  */
-const BOOT_READ_MS = 8_000
-/** Installed copies not yet read at this start, each held back from starting until it is. */
-const bootHeld = new Map<string, Place>()
-/** The held copies being read now. */
-const bootReading = new Set<string>()
-/** Whether this module is held back at host start: every installed copy until the first sweep, then each until its copy is read. */
-function bootHolds(id: string): boolean {
-  return bootHeld.has(id) || (booting && isInstalledId(id))
-}
-/** Called with the host's first sweep, whoever asked for it: no sweep of its own. */
-async function bootAutoUpdates(first: Promise<Swept>): Promise<void> {
-  if (!booting || bootRead) return
-  bootRead = true
-  startup.mark('auto-update first look begins')
-  /* What answers now: a module kept running across the restart is running, and waits for its stop. */
-  const view = await first.catch(() => null)
-  if (view) {
-    supervisor.notice(view.presences, Date.now())
-    for (const id of registered.keys()) {
-      const place = installedPlace(id)
-      if (place) bootHeld.set(id, place)
-    }
-  }
-  booting = false
-  if (!bootHeld.size) return bootDone()
-  /* The cap: whatever is still held starts as it is, and its read, when it lands, changes nothing. */
-  setTimeout(() => {
-    if (!bootHeld.size) return
-    bootHeld.clear()
-    bootDone()
-  }, BOOT_READ_MS).unref?.()
-  bootPump()
-}
-
-/** Start reading the held copies `bootReadsNow` picks; each one read is let go, and the next picked. */
-function bootPump(): void {
-  if (!bootHeld.size) return
-  for (const id of bootReadsNow(bootHeld.keys(), bootReading, wantedNow())) {
-    const place = bootHeld.get(id)
-    if (!place) continue
-    bootReading.add(id)
-    void readCheckout(place, false)
-      .catch(() => null)
-      .then((reading) => {
-        bootReading.delete(id)
-        /* Let go by the cap meanwhile: it has started as it was. */
-        if (!bootHeld.delete(id)) return
-        /* Queued synchronously: from here `auto.pending` holds it back. */
-        if (reading) void auto.found([reading])
-        if (!bootHeld.size) return bootDone()
-        bootLetGo()
-        bootPump()
-      })
-  }
-}
-
-function bootDone(): void {
-  startup.mark('auto-update first look done')
-  bootLetGo()
-}
-
-/**
- * What was held back starts now, decided from the sweep in hand: nothing is asked again. The pages
- * are told with that reading: a copy held back that is not started now no longer says "starting",
- * and none of them asks for it. Several copies read in one moment are let go together.
- */
-let lettingGo = false
-function bootLetGo(): void {
-  if (lettingGo || !seen) return
-  lettingGo = true
-  setTimeout(() => {
-    lettingGo = false
-    if (!seen) return
-    void seen
-      .then(async (view) => {
-        govern(view.presences)
-        wakes.registryChanged(await pageView(view))
-      })
-      .catch(() => null)
-  }, 0)
-}
-
-/*
- * A release check waits until the open kehikko is up, or `DEFER_FOR_MS` after this host began:
- * see `deferredMayRun` in `startOrder.ts`. Held by module, so a module started twice meanwhile is
- * checked once.
- */
-const BEGAN = Date.now()
-const heldChecks = new Map<string, Place>()
-function checkWhenUp(place: Place): void {
-  if (deferredMayRun(Date.now(), BEGAN, startup.at('open kehikko up'))) void releases.started(place)
-  else heldChecks.set(place.id, place)
-}
-function runHeldChecks(): void {
-  if (!heldChecks.size) return
-  startup.mark('held release checks run')
-  for (const place of heldChecks.values()) void releases.started(place)
-  heldChecks.clear()
-}
-setTimeout(runHeldChecks, DEFER_FOR_MS).unref?.()
+const boot = new BootWindow<Swept>({
+  autoUpdates: readAutoUpdates(db),
+  isInstalled: isInstalledId,
+  registered: () => registered.keys(),
+  installedPlace,
+  readCheckout: (place) => readCheckout(place, false),
+  /* Queued synchronously: from here `auto.pending` holds it back. */
+  found: (reading) => void auto.found([reading]),
+  wanted: () => wantedNow(),
+  seen: () => sweeper.seen,
+  notice: (presences, now) => supervisor.notice(presences, now),
+  govern: (presences) => govern(presences),
+  told: async (view) => wakes.registryChanged(await pageView(view)),
+  check: (place) => void releases.started(place),
+  startup,
+})
+boot.start()
 
 /**
  * Installed modules are built once, here, at install and at update — never at
@@ -2408,7 +2213,7 @@ supervisor.start()
  * reported as old code. A module that states no build is left to the fallback.
  */
 async function judgeStaleness(press = false): Promise<void> {
-  const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
+  const presences = sweeper.seen ? ((await sweeper.seen.catch(() => null))?.presences ?? []) : []
   await Promise.all(
     presences.map(async (presence) => {
       const registration = registered.get(presence.id)
@@ -2436,7 +2241,7 @@ const ANSWERS_WITHIN_PRESS_MS = 6_000
 
 /** For each module checkout that is behind and running: what its update would do. See `previewUpdate`. */
 async function updatePreviews(checkouts: readonly Reading[]): Promise<Record<string, UpdatePreview>> {
-  const presences = seen ? (await seen.catch(() => null))?.presences ?? [] : []
+  const presences = sweeper.seen ? (await sweeper.seen.catch(() => null))?.presences ?? [] : []
   const said: Record<string, UpdatePreview> = {}
   for (const one of checkouts) {
     if ('error' in one || one.id === 'host' || !hasUpdate(one) || one.blocked !== null) continue
@@ -2471,7 +2276,7 @@ function tellRolledBack(sentence: string): void {
 
 /** The modules whose registration says `keep` and that answered the last sweep. */
 async function keptAndRunning(): Promise<string[]> {
-  const presences = seen ? ((await seen.catch(() => null))?.presences ?? []) : []
+  const presences = sweeper.seen ? ((await sweeper.seen.catch(() => null))?.presences ?? []) : []
   return presences.filter((presence) => presence.reached && registered.get(presence.id)?.keep === true).map((presence) => presence.id)
 }
 
@@ -2594,7 +2399,7 @@ const agentSync = new AgentSync({
   refresh: () => refreshChoice(setupDeps),
   /* The sweep it was poked by (`saw`), not one of its own: a sweep asks every module that is not
      answering, and at a cold start each module coming up poked it again. */
-  modules: () => because('your agent’s setup', async () => seenOf((await (seen ?? sweep())).presences)),
+  modules: () => because('your agent’s setup', async () => seenOf((await (sweeper.seen ?? sweep())).presences)),
   known: () => agentKnows(),
   skillsRoot: () => claudeSkillsDir(),
   nameOf: knownName,
@@ -2831,7 +2636,7 @@ const placeRoutes = placeDesk({
     ),
   /* Asked right after `doors`: that sweep's presences, not thirteen more requests. */
   modules: async () =>
-    (await (seen ?? sweep())).presences.map((presence) => ({
+    (await (sweeper.seen ?? sweep())).presences.map((presence) => ({
       id: presence.id,
       name: presence.module?.name ?? presence.name ?? null,
       summary: presence.module?.summary ?? presence.summary,
@@ -2850,7 +2655,7 @@ const placeRoutes = placeDesk({
   /* What the Settings sync keeps installed for every conversation, told to a module that installs skills for its own agent (2.23.0). */
   everywhere: async (asker) => {
     const settings = readSettings(db)
-    const presences = (await (seen ?? sweep())).presences
+    const presences = (await (sweeper.seen ?? sweep())).presences
     return everywhereFor(
       asker,
       [
@@ -3388,7 +3193,7 @@ const updateRoutes = updateDesk({
   updatePreviews,
   pinned: () => pinSummary(listCanvases(db)),
   keptAndRunning,
-  holds: () => [...registered.keys()].filter((id) => holdsShells({ id, holds: holdsSaid.get(id) })),
+  holds: () => [...registered.keys()].filter((id) => holdsShells({ id, holds: sweeper.holdsSaid.get(id) })),
   builds,
   registrationOf,
   isInstalled,

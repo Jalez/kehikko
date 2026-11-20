@@ -58,14 +58,34 @@ export interface SupervisorDeps<V extends Seen = Seen> {
   lastPresences: ReadonlyMap<string, Presence>
   manifests: Pick<ManifestCache, 'wait' | 'forget' | 'read' | 'readAt' | 'stampOf'>
   idleness: Pick<Idleness, 'noted' | 'since' | 'forgetAllBut'>
-  /* Each of these forgets what it held for a module whose registration is gone. */
+  /** Which modules run older code than their checkout (`stale.ts`): forgotten for a module whose registration is gone. */
   staleness: { forgetAllBut(ids: Iterable<string>): void }
-  /** A newer release being put in place while the module is stopped (`whileStopped`). */
-  releases: { applying(id: string): boolean; forgetAllBut(ids: Iterable<string>): void }
-  /** Its copy being built (`moduleBuilds.ts`). */
-  builds: { busy(id: string): boolean; forgetAllBut(ids: Iterable<string>): void }
-  /** "Keep modules up to date automatically" (`autoUpdates.ts`). */
-  auto: { pending(id: string): boolean; moved(): Promise<void>; forgetAllBut(ids: Iterable<string>): void }
+  /**
+   * What holds a module's start back while its copy is changed: a start waits for each, and each
+   * forgets what it held for a module whose registration is gone.
+   */
+  holds: {
+    /** A newer release being put in place while the module is stopped (`whileStopped`). */
+    releases: { applying(id: string): boolean; forgetAllBut(ids: Iterable<string>): void }
+    /** Its copy being built (`moduleBuilds.ts`). */
+    builds: { busy(id: string): boolean; forgetAllBut(ids: Iterable<string>): void }
+    /** "Keep modules up to date automatically" (`autoUpdates.ts`). */
+    auto: { pending(id: string): boolean; moved(): Promise<void>; forgetAllBut(ids: Iterable<string>): void }
+  }
+  /** The host's first moments (`boot.ts`), and what waits for the open kehikko to be up. */
+  boot: {
+    /** At host start, an installed copy waits until its own tags were read. */
+    holds(id: string): boolean
+    /** A kehikko opened while copies are still being read at host start: its copies go first. */
+    pump(): void
+    /** Whether a newer release is out, asked beside a start (`releaseWait.ts`). */
+    checkWhenUp(place: Place): void
+    /** The release checks held until the open kehikko is up. */
+    runHeldChecks(): void
+    /** The copies installed before modules were built: built once per host start (`backfill`). */
+    backfilled(): boolean
+    backfill(): void
+  }
   /** Kehikko development: a module set to keep running that is not yet moved. */
   development: { owes(id: string, registration: Registration | null): boolean }
   /**
@@ -90,20 +110,9 @@ export interface SupervisorDeps<V extends Seen = Seen> {
 
   /** What is needed and what is warm, at `now` (`wanted` in `lifecycle.ts`). */
   wanted(now: number): Wanted
-  /** At host start, an installed copy waits until its own tags were read. */
-  bootHolds(id: string): boolean
-  /** A kehikko opened while copies are still being read at host start: its copies go first. */
-  bootPump(): void
   startable(registration: Registration | null): Startable
   /** An installed module's place; null for anything else. */
   installedPlace(id: string): Place | null
-  /** Whether a newer release is out, asked beside a start (`releaseWait.ts`). */
-  checkWhenUp(place: Place): void
-  /** The copies installed before modules were built: built once per host start (`backfill`). */
-  backfilled(): boolean
-  backfill(): void
-  /** The release checks held until the open kehikko is up. */
-  runHeldChecks(): void
   /** The versions containers are pinned to, by the same rule as the modules (`versionRuns.ts`). */
   reconcileVersions(now: number, mayStart: boolean): void
   /** A module the host stopped: a newer release is put in place while it is (`whileStopped`). */
@@ -192,7 +201,8 @@ export class Supervisor<V extends Seen = Seen> {
 
   /** What the host is doing to one module, for `lifecycleOf`. */
   #doing(id: string): Doing {
-    const { states, nursery, releases, builds, auto } = this.#deps
+    const { states, nursery, boot } = this.#deps
+    const { releases, builds, auto } = this.#deps.holds
     const ranAt = states.starting.get(id) ?? null
     const alive = nursery.holds(id)
     return {
@@ -203,7 +213,7 @@ export class Supervisor<V extends Seen = Seen> {
       installing: ranAt !== null && alive && this.#logs.installing(this.#logs.file(id)),
       asleep: states.sleeping.has(id),
       /* Its copy is being put on a newer release, or built, or read at host start for one: started after. */
-      levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || this.#deps.bootHolds(id),
+      levelling: releases.applying(id) || builds.busy(id) || auto.pending(id) || boot.holds(id),
     }
   }
 
@@ -294,9 +304,9 @@ export class Supervisor<V extends Seen = Seen> {
     idleness.forgetAllBut(here)
     states.forgetAllBut(here)
     this.#deps.staleness.forgetAllBut(here)
-    this.#deps.releases.forgetAllBut(here)
-    this.#deps.auto.forgetAllBut(here)
-    this.#deps.builds.forgetAllBut(here)
+    this.#deps.holds.releases.forgetAllBut(here)
+    this.#deps.holds.auto.forgetAllBut(here)
+    this.#deps.holds.builds.forgetAllBut(here)
     for (const id of nursery.ids) if (!here.has(id)) nursery.forget(id)
 
     return presences.map((presence) => {
@@ -348,7 +358,8 @@ export class Supervisor<V extends Seen = Seen> {
    * a container that says so, with the button on it, which is where this began.
    */
   begin(id: string, why = 'an open kehikko or project has it'): void {
-    const { states, nursery, releases, auto, builds, development } = this.#deps
+    const { states, nursery, development, boot } = this.#deps
+    const { releases, auto, builds } = this.#deps.holds
     const { pressedStarts } = this.#deps.restarts
     const { theirs, stoppedByPerson, inHand } = states
     /* A host on its way out starts nothing: see `leave` in `server.ts`. */
@@ -364,7 +375,7 @@ export class Supervisor<V extends Seen = Seen> {
     /* "Keep modules up to date automatically" is putting a newer release in
        place, or has one queued (`autoUpdates.ts`); started when that is done.
        At host start, an installed copy waits until its own tags were read. */
-    if (auto.pending(id) || this.#deps.bootHolds(id)) return
+    if (auto.pending(id) || boot.holds(id)) return
     /* Its copy is being built (`moduleBuilds.ts`): a build is never run under
        a module, so the start waits for that one build. Started when it ends. */
     if (builds.busy(id)) return
@@ -387,7 +398,7 @@ export class Supervisor<V extends Seen = Seen> {
     /* The copy as it is starts now; whether a newer release is out is asked
        beside it, never before it. See `releaseWait.ts`. */
     const place = this.#deps.installedPlace(id)
-    if (place) this.#deps.checkWhenUp(place)
+    if (place) boot.checkWhenUp(place)
     /* Under its own reason: it is started from whatever request decided to start it (a page's
        report, a page's read of the modules), and its asks were filed under that, as the page's. */
     void because('the host waits for a module it started', () => this.#untilAnswered(id, can.run.url))
@@ -530,9 +541,9 @@ export class Supervisor<V extends Seen = Seen> {
     /* An automatic update that waited for its module to be off screen or stopped
        may go now — decided before anything is started, so a module it takes is
        held back (`auto.pending`) rather than started on the old release. */
-    void this.#deps.auto.moved()
+    void this.#deps.holds.auto.moved()
     /* A kehikko opened while copies are still being read at host start: its copies go first. */
-    this.#deps.bootPump()
+    this.#deps.boot.pump()
     if (mayStart) {
       for (const id of toStart(standing)) this.begin(id)
       /* The rest of the open project, in the background: nothing while the
@@ -541,10 +552,10 @@ export class Supervisor<V extends Seen = Seen> {
       for (const id of toWarm(standing)) this.begin(id)
       /* Once the open kehikko's modules are up, the copies installed before
          modules were built are built, in the background (`backfill`). */
-      if (!this.#deps.backfilled() && openUp(standing)) this.#deps.backfill()
+      if (!this.#deps.boot.backfilled() && openUp(standing)) this.#deps.boot.backfill()
       if (!startup.has('open kehikko up') && openUp(standing)) {
         startup.mark('open kehikko up')
-        this.#deps.runHeldChecks()
+        this.#deps.boot.runHeldChecks()
         /* Written a little after, so that what waits for this moment is in it too. */
         this.#after(TIMELINE_AFTER_UP_MS, () => startup.write('the open kehikko is up'))
       }
@@ -722,7 +733,7 @@ export class Supervisor<V extends Seen = Seen> {
    * exactly nothing overnight, which is most of the day.
    *
    * It costs a sqlite read and some arithmetic. No sweep, no manifest, no
-   * network — see `seen` in `server.ts`. Every thirty seconds, so the effective
+   * network — see `Sweeper.seen` in `sweep.ts`. Every thirty seconds, so the effective
    * grace is five minutes and a bit, and the "and a bit" does not matter to anything.
    *
    * ## And the watch, on the same tick, deliberately

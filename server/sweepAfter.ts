@@ -1,7 +1,7 @@
 /**
  * A sweep that began after a moment: the one out when it did, else the next one.
  *
- * Sweeps are shared — a sweep asked for while one is out gets that one (`sweep` in `server.ts`).
+ * Sweeps are shared — a sweep asked for while one is out gets that one (`Sweeper.sweep` in `supervisor/sweep.ts`).
  * That is right for "what is there", and wrong for the one question a start asks: "now that it
  * answered, what does it look like?". The sweep out may have begun before the module answered,
  * and then it says the module is silent and starting. That reading was handed to the page as the
