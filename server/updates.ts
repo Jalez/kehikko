@@ -5,6 +5,7 @@ import { whyOfFailure } from './gitAuth.ts'
 import { clearStaleLocks, lockNamedIn, lockSaid } from './gitLocks.ts'
 import type { Job } from './jobSteps.ts'
 import { streamed } from './versions.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 import { because } from './traffic.ts'
 import { adoptedReadyBuilt, buildBun, markInstalled, type Built } from './moduleBuilds.ts'
 /* Types only: moduleBundles.ts reads releases through moduleReleases.ts, which reaches back here. */
@@ -164,13 +165,6 @@ export function hasUpdate(c: Pick<Checkout, 'behind' | 'release'>): boolean {
 const INCOMING_MAX = 10
 const FETCH_TIMEOUT_MS = 20_000
 const LOCAL_TIMEOUT_MS = 10_000
-
-/** No terminal to prompt in, so nothing may prompt. */
-export const QUIET_ENV = {
-  ...process.env,
-  GIT_TERMINAL_PROMPT: '0',
-  GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? 'ssh -o BatchMode=yes',
-}
 
 export const CANCELLED = 'cancelled'
 

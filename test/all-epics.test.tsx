@@ -140,7 +140,7 @@ describe('what every module is told', () => {
 
   test('scope "project", no epic and no parts — and that is not "no epic"', () => {
     const parts = [{ id: 'a', name: 'A', picked: true }] as never[]
-    const all = toWireContext({ epic: 'one', scope: 'project', project }, 'light', [], null, null, [], [], undefined, [], parts)
+    const all = toWireContext({ epic: 'one', scope: 'project', project }, 'light', { parts })
     expect(all.scope).toBe('project')
     expect(all.epic).toBeNull()
     expect(all.parts).toEqual([])

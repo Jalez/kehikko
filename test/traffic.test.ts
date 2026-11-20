@@ -19,7 +19,8 @@ import {
   untraced,
   type Unnumbered,
 } from '../server/traffic.ts'
-import { parseLsof, parseListeners, parseNettop, parsePs, ProcessSampler } from '../server/trafficProcesses.ts'
+import { parseLsof, parseNettop, ProcessSampler } from '../server/trafficProcesses.ts'
+import { parseListeners, parsePs } from '../server/processTable.ts'
 import { owners } from '../server/callers.ts'
 import { trackerReason } from '../server/trackers/reading.ts'
 
@@ -240,7 +241,7 @@ describe('traffic.read and traffic.note, held to the manifest', () => {
     },
   })
   const ask = (module: string, method: string, params: unknown, uses: string[]) =>
-    answer(module, method, params, known, undefined, null, undefined, null, null, null, grants(uses), { door, via: 'page' })
+    answer(module, method, params, { knownModule: known, grants: grants(uses), traffic: { door, via: 'page' } })
 
   test('a module that did not ask for traffic:read is refused, and nothing is read', () => {
     const said = ask('kehikot.kanban', 'traffic.read', {}, ['trackers:read'])
@@ -378,7 +379,7 @@ describe('a module’s server asking about traffic (/host/server-ask, protocol 2
       originOf: async (id) => (id in uses ? 'http://127.0.0.1:8070' : null),
       may: (module, capability) => (uses[module] ?? []).includes(capability),
       projectAt: () => null,
-      answer: (module, method, params, root) => answer(module, method, params, (id) => id in uses, undefined, root, undefined, null, null, null, { may: (m, c) => (uses[m] ?? []).includes(c) }, { door, via: 'server' }),
+      answer: (module, method, params, root) => answer(module, method, params, { knownModule: (id) => id in uses, root, grants: { may: (m, c) => (uses[m] ?? []).includes(c) }, traffic: { door, via: 'server' } }),
       fetch: (async (url: string) => {
         vouched.push(url)
         return Response.json({ ok: true, minted: new URL(url).searchParams.get('pass') === PASS })

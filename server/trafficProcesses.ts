@@ -3,7 +3,9 @@ import { reverse } from 'node:dns/promises'
 import { LIMITS, type TrafficConnection, type TrafficProcesses } from 'kehikot-module-protocol'
 
 import { owners, type Root } from './callers.ts'
-import { spawnedFor, untraced, type TrafficRecord } from './traffic.ts'
+import { parseListeners, parsePs, runQuiet } from './processTable.ts'
+import type { TrafficRecord } from './traffic.ts'
+import { spawnedFor } from './trafficContext.ts'
 
 /**
  * Connections nobody reported (protocol 2.20.0): what is open on this host's own processes and on each
@@ -33,23 +35,6 @@ export const WANTED_MS = 10_000
 const PIDS_MAX = 200
 /** How many addresses are looked up by name in one look; the rest stay numbers until a later one. */
 const NAMES_PER_LOOK = 6
-
-export interface Proc {
-  pid: number
-  ppid: number
-  pgid: number
-  name: string
-}
-
-/** `ps -A -o pid=,ppid=,pgid=,ucomm=`. */
-export function parsePs(text: string): Proc[] {
-  const out: Proc[] = []
-  for (const line of text.split('\n')) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*?)\s*$/.exec(line)
-    if (match) out.push({ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]), name: (match[4] ?? '').slice(0, LIMITS.TRAFFIC_KIND) })
-  }
-  return out
-}
 
 export interface Socket {
   pid: number
@@ -133,20 +118,6 @@ export function parseLsof(text: string): Socket[] {
   return out
 }
 
-/** `lsof -nP -iTCP -sTCP:LISTEN -F pn`: which pid listens on each port. */
-export function parseListeners(text: string): Map<number, number> {
-  const out = new Map<number, number>()
-  let pid = 0
-  for (const line of text.split('\n')) {
-    if (line.startsWith('p')) pid = Number(line.slice(1))
-    else if (line.startsWith('n') && pid) {
-      const port = Number(line.slice(line.lastIndexOf(':') + 1))
-      if (Number.isInteger(port) && port > 0 && !out.has(port)) out.set(port, pid)
-    }
-  }
-  return out
-}
-
 /** How long which process listens on which port is believed: a module started by hand keeps its port for longer than this. */
 export const LISTENERS_MS = 30_000
 
@@ -198,20 +169,6 @@ export interface SamplerDeps {
   now?(): number
   /** Look an address up by name: cheap, cached, and allowed to fail. */
   name?(address: string): Promise<string | null>
-}
-
-export async function runQuiet(argv: string[]): Promise<string | null> {
-  return untraced(async () => {
-    try {
-      const child = Bun.spawn(argv, { stdout: 'pipe', stderr: 'ignore', stdin: 'ignore' })
-      const timer = setTimeout(() => child.kill(), 5000)
-      const [text, code] = await Promise.all([new Response(child.stdout).text(), child.exited])
-      clearTimeout(timer)
-      return code === 0 ? text : null
-    } catch {
-      return null
-    }
-  })
 }
 
 async function nameOf(address: string): Promise<string | null> {

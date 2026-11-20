@@ -1,6 +1,6 @@
 import { whyOfFailure } from './gitAuth.ts'
 import type { Watch } from './jobSteps.ts'
-import { QUIET_ENV } from './updates.ts'
+import { QUIET_ENV } from './quietEnv.ts'
 import { because, noteHit } from './traffic.ts'
 
 /**

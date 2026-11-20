@@ -95,11 +95,11 @@ describe('tracker.get { epic, parts: true }', () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake([ghRow(1), ghRow(2), ghRow(3)]) }, now: () => NOW })
     const known = () => true
     /* Asked once with parts, the part's ref is pending and read by the next read, like any ref asked for. */
-    const first = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, known, undefined, folder, undefined, trackers)
+    const first = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, { knownModule: known, root: folder, trackers })
     expect(first.ok).toBe(true)
     await trackers.refresh(folder, { project: true }, 'press')
-    const own = answer('kehikot.kanban', 'tracker.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
-    const both = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, known, undefined, folder, undefined, trackers)
+    const own = answer('kehikot.kanban', 'tracker.get', { epic: 'one' }, { knownModule: known, root: folder, trackers })
+    const both = answer('kehikot.kanban', 'tracker.get', { epic: 'one', parts: true }, { knownModule: known, root: folder, trackers })
     if (!own.ok || !both.ok) throw new Error('not answered')
     expect(trackerReadingResult.parse(own.data).rows.map((r) => r.ref)).toEqual(['gh#1'])
     expect(trackerReadingResult.parse(both.data).rows.map((r) => r.ref).sort()).toEqual(['gh#1', 'gh#2'])
@@ -107,7 +107,7 @@ describe('tracker.get { epic, parts: true }', () => {
 
   test('parts without an epic is refused, as the protocol says', () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake([]) }, now: () => NOW })
-    const refused = answer('kehikot.kanban', 'tracker.get', { refs: ['gh#1'], parts: true }, () => true, undefined, folder, undefined, trackers)
+    const refused = answer('kehikot.kanban', 'tracker.get', { refs: ['gh#1'], parts: true }, { knownModule: () => true, root: folder, trackers })
     expect(refused.ok).toBe(false)
   })
 })
@@ -318,7 +318,7 @@ describe('a module’s server asks the host: /host/server-ask', () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake([ghRow(1), ghRow(2)]) }, now: () => NOW })
     await trackers.refresh(folder, { refs: ['gh#1', 'gh#2'] }, 'press')
     const { route } = desk({
-      answer: (module, method, params, root) => answer(module, method, params, () => true, () => {}, root, undefined, trackers, null, null, { may: () => true }),
+      answer: (module, method, params, root) => answer(module, method, params, { knownModule: () => true, keep: () => {}, root, trackers, grants: { may: () => true } }),
     })
     const said = await ask(route, question())
     const parsed = serverAskResult.parse(said.body)

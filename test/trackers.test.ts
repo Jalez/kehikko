@@ -1128,7 +1128,7 @@ describe('live.get folds changes under their issues from the reading', () => {
     const rows = [ghRow(2), ghRow(3, { kind: 'change', ...closes('gh#2') }), ghRow(20, { kind: 'change', ...closes('gh#2') })]
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => rows) }, now: () => NOW })
     await trackers.refresh(folder, { project: true }, 'press')
-    const given = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    const given = answer('example.notes', 'live.get', { epic: 'one' }, { knownModule: known, root: folder, trackers })
     if (!given.ok) throw new Error(given.error)
     const live = given.data as Record<string, unknown>
     expect(live.ghLinks).toEqual({ 'gh#2': [1, 3, 20], 'gh#4': [9] })
@@ -1142,29 +1142,28 @@ describe('the methods, answered', () => {
   test('tracker.get is answered from the reading, in the protocol’s shape', async () => {
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => [ghRow(1)]) }, now: () => NOW })
     await trackers.refresh(folder, { project: true }, 'press')
-    const given = answer('example.notes', 'tracker.get', { refs: ['gh#1'] }, known, undefined, folder, undefined, trackers)
+    const given = answer('example.notes', 'tracker.get', { refs: ['gh#1'] }, { knownModule: known, root: folder, trackers })
     expect(given.ok).toBe(true)
     if (given.ok) expect(methodResults['tracker.get']!.parse(given.data).rows[0].ref).toBe('gh#1')
-    const refused = answer('example.notes', 'tracker.get', { refs: ['gh#1'], project: true }, known, undefined, folder, undefined, trackers)
+    const refused = answer('example.notes', 'tracker.get', { refs: ['gh#1'], project: true }, { knownModule: known, root: folder, trackers })
     expect(refused.ok).toBe(false)
-    const nowhere = answer('example.notes', 'tracker.get', { project: true }, known, undefined, null, undefined, trackers)
+    const nowhere = answer('example.notes', 'tracker.get', { project: true }, { knownModule: known, trackers })
     expect(nowhere.ok).toBe(false)
   })
 
   test('tracker.refresh reads nothing for a module: it is declined with the reason (Jalez/kehikko#384)', async () => {
     const adapter = fake(() => [ghRow(1)])
     const trackers = new Trackers({ run: remotes, adapters: { github: adapter }, now: () => NOW })
-    const given = await answerCall('example.notes', 'tracker.refresh', { project: true }, known, () => {}, folder, () => ({ ok: false, why: '' }), trackers)
+    const given = await answerCall('example.notes', 'tracker.refresh', { project: true }, { knownModule: known, keep: () => {}, root: folder, mark: () => ({ ok: false, why: '' }), trackers })
     expect(given.ok && (given.data as { outcome: string; why: string })).toMatchObject({ outcome: 'declined', why: expect.stringContaining('Refresh all') })
     expect(adapter.reads).toBe(0)
-    const elsewhere = await answerCall('example.notes', 'tracker.refresh', { project: true }, known, () => {}, null, () => ({ ok: false, why: '' }), trackers)
+    const elsewhere = await answerCall('example.notes', 'tracker.refresh', { project: true }, { knownModule: known, keep: () => {}, mark: () => ({ ok: false, why: '' }), trackers })
     expect(elsewhere.ok && (elsewhere.data as { outcome: string }).outcome).toBe('declined')
   })
 
   test('the signal reaches every module in the context, and nothing else of the reading does', () => {
-    const told = toWireContext({ epic: null, project: { id: 1, name: 'p', path: folder } } as never, 'light', [], null, null, [], [], {
-      at: NOW.toISOString(),
-      refreshing: true,
+    const told = toWireContext({ epic: null, project: { id: 1, name: 'p', path: folder } } as never, 'light', {
+      tracker: { at: NOW.toISOString(), refreshing: true },
     })
     expect(told.tracker).toEqual({ at: NOW.toISOString(), refreshing: true })
   })
@@ -1192,10 +1191,10 @@ describe('live.get from the shared reading alone', () => {
     put(folder, { slug: 'one', title: 'One', steps: [] })
     const known = () => true
     const trackers = new Trackers({ run: remotes, adapters: { github: fake(() => []) }, now: () => NOW })
-    const before = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    const before = answer('example.notes', 'live.get', { epic: 'one' }, { knownModule: known, root: folder, trackers })
     expect(before.ok).toBe(false)
     await trackers.refresh(folder, { project: true }, 'press')
-    const after = answer('example.notes', 'live.get', { epic: 'one' }, known, undefined, folder, undefined, trackers)
+    const after = answer('example.notes', 'live.get', { epic: 'one' }, { knownModule: known, root: folder, trackers })
     if (!after.ok) throw new Error(after.error)
     expect((after.data as Record<string, unknown>).generated).toBe(NOW.toISOString())
   })

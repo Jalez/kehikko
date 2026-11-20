@@ -1,5 +1,3 @@
-import { AsyncLocalStorage } from 'node:async_hooks'
-
 import {
   LIMITS,
   TRAFFIC_HOST_BY,
@@ -21,6 +19,10 @@ import {
 } from 'kehikot-module-protocol'
 
 import { callerOf, isLoopback, remoteCaller, type Found } from './callers.ts'
+import { forgetSpawned, quietNow, reasonNow, rememberSpawned } from './trafficContext.ts'
+
+/* Where a call's reason is kept (`trafficContext.ts`), said here too: every call site files its work under `because`. */
+export { because, reasonNow, untraced } from './trafficContext.ts'
 
 /**
  * The host's record of traffic (protocol 2.20.0): every call this host makes, every request it
@@ -48,38 +50,9 @@ import { callerOf, isLoopback, remoteCaller, type Found } from './callers.ts'
 /** A row before the record numbers it. */
 export type Unnumbered = Omit<TrafficCall, 'seq'>
 
-interface Context {
-  reason: string | null
-  /** True inside `untraced`: the plumbing of traffic itself, which is not recorded. */
-  quiet: boolean
-}
-
-const context = new AsyncLocalStorage<Context>()
-
-/** Run `work` with every call made inside it filed under `reason`. The innermost reason wins. */
-export function because<T>(reason: string, work: () => T): T {
-  return context.run({ reason: reason.trim().slice(0, LIMITS.TRAFFIC_REASON) || null, quiet: context.getStore()?.quiet ?? false }, work)
-}
-
-/** Run `work` without recording what it calls: reading and noting traffic would otherwise fill the record with itself. */
-export function untraced<T>(work: () => T): T {
-  return context.run({ reason: context.getStore()?.reason ?? null, quiet: true }, work)
-}
-
-/** The reason the code running now was given, or null. */
-export const reasonNow = (): string | null => context.getStore()?.reason ?? null
-
 /** Why the host reads which modules are here and what their manifests declare, when whoever started it said nothing nearer. */
 export const SWEEP_REASON = 'the host reads which modules are here'
 
-/**
- * The reason each program this host started was started for, by pid, while it runs: a connection the
- * sampler sees on that program (`trafficProcesses.ts`) is filed under it, not as "no reason given".
- */
-const spawned = new Map<number, string>()
-/** Why the program with this pid was started by this host, while it runs; null when it was not, or said nothing. */
-export const spawnedFor = (pid: number): string | null => spawned.get(pid) ?? null
-const quietNow = (): boolean => context.getStore()?.quiet === true
 
 /** The ring. */
 export class TrafficRecord {
@@ -219,9 +192,9 @@ export function recordingSpawn(record: TrafficRecord, inner: { spawn: Spawn; spa
     if (quietNow()) return child
     const reason = reasonNow()
     if (reason !== null && typeof child.pid === 'number') {
-      spawned.set(child.pid, reason)
+      rememberSpawned(child.pid, reason)
       const pid = child.pid
-      void child.exited.finally(() => spawned.delete(pid)).catch(() => {})
+      void child.exited.finally(() => forgetSpawned(pid)).catch(() => {})
     }
     const said = trafficCommand(argvOf(args[0]) ?? [])
     if (!said) return child

@@ -17,7 +17,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
-import { AGENT_SETUP_KEYS, PACKAGE_VERSION } from 'kehikot-module-protocol'
+import { PACKAGE_VERSION } from 'kehikot-module-protocol'
 import { useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { Loading } from '@/components/ui/loading.tsx'
 
@@ -34,7 +34,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs.t
 import { cn } from '@/lib/utils'
 import {
   active,
-  automatic,
   chordSaid,
   heldSays,
   isSettingsChord,
@@ -43,7 +42,6 @@ import {
   onMac,
   onOpenSettings,
   openModuleSettings,
-  openSettings,
   scopeHeading,
   scopeLead,
   scopeOfPage,
@@ -64,12 +62,11 @@ import {
 import { AUTO_UPDATES } from '@/host/autoUpdates.ts'
 import { DevelopmentSetting } from './Development.tsx'
 import { isGitReason } from '@/host/gitSaid.ts'
-import { adoptSorts, adoptVisits } from '@/host/pickerStore.ts'
-import { forgetRead, hostRead, keepRead } from '@/host/hostRead.ts'
 import { BASE_BRANCH_SAID, fetchBaseBranch, setBaseBranch, type BaseBranch, type Project } from '@/host/projects.ts'
 import { notAnswering } from '@/host/reachable.ts'
 import { BUILD_A_MODULE_GUIDE, OWN_SKILLS_MODULE } from '@/host/skills.ts'
 import { SkillsDialog } from './Skills.tsx'
+import { fetchSettings, postSettings, useAgentSettings, type Change } from '@/host/settingsClient.ts'
 import { APP_NAME, APP_REPO, openExternal, releasePage } from '@/host/releaseNotes.ts'
 import { openStorage } from '@/host/storage.ts'
 import { TRACKERS_ARE_FOR } from '@/host/trackerSources.ts'
@@ -88,9 +85,11 @@ import { KEHIKKO_SECTION_SAID, KehikkoPage, kehikkoSectionsOf, type KehikkoRef, 
 import { onOpenKehikkoSettings, type KehikkoSection } from '@/host/kehikkoSettings.ts'
 import { onOpenKehikkoSkills } from '@/host/kehikkoSkills.ts'
 import { AppearanceSettings } from './AppearanceSettings.tsx'
-import type { Appearance, AppearancePatch } from '@/host/appearance.ts'
-import { adoptAppearance } from '@/host/appearanceStore.ts'
 import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsNew } from '@/host/whatsNew.ts'
+
+/* The settings client is `host/settingsClient.ts`, so a module's Tools and Skills windows
+   need not import this one back; the page reads it from here too. */
+export { fetchSettings, postSettings } from '@/host/settingsClient.ts'
 
 /**
  * Settings: every setting, grouped by where its effect applies (`SettingsScope` in
@@ -103,7 +102,7 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
  * `agent.setup`): the Module tools and Skills sections show what is set up, and
  * say where it is chosen.
  *
- * Three pieces, all here so the words stay together:
+ * Three pieces, here and beside it so the words stay together:
  *
  *  - `AgentSettingsHost`, mounted once by the page: opens the dialog when anything
  *    calls `openSettings()` — the gear in the strip, ⌘, (Ctrl+, off a Mac), the
@@ -115,7 +114,7 @@ import { announceShow, fetchShowSetting, onShowChanged, openWhatsNew, postWhatsN
  *    under that scope's heading, and one page at a time on the right — a summary
  *    card, then each setting as a row with its switch. A change is sent as it is
  *    made and said "Saved"; there is no Save button for a switch.
- *  - `KeptBySettings`: the line a module's Tools or Skills window shows.
+ *  - `KeptBySettings` (`./KeptBySettings.tsx`): the line a module's Tools or Skills window shows.
  *
  * Every state is a word, never a colour alone; every switch has its label, the
  * nav is a tab list a keyboard walks with the arrows, and focus is always ringed.
@@ -131,127 +130,6 @@ export const KEEP_RUNNING = {
   /** Said under the switch: it is this project's, not the computer's. */
   applies: (name: string) => `Applies only to the project ${name}.`,
 } as const
-
-type Change =
-  | { except: { kind: 'tools' | 'skills'; module: string; out: boolean } }
-  | { notices: { on?: boolean; scope?: NoticeScope; events?: Partial<Record<NoticeEvent, boolean>> } }
-  | { modules: { project: number; keep: boolean } }
-  | { updates: { auto: boolean } }
-  | { github: { share: number } }
-  | { appearance: AppearancePatch }
-
-/**
- * The settings, read once per page load whoever asks (the one-time question, the introduction),
- * and afresh when the Settings window is opened or re-reads (`fresh`). See `hostRead`.
- */
-export function fetchSettings(signal?: AbortSignal, fresh = false): Promise<SettingsAnswer> {
-  return hostRead(
-    'settings',
-    async () => {
-      const response = await fetch('/host/settings', { cache: 'no-store' })
-      const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
-      if (!response.ok || !body.ok || !body.settings || !body.status) throw new Error(('why' in body && body.why) || 'Kehikot could not read its settings. Close Settings and open it again.')
-      adoptSorts(body.picker)
-      adoptVisits(body.visits)
-      adoptAppearance(body.appearance, migrateAppearance)
-      return body
-    },
-    { signal, fresh },
-  )
-}
-
-export async function postSettings(change: Change): Promise<SettingsAnswer> {
-  if ('except' in change) return postExcept(change.except)
-  const response = await fetch('/host/settings', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(change),
-  })
-  const body = (await response.json()) as SettingsAnswer | { ok: false; why?: string }
-  if (!response.ok || !body.ok || !body.settings) throw new Error(('why' in body && body.why) || 'Kehikot did not save that change. Try again.')
-  adoptSorts(body.picker)
-  if ('appearance' in change) adoptAppearance(body.appearance, migrateAppearance)
-  if (body.status) keepRead('settings', body)
-  else forgetRead('settings')
-  return body
-}
-
-/**
- * One module left out of the agent setup, or put back: a change of the agent module's own setting
- * (protocol 2.91.0, `AGENT_SETUP_KEYS`), made as the person through the one route that mints their
- * pass (`/host/module-settings/set`). The host never relays it. The list is read afresh first, so two
- * windows each changing one module do not undo each other.
- */
-async function postExcept(except: { kind: 'tools' | 'skills'; module: string; out: boolean }): Promise<SettingsAnswer> {
-  const now = await fetchSettings(undefined, true)
-  const holder = now.setup
-  if (!holder) throw new Error('No agent module that holds this choice is running, so it cannot be changed now. Start it and try again.')
-  const list = new Set(now.settings[except.kind].except)
-  if (except.out) list.add(except.module)
-  else list.delete(except.module)
-  const response = await fetch('/host/module-settings/set', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ module: holder.module, project: null, key: except.kind === 'tools' ? AGENT_SETUP_KEYS.toolsExcept : AGENT_SETUP_KEYS.skillsExcept, value: [...list].sort() }),
-  })
-  const body = (await response.json().catch(() => null)) as { ok?: boolean; outcome?: string; why?: string } | null
-  if (!response.ok || !body || body.ok === false || body.outcome !== 'saved') throw new Error(body?.why || `${holder.name} did not take that change. Try again.`)
-  return fetchSettings(undefined, true)
-}
-
-/** A machine with no Appearance row yet is given what the cookies said (the bar's old buttons), once. */
-function migrateAppearance(now: Appearance): void {
-  void postSettings({ appearance: now }).catch(() => {})
-}
-
-/**
- * The settings as the server has them, read when `open`, and the way to change
- * them. Changes go one after another, in the order they were made, so a quick
- * second press is never lost to the first; `saved` counts the ones taken.
- */
-export function useAgentSettings(open: boolean, load = fetchSettings, save = postSettings) {
-  const [answer, setAnswer] = useState<SettingsAnswer | null>(null)
-  const [trouble, setTrouble] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(0)
-  const queue = useRef<Promise<void>>(Promise.resolve())
-
-  /* Open, the window reads the settings afresh: what the sync found may have moved. */
-  const read = useCallback(async () => {
-    try {
-      setAnswer(await load(undefined, true))
-      setTrouble(null)
-    } catch (error) {
-      setTrouble(notAnswering(error))
-    }
-  }, [load])
-
-  useEffect(() => {
-    if (open) void read()
-  }, [open, read])
-
-  const change = useCallback(
-    (what: Change) => {
-      const next = queue.current.then(async () => {
-        setBusy(true)
-        try {
-          setAnswer(await save(what))
-          setTrouble(null)
-          setSaved((n) => n + 1)
-        } catch (error) {
-          setTrouble(error instanceof Error ? error.message : String(error))
-        } finally {
-          setBusy(false)
-        }
-      })
-      queue.current = next
-      return next
-    },
-    [save],
-  )
-
-  return { answer, trouble, busy, saved, read, change }
-}
 
 /** The open project, as the Project section needs it. */
 export type SettingsProject = Pick<Project, 'id' | 'name' | 'git' | 'home' | 'missing'>
@@ -1798,83 +1676,4 @@ function Trouble({ children }: { children: ReactNode }) {
       <span className="min-w-0">{children}</span>
     </p>
   )
-}
-
-/** A native checkbox and its label, as one target. Used by a module's Tools and Skills windows. */
-function Box({ checked, onChange, disabled, children }: { checked: boolean; onChange(on: boolean): void; disabled?: boolean; children: ReactNode }) {
-  const id = useId()
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <input
-        id={id}
-        type="checkbox"
-        className="mt-0.5 size-3.5 shrink-0"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
-      <label htmlFor={id} className="min-w-0 leading-snug">
-        {children}
-      </label>
-    </div>
-  )
-}
-
-/**
- * What a module's Tools or Skills window says about Settings: that this module
- * is kept set up (with a way to leave it out), that it is left out, or that
- * Settings could do this for every module.
- */
-export function KeptBySettings({
-  kind,
-  module,
-  name,
-  answer,
-  busy,
-  onExcept,
-  onSettings,
-}: {
-  kind: 'tools' | 'skills'
-  module: string
-  name: string
-  answer: SettingsAnswer | null
-  busy: boolean
-  onExcept(out: boolean): void
-  /** Close the window this sits in, then `openSettings()`. */
-  onSettings(): void
-}) {
-  if (!answer) return null
-  const settings = answer.settings
-  const kept = kind === 'tools' ? 'Kept connected by Settings' : 'Kept installed and up to date by Settings'
-  const change = (
-    <button type="button" className="underline underline-offset-2" onClick={onSettings} data-press="settings">
-      change
-    </button>
-  )
-  if (!active(settings, kind)) {
-    return (
-      <p className="text-muted-foreground text-xs" data-kept="off">
-        <button type="button" className="underline underline-offset-2" onClick={onSettings} data-press="settings">
-          Do this for every module → Settings
-        </button>
-      </p>
-    )
-  }
-  const on = automatic(settings, kind, module)
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs" data-kept={on ? 'on' : 'excepted'}>
-      <span>
-        {on ? kept : `Left to you in Settings`} · {change}
-      </span>
-      <Box checked={!on} disabled={busy} onChange={onExcept}>
-        Leave {name} out
-      </Box>
-    </div>
-  )
-}
-
-/** Close a window, then open Settings over where it was; at one section when named. */
-export function toSettings(close: () => void, section?: SettingsSection): void {
-  close()
-  setTimeout(() => openSettings(section), 0)
 }

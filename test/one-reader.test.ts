@@ -81,7 +81,7 @@ function project(): string {
 }
 
 function asked(root: string, method: string, params: unknown): Record<string, unknown> {
-  const given = answer(ME, method, params, registered, () => {}, root)
+  const given = answer(ME, method, params, { knownModule: registered, keep: () => {}, root })
   if (!given.ok) throw new Error(`${method} was refused: ${given.error}`)
   return given.data as Record<string, unknown>
 }
@@ -174,7 +174,7 @@ describe('every answer about an epic is about the same epic', () => {
   test('an epic this host does not hold is refused by every one of them', () => {
     const root = project()
     for (const method of ['epic.get', 'steps.list']) {
-      expect(answer(ME, method, { epic: 'no-such-epic' }, registered, () => {}, root).ok).toBe(false)
+      expect(answer(ME, method, { epic: 'no-such-epic' }, { knownModule: registered, keep: () => {}, root }).ok).toBe(false)
     }
     expect(readEpic(root, 'no-such-epic')).toBeNull()
     expect(readSteps(root, 'no-such-epic')).toBeNull()
@@ -372,7 +372,7 @@ describe('when the two copies of an epic disagree', () => {
     const root = disagreeing()
     /* A journey with no epic file is not an epic… */
     expect(readEpic(root, 'nobody-points-here')).toBeNull()
-    expect(answer(ME, 'steps.list', { epic: 'nobody-points-here' }, registered, () => {}, root).ok).toBe(false)
+    expect(answer(ME, 'steps.list', { epic: 'nobody-points-here' }, { knownModule: registered, keep: () => {}, root }).ok).toBe(false)
     expect(listEpics(root).map((one) => one.slug).sort()).toEqual(['a-paper', 'plain', 'the-posting-seam'])
     expect(allEpicRefs(root)).not.toContain('gh#99')
     /* …and an epic deleted here is gone, whatever the journeys still hold. */

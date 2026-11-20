@@ -63,18 +63,16 @@ export function receiverContext(
     selection,
     selectedBy: withheld.selection ? null : facts.selectedBy,
   })
-  return toWireContext(
-    facts.subject,
-    facts.theme,
+  return toWireContext(facts.subject, facts.theme, {
     selection,
-    facts.kehikko,
+    kehikko: facts.kehikko,
     passage,
     containers,
-    facts.dispositions,
-    facts.tracker,
-    facts.content,
-    withheld.parts ? facts.parts.map((part) => ({ ...part, picked: false })) : facts.parts,
-    withheld.location ? null : facts.location,
-    withheld.address ? null : facts.address,
-  )
+    dispositions: facts.dispositions,
+    tracker: facts.tracker,
+    content: facts.content,
+    parts: withheld.parts ? facts.parts.map((part) => ({ ...part, picked: false })) : facts.parts,
+    location: withheld.location ? null : facts.location,
+    address: withheld.address ? null : facts.address,
+  })
 }
