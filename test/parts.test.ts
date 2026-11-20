@@ -428,7 +428,7 @@ describe('every module is told every part', () => {
   const parts = partsOf(asOnDisk)
   const subject = { epic: 'the-thesis-tracks-itself', project: null }
   const wire = (picked: string[], epic: string | null = subject.epic) =>
-    toWireContext({ ...subject, epic }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], partsOnWire(parts, picked))
+    toWireContext({ ...subject, epic }, 'light', { parts: partsOnWire(parts, picked) })
 
   test('picked or not, each with its refs — which is what "N outside" is counted from', () => {
     const context = wire(['the-agent-seam'])
@@ -471,7 +471,7 @@ describe('every module is told every part', () => {
 
   test('a list that will not parse is no parts, not a context that could not go out', () => {
     const sent = (list: EpicPart[]) =>
-      toWireContext({ epic: 'x', project: null }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], list)
+      toWireContext({ epic: 'x', project: null }, 'light', { parts: list })
     const refused = sent([{ id: 'Not An Id', heading: '', refs: [], picked: true }])
     expect(refused.parts).toEqual([])
     /* And it cost the context nothing else: the epic is still named. */
@@ -524,7 +524,7 @@ describe('the files a part owns are carried, and only when there are some', () =
       { id: 'the-rest', heading: 'The rest', refs: [], picked: true },
     ])
     expect(partsSchema.parse(wire)).toEqual(wire)
-    const sent = toWireContext({ epic: 'a-paper', project: null }, 'light', [], null, null, [], [], { at: null, refreshing: false }, [], wire)
+    const sent = toWireContext({ epic: 'a-paper', project: null }, 'light', { parts: wire })
     expect(sent.parts).toEqual(wire)
   })
 

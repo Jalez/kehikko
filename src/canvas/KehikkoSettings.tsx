@@ -18,7 +18,7 @@ import {
 } from '@/host/kehikkoSettings.ts'
 import { KehikkoSkillsPanel } from './KehikkoSkills.tsx'
 import { ModuleIcon } from './ModuleIcon.tsx'
-import { whenNoDialog } from './Onboarding.tsx'
+import { whenNoDialog } from '@/host/dialogs.ts'
 
 /**
  * Kehikko settings: one kehikko's own settings, drawn as the Kehikko scope of the app's Settings —

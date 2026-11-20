@@ -29,7 +29,7 @@ describe('every method the protocol names is answered by somebody', () => {
 
 describe('nothing to show', () => {
   test('the list of epics this host holds is empty, in the shape the protocol names', () => {
-    const given = answer(ME, 'epics.list', {}, registered)
+    const given = answer(ME, 'epics.list', {}, { knownModule: registered })
     expect(given).toEqual({ ok: true, data: { epics: [] } })
     /* And the host's own answer is held to that shape, so a rename in the
        package fails here rather than reaching a module as an unreadable front
@@ -40,7 +40,7 @@ describe('nothing to show', () => {
 
 describe('not mine to say', () => {
   test('what the trackers last reported is refused, because an empty answer would be a claim', () => {
-    const given = answer(ME, 'live.get', { epic: 'modes-are-modules' }, registered)
+    const given = answer(ME, 'live.get', { epic: 'modes-are-modules' }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.reason).toBe('failed')
@@ -48,7 +48,7 @@ describe('not mine to say', () => {
   })
 
   test('a named epic is not found here, and the refusal does not list the ones that are', () => {
-    const given = answer(ME, 'epic.get', { epic: 'modes-are-modules' }, registered)
+    const given = answer(ME, 'epic.get', { epic: 'modes-are-modules' }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     /* Not quoted back — a refusal that names what it could not find is one step
@@ -57,7 +57,7 @@ describe('not mine to say', () => {
   })
 
   test('a write this host cannot perform is refused rather than absorbed', () => {
-    const given = answer(ME, 'stage.report', { ref: 'gh#41', stage: 'working' }, registered)
+    const given = answer(ME, 'stage.report', { ref: 'gh#41', stage: 'working' }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.error).toContain('Nothing was recorded')
@@ -82,7 +82,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
         extension: 'kehikot.notifications@1',
         payload: { epic: 'modes-are-modules', message: 'the note was updated', level: 'info' },
       },
-      registered,
+      { knownModule: registered },
     )
     expect(given.ok).toBe(false)
     if (given.ok) return
@@ -98,13 +98,13 @@ describe('events.emit is no longer this half\'s to answer', () => {
       ME,
       'events.emit',
       { extension: 'kehikot.notifications@1', payload: { epic: 'x', message: 'hi' } },
-      registered,
+      { knownModule: registered },
     )
     const bad = answer(
       ME,
       'events.emit',
       { extension: 'somebody.else@7', payload: { anything: true } },
-      registered,
+      { knownModule: registered },
     )
     expect(good.ok).toBe(false)
     expect(bad.ok).toBe(false)
@@ -118,7 +118,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
   })
 
   test('it is not reported as unknown-method, which would mean never', () => {
-    const given = answer(ME, 'events.emit', { extension: 'kehikot.calls@1', payload: {} }, registered)
+    const given = answer(ME, 'events.emit', { extension: 'kehikot.calls@1', payload: {} }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     /* `unknown-method` is the protocol's word for "this does not exist, now or
@@ -129,7 +129,7 @@ describe('events.emit is no longer this half\'s to answer', () => {
 
 describe('refusals carry both halves', () => {
   test('a method this host does not have is unknown-method: never, rather than not yet', () => {
-    const given = answer(ME, 'epics.invent', {}, registered)
+    const given = answer(ME, 'epics.invent', {}, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.reason).toBe('unknown-method')
@@ -137,7 +137,7 @@ describe('refusals carry both halves', () => {
   })
 
   test('a module the host no longer has is unknown-module, which is a different future', () => {
-    const given = answer('gone.away', 'epics.list', {}, registered)
+    const given = answer('gone.away', 'epics.list', {}, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.reason).toBe('unknown-module')
@@ -145,7 +145,7 @@ describe('refusals carry both halves', () => {
   })
 
   test('a method the view answers is not answered here, and this half says so plainly', () => {
-    const given = answer(ME, 'view.goto', { epic: 'modes-are-modules' }, registered)
+    const given = answer(ME, 'view.goto', { epic: 'modes-are-modules' }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.error).toContain('canvas')
@@ -154,14 +154,14 @@ describe('refusals carry both halves', () => {
 
 describe('nothing a stranger sent comes back unbounded', () => {
   test('a refusal stays inside the protocol\'s own bound on a refusal', () => {
-    const given = answer(ME, 'stage.report', { ref: 'x'.repeat(50_000), stage: 'working' }, registered)
+    const given = answer(ME, 'stage.report', { ref: 'x'.repeat(50_000), stage: 'working' }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.error.length).toBeLessThanOrEqual(LIMITS.REASON)
   })
 
   test('a bad enum does not echo twenty thousand characters back under the module\'s name', () => {
-    const given = answer(ME, 'stage.report', { ref: 'gh#41', stage: 'z'.repeat(20_000) }, registered)
+    const given = answer(ME, 'stage.report', { ref: 'gh#41', stage: 'z'.repeat(20_000) }, { knownModule: registered })
     expect(given.ok).toBe(false)
     if (given.ok) return
     expect(given.error.length).toBeLessThanOrEqual(LIMITS.REASON)
@@ -172,7 +172,7 @@ describe('nothing a stranger sent comes back unbounded', () => {
       ME,
       'stage.report',
       { ref: 'gh#41', stage: 'working', note: 'n'.repeat(LIMITS.MESSAGE + 1) },
-      registered,
+      { knownModule: registered },
     )
     expect(given.ok).toBe(false)
     if (given.ok) return

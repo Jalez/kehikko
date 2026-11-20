@@ -181,7 +181,7 @@ describe('the person’s message only through this page', () => {
     expect(ANSWERED_BY_THE_VIEW).toContain('messages.say')
     expect(ANSWERED_BY_THE_SERVER).toContain('messages.mine')
     expect(ANSWERED_BY_THE_SERVER).toContain('messages.post')
-    const said = answer(RELAY, 'messages.say', { body: 'x', to: { project: true } }, () => true)
+    const said = answer(RELAY, 'messages.say', { body: 'x', to: { project: true } }, { knownModule: () => true })
     expect(said.ok).toBe(false)
   })
 })

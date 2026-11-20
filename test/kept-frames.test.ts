@@ -82,15 +82,15 @@ describe('a hidden page does not keep the focus', () => {
 
 describe('what a page on a kehikko that is not open is told', () => {
   const project = { id: 1, name: 'webapp', path: '/w/webapp', epics: true, git: true, shared: false }
-  const held = { ...toWireContext({ epic: 'on-its-own-kehikko', project }, 'dark', [], null, null), prompt: 'its own prompt' }
+  const held = { ...toWireContext({ epic: 'on-its-own-kehikko', project }, 'dark'), prompt: 'its own prompt' }
 
   test('nothing, when only the open kehikko moved: its place is its own kehikko', () => {
-    const told = { ...toWireContext({ epic: 'something-else', project }, 'dark', [], null, null), prompt: 'the open kehikko’s prompt' }
+    const told = { ...toWireContext({ epic: 'something-else', project }, 'dark'), prompt: 'the open kehikko’s prompt' }
     expect(whileAway(held, told)).toBeNull()
   })
 
   test('the theme, and only the theme', () => {
-    const told = { ...toWireContext({ epic: 'something-else', project: null }, 'light', [], null, null), prompt: null }
+    const told = { ...toWireContext({ epic: 'something-else', project: null }, 'light'), prompt: null }
     const sent = whileAway(held, told)!
     expect(sent.theme).toBe('light')
     expect(sent.epic).toBe('on-its-own-kehikko')

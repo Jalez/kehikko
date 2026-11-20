@@ -104,7 +104,7 @@ describe('composing the list', () => {
     })
     expect(rows.map((r) => [r.module, r.folded])).toEqual([['kehikot.paper', false], ['kehikot.notes', true]])
     /* And it reaches every module, through the protocol's own schema. */
-    const told = toWireContext({ epic: null, project: null }, 'dark', [], { id: 1, name: 'writing' }, null, rows)
+    const told = toWireContext({ epic: null, project: null }, 'dark', { kehikko: { id: 1, name: 'writing' }, containers: rows })
     expect(told.containers.map((c) => c.folded)).toEqual([false, true])
   })
 
@@ -309,7 +309,7 @@ describe('the list goes out in the context', () => {
       selection: [],
       selectedBy: null,
     })
-    const told = toWireContext(subject, 'light', [], null, paragraph, rows)
+    const told = toWireContext(subject, 'light', { passage: paragraph, containers: rows })
     expect(told.containers).toEqual(rows)
     expect(toWireContext(subject, 'light').containers).toEqual([])
   })
@@ -326,7 +326,7 @@ describe('the list goes out in the context', () => {
       selection: ['gh#7'],
       selectedBy: 'kehikot.references',
     })
-    const told = toWireContext({ ...subject, epic: 'Not An Epic!' }, 'light', ['gh#7'], null, null, rows)
+    const told = toWireContext({ ...subject, epic: 'Not An Epic!' }, 'light', { selection: ['gh#7'], containers: rows })
     expect(told.epic).toBeNull()
     expect(told.selection).toEqual([])
     expect(told.containers.map((r) => r.showing.refs)).toEqual([[], []])

@@ -4003,25 +4003,19 @@ const serverAsk = serverAskDesk({
     return at && !isReadOnlyRoot(at.path) ? at.path : null
   },
   answer: (module, method, params, root) =>
-    answerOne(
-      module,
-      method,
-      params,
-      (id) => callers.has(id),
-      () => {},
+    answerOne(module, method, params, {
+      knownModule: (id) => callers.has(id),
+      keep: () => {},
       root,
-      undefined,
       trackers,
-      null,
-      null,
-      { may: declared, undeclared: () => {} },
+      grants: { may: declared, undeclared: () => {} },
       /* The record of traffic (protocol 2.20.0): the Monitor's door reads it, a module's server notes into it. */
-      { door: trafficReading, via: 'server' },
+      traffic: { door: trafficReading, via: 'server' },
       /* The projects the module keeps its own folder in (protocol 2.76.0): what its server asks at start. */
-      (m) => projectsMine(listProjects(db), m),
+      mine: (m) => projectsMine(listProjects(db), m),
       /* Who provides a service here (protocol 2.81.0). */
-      servicesHere,
-    ),
+      services: servicesHere,
+    }),
   messages: (module, method, params, root) => messageRoutes.serverAnswer(module, method, params, root ?? null),
   /* Where a session is filed (protocol 2.85.0): the records the door reads. */
   placeOf: (root, session) => placeRoutes.placeOfSession(root, session),
@@ -4664,15 +4658,12 @@ async function answerRequest(request: Request): Promise<Response> {
       }
 
       return json(
-        await answerCall(
-          named,
-          body.method,
-          body.params,
-          (id) => callers.has(id),
+        await answerCall(named, body.method, body.params, {
+          knownModule: (id) => callers.has(id),
           /* Protocol 2.51.0: for the container — the module on the kehikko the
              module names, else the one its frame stands on (`kehikko`, from the
              page). Module-wide only when nothing says which. */
-          (module, state, kehikko) => {
+          keep: (module, state, kehikko) => {
             const at = kehikko ?? (typeof body.kehikko === 'number' && Number.isInteger(body.kehikko) ? body.kehikko : null)
             if (at === null) {
               keepState(db, module, state)
@@ -4680,12 +4671,12 @@ async function answerRequest(request: Request): Promise<Response> {
             }
             return keepFor(db, at, module, state)
           },
-          rootOf(body.project),
+          root: rootOf(body.project),
           /* A mark from a frame is a person's press inside a module, so it is
              signed with the module's name — the one the registry last heard it
              give, or its id. Every page in the project is woken only when the
              file actually changed. */
-          (module, root, marking) => {
+          mark: (module, root, marking) => {
             const done = setDisposition(root, marking, known(db).get(module)?.name ?? module)
             if (done.ok && done.changed && typeof body.project === 'number') {
               wakes.dispositionsChanged(body.project)
@@ -4696,27 +4687,27 @@ async function answerRequest(request: Request): Promise<Response> {
           /* A module's report of its own write. Signed with the module that
              asked, and the watcher is told so the file event for the same
              write says nothing more. */
-          (module, root, epic) => {
+          report: (module, root, epic) => {
             contentWatch.reported(root, module)
             contents.announce(root, module, epic)
           },
           /* An edit of an epic's parts, for a module whose manifest asked for
              it. Read off the last sweep's manifest, which no module can write. */
-          {
+          divide: {
             may: declared,
             edit: (root, epic, edit) => partsEdited(root, epic, edit).result,
           },
           /* Every other method, held to the same list the same way. */
-          {
+          grants: {
             may: declared,
             undeclared: (module, method, capability) => console.warn(`[host] ${undeclaredLine(module, method, capability)}`),
           },
-          { door: trafficReading, via: 'page' },
+          traffic: { door: trafficReading, via: 'page' },
           /* The projects the module keeps its own folder in (protocol 2.76.0). */
-          (module) => projectsMine(listProjects(db), module),
+          mine: (module) => projectsMine(listProjects(db), module),
           /* Who provides a service here (protocol 2.81.0). */
-          servicesHere,
-        ),
+          services: servicesHere,
+        }),
       )
     }
 

@@ -14,7 +14,7 @@ import {
   remoteCaller,
   type Found,
 } from '../server/callers.ts'
-import { parsePs } from '../server/trafficProcesses.ts'
+import { parsePs } from '../server/processTable.ts'
 import { receivedRow, tag } from '../server/traffic.ts'
 
 /*

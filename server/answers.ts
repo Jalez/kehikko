@@ -192,21 +192,20 @@ function kept(moduleId: string, method: string, grants: Grants | null): string |
 }
 
 /**
- * Answer one call.
+ * What `answer` and `answerCall` are given besides the call itself: how to tell a module is
+ * registered, which project the call stands in, and the doors each method's answer goes through.
  *
- * `knownModule` is asked rather than assumed, and it is the caller's job to
- * make that a lookup that does not fall through a prototype — see `callers` in
- * `server.ts`. A module the host no longer has is the ordinary case of somebody
- * removing a registration while a frame was still open, and it earns
- * `unknown-module` rather than `failed`: "ask again" and "never" are different
- * futures and the module's code should not have to read English to tell them
- * apart.
+ * Every door is injected so this file stays a decision table rather than something that opens a
+ * database or reads a tracker: everything here is testable by calling it. A door left out is
+ * refused, declined or answered empty with the sentence that is true of a host given nothing.
  */
-export function answer(
-  moduleId: string,
-  method: string,
-  rawParams: unknown,
-  knownModule: (id: string) => boolean,
+export interface AnswerDeps {
+  /**
+   * Whether this host has a module registered under an id. Asked rather than assumed, and it is the
+   * caller's job to make that a lookup that does not fall through a prototype — see `callers` in
+   * `server.ts`.
+   */
+  knownModule(id: string): boolean
   /**
    * Where a module's kept state goes.
    *
@@ -215,7 +214,7 @@ export function answer(
    * calling it; a `Database` in the signature would mean a temp file per test
    * for the sake of one branch.
    */
-  keep: (module: string, state: string, kehikko: number | null) => boolean | void = () => {},
+  keep?: (module: string, state: string, kehikko: number | null) => boolean | void
   /**
    * Which project folder this call is about, or null.
    *
@@ -229,7 +228,7 @@ export function answer(
    * has deliberately given it nothing. Every branch below already had to answer
    * for a host holding nothing, so null needs no new sentence.
    */
-  root: string | null = null,
+  root?: string | null
   /**
    * Where a disposition goes, and the news that one changed.
    *
@@ -239,12 +238,9 @@ export function answer(
    * The default refuses, so a caller that gave nothing gets the sentence that is
    * true of it rather than a mark that went nowhere.
    */
-  mark: (module: string, root: string | null, marking: Marking) => Marked = () => ({
-    ok: false,
-    why: 'This host was not given anywhere to keep a disposition. Nothing was recorded.',
-  }),
+  mark?: (module: string, root: string | null, marking: Marking) => Marked
   /** The shared tracker reading. Absent, the tracker methods are refused with a sentence saying so. */
-  trackers: TrackerDoor | null = null,
+  trackers?: TrackerDoor | null
   /**
    * Where a module's report of its own write goes: `content.changed`.
    *
@@ -253,27 +249,435 @@ export function answer(
    * asked, which is the source: a report names an epic and never whose
    * material it is. The default refuses, as `mark`'s does.
    */
-  report: ((module: string, root: string, epic: string | null) => void) | null = null,
+  report?: ((module: string, root: string, epic: string | null) => void) | null
   /** Where `parts.set` goes, and who may ask. Absent, it is declined with a sentence saying so. */
-  divide: PartsDoor | null = null,
+  divide?: PartsDoor | null
   /** Who may ask what. Absent, nothing is held to a manifest. */
-  grants: Grants | null = null,
+  grants?: Grants | null
   /**
    * The record of traffic (protocol 2.20.0), and which part of the module asked: its page through
    * the frame, or its server through `/host/server-ask`. Absent, the traffic methods are refused.
    */
-  traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
+  traffic?: { door: TrafficDoor; via: TrafficVia } | null
   /**
    * The person's projects in which this module keeps its own folder (`projects.mine`, protocol
    * 2.76.0; `server/projectsMine.ts`). Absent, it is refused with a sentence saying so.
    */
-  mine: ((module: string) => PickedProject[]) | null = null,
+  mine?: ((module: string) => PickedProject[]) | null
   /**
    * Who provides a service here (`services.find`, protocol 2.81.0; `server/services.ts`): in the
    * project the call stands in, and whether each is placed on the kehikko it names. Absent, none.
    */
-  services: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null = null,
-): Answer {
+  services?: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null
+}
+
+/** A disposition kept nowhere: what `mark` says when the caller gave none. */
+const markNowhere = (): Marked => ({
+  ok: false,
+  why: 'This host was not given anywhere to keep a disposition. Nothing was recorded.',
+})
+
+/** What a method's answer is made from: one call past the checks every call passes, and the doors with their defaults. */
+type Asked = Required<Omit<AnswerDeps, 'knownModule' | 'grants'>> & {
+  /** The module that asked, already checked against the registry. */
+  module: string
+  /** The call's params, parsed by the method's own schema. */
+  params: unknown
+  /**
+   * Where this call's holdings are, if there are any.
+   *
+   * Checked per call rather than once at startup, because a refresh rewrites
+   * those files underneath a running host, because `.kehikot/host/epics` can appear
+   * under a project that did not have it a minute ago, and because which
+   * project is being asked about is now a property of the call rather than of
+   * the process.
+   */
+  dir: string | null
+}
+
+type ServerMethod = (typeof ANSWERED_BY_THE_SERVER)[number]
+
+/* Unreachable through `answer`'s own checks: `answeredHere` and the table are the same list, and
+   the load-time assertion above fails the process if they drift from the protocol's. Said rather
+   than thrown, because a throw would turn a rename into a crash in a request handler. */
+const UNANSWERED = 'This host claims to answer that method and does not.'
+
+/**
+ * Each method this half of the host answers, keyed by its name as the protocol's `METHODS` is: the
+ * type holds it to `ANSWERED_BY_THE_SERVER`, so a method added there and not here does not compile.
+ */
+const ANSWERS: { readonly [M in ServerMethod]: (asked: Asked) => Answer } = {
+  /**
+   * The list, from the holdings when there are any.
+   *
+   * `{ epics: [] }` rather than `[]`, because the package gives this one answer
+   * a shape and this is it. A host with nowhere to read from still answers the
+   * empty list, and that is still true — it holds no epics, so the list of
+   * epics it holds is empty. This is the one question where emptiness is honest
+   * without a source, and a module can draw "no epics" from it and be right
+   * either way.
+   */
+  'epics.list': ({ dir }) => nothingToShow('epics.list', { epics: dir ? listEpics(dir) : [] }),
+
+  /**
+   * One epic, or a refusal that does not describe its neighbours.
+   *
+   * The slug is not quoted back, and that is the protocol package's argument
+   * rather than a bound: a refusal that names what it could not find is one
+   * step from a refusal that names what it could, and a host whose "no such
+   * epic" lists the epics that do exist has enumerated its holdings in an error
+   * message. The habit of not quoting is what keeps that from being written.
+   */
+  'epic.get': ({ dir, params }) => {
+    if (!dir) {
+      return notMineToSay('This host holds no epics of its own, so there is nothing here under that name.')
+    }
+    const { epic } = params as { epic: string }
+    const found = readEpic(dir, epic)
+    if (!found) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('epic.get', found)
+  },
+
+  /**
+   * An epic's steps — from every module that provides them (protocol 2.21.0).
+   *
+   * A module that keeps steps publishes them in its own `steps.json`, and the
+   * answer is the union: each step and phase saying which module provides it,
+   * and the providers (`stepsListResult`). While the Journeys module has not
+   * published, its record — or this host's own file — is read as one more
+   * provider, marked `fallback`, so nothing changes for anybody mid-move. See
+   * `server/plans.ts`.
+   *
+   * An epic nobody has written steps for is `{ steps: [], … }`: the host
+   * looked, and the empty list is the true answer.
+   *
+   * An epic written as a paper is neither. Its record carries `"steps": []`
+   * and a `stepsFrom`, the steps are the paper's sections, and this host
+   * cannot read a paper. Answering `{ steps: [] }` there is the lie this
+   * host has told before — an epic with twenty sections reported as having no
+   * steps — and it is a lie precisely because it is well-formed. So, while no
+   * module provides any, that answer has **no `steps` at all**: `{ stepsFrom:
+   * { projector, where, why } }`, the record's own field under its own name.
+   */
+  'steps.list': ({ dir, params }) => {
+    if (!dir) {
+      return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
+    }
+    const { epic } = params as { epic: string }
+    const said = readStepsAnswer(dir, epic)
+    if (said === null) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('steps.list', said)
+  },
+
+  /**
+   * An epic's parts, each with what the modules hold for it (protocol 2.21.0):
+   * the list the page composes `context.parts` from, read by the same
+   * function, with nothing picked — picking is a person's, on one screen.
+   */
+  'parts.get': ({ dir, params }) => {
+    if (!dir) return notMineToSay('This host holds no epics of its own, so there are no parts here to read.')
+    const { epic } = params as { epic: string }
+    const parts = readParts(dir, epic)
+    if (parts === null) return notMineToSay('There is no epic here under that name.')
+    return nothingToShow('parts.get', {
+      parts: parts.map((part) => ({
+        id: part.id,
+        heading: part.heading,
+        refs: part.refs,
+        picked: false,
+        ...(part.files?.length ? { files: part.files } : {}),
+        ...(part.documents?.length ? { documents: part.documents } : {}),
+      })),
+    })
+  },
+
+  /**
+   * Why closed refs closed, for the project (protocol 2.21.0): the marks the
+   * page is handed in `context.dispositions`, from the same file. A file that
+   * will not read is no marks, as it is for the page.
+   */
+  'dispositions.get': ({ root }) => {
+    if (!root) return notMineToSay('This call is standing in no project, so there are no dispositions to read.')
+    return nothingToShow('dispositions.get', { dispositions: marksOf(root) })
+  },
+
+  /**
+   * What the trackers last reported.
+   *
+   * Answered out of `.kehikot/host/state/`, which a refresh writes and nobody edits by
+   * hand — so this host relays a reading rather than making a claim of its own.
+   * `generated` travels with it and is the most important field in the answer:
+   * tracker state with no date on it is last week presented as now.
+   *
+   * With nowhere to read from this stays a refusal rather than becoming an
+   * empty answer. "The trackers reported nothing about this epic" is a claim
+   * about GitHub and GitLab that a host reading no trackers cannot make.
+   */
+  'live.get': ({ dir, params, root, trackers }) => {
+    if (!dir) {
+      return notMineToSay(
+        'This host does not read the trackers, so what they last reported is not this host\'s to say.',
+      )
+    }
+    const { epic } = params as { epic: string }
+    /* A compatibility view now: what an outside refresher once wrote into
+       `state/`, with the shared reading laid over it, so a module still asking
+       here sees the same states as one asking `tracker.get`. */
+    const live = overlay(readLive(dir, epic), root && trackers ? trackers.live(root, epic) : null)
+    if (!live) {
+      /* The epic may be real and simply never refreshed. Either way nothing
+         here has read a tracker about it, and empty bags would say they were
+         read and found nothing. */
+      return notMineToSay('Nothing has been read from the trackers for that epic.')
+    }
+    return nothingToShow('live.get', live)
+  },
+
+  /**
+   * A module's own state, kept and handed back at the next greeting.
+   *
+   * The first write this host actually performs, and it is worth noticing how
+   * small the thing being written is. The host does not parse it, does not
+   * validate its contents past a length, and has no name for what is in it —
+   * see `state.set` in the protocol package for why that opacity is the design
+   * rather than laziness. A host that knew a module had "filters" would have
+   * made every module's preferences the protocol's business.
+   *
+   * Keyed by the module that asked, which is the id already checked against the
+   * registry at the top of `answer`. A module cannot write another's state
+   * because it has no way to name one: the id comes from the registry, not from
+   * the call.
+   *
+   * Protocol 2.51.0: for one CONTAINER, the module on the kehikko the call
+   * names (`kehikko`) — the one the module was last told it is on. `keep`
+   * answers `false` when the module is not on that kehikko: a module names its
+   * own containers and nobody else's.
+   */
+  'state.set': ({ module, params, keep }) => {
+    const { state, kehikko } = params as { state: string; kehikko?: number }
+    const kept = keep(module, state, kehikko ?? null)
+    return nothingToShow('state.set', { kept: kept !== false })
+  },
+
+  /**
+   * A person's verdict on why a ref closed, written into the project.
+   *
+   * The second write this host performs, and the one `stage.report` below is
+   * not: a disposition has a place of its own beside the arrangement, one row
+   * per ref, and nothing about keeping it asks this host to be a tracker. `by`
+   * and `at` are filled in by the writer, never taken from the call — see
+   * `server/dispositions.ts`. A project-less call is refused with a sentence,
+   * because a mark kept nowhere is the green button this file refuses.
+   */
+  'disposition.set': ({ module, params, root, mark }) => {
+    const marking = params as Marking
+    const done = mark(module, root, marking)
+    if (!done.ok) return notMineToSay(done.why)
+    return nothingToShow('disposition.set', { disposition: done.mark, changed: done.changed })
+  },
+
+  /**
+   * What the trackers last said, from the one reading the host keeps per
+   * project. Answered at once; what is not read yet comes back `pending`, and
+   * `context.tracker` moves when it lands. See `server/trackers/reading.ts`.
+   */
+  'tracker.get': ({ params, root, trackers }) => {
+    if (!trackers) return notMineToSay('This host was not given a tracker reading to answer from.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
+    const { detail, parts, ...scope } = params as { detail: 'summary' | 'detail'; parts?: boolean } & Partial<Record<'refs' | 'epic' | 'project', unknown>>
+    const asked = scopeOf(scope)
+    /* `parts: true` (protocol 2.19.0): the refs the epic's parts hold beside the epic's own, in one answer. */
+    const reading = trackers.get(root, parts === true && 'epic' in asked ? { epic: asked.epic, also: partRefsOf(root, asked.epic) } : asked, detail)
+    if ('refused' in reading) return notMineToSay(reading.refused)
+    return nothingToShow('tracker.get', reading)
+  },
+
+  /**
+   * The boards of the project's sources and their columns, from the same
+   * reading. Answered at once; where each item stands is on its row.
+   */
+  'tracker.columns': ({ root, trackers }) => {
+    if (!trackers?.columns) return notMineToSay('This host was not given a tracker reading to answer from.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
+    return nothingToShow('tracker.columns', trackers.columns(root))
+  },
+
+  /* Reachable only through `answer` called directly: the server sends this one
+     through `answerCall`, because its answer waits on a tracker. */
+  'tracker.refresh': () => notMineToSay('tracker.refresh is answered when the read lands; this host asked the wrong half of itself.'),
+
+  /* Answered by `answerCall`, which fetches the picture with the person's sign-in; reached here
+     only through `answer` called directly. */
+  'tracker.image': () => notMineToSay(UNANSWERED),
+
+  /**
+   * A module's own material changed, and every container in the project is to
+   * hear. Nothing is written and nothing is read: the host does not open a
+   * module's files to see whether the report is true, any more than it opens
+   * the file a passage points into. A report standing in no project is
+   * refused with a sentence, because told to nobody is not told.
+   */
+  'content.changed': ({ module, params, root, report }) => {
+    if (!report) return notMineToSay('This host was not given anybody to tell. Nothing was announced.')
+    if (!root) return notMineToSay('This call is standing in no project, so there is nobody to tell that anything changed.')
+    const { epic } = params as { epic?: string }
+    report(module, root, epic ?? null)
+    return nothingToShow('content.changed', { announced: true })
+  },
+
+  /**
+   * One edit of an epic's list of parts. Every refusal is an ANSWER —
+   * `declined`, with a sentence — and none is a failure: the protocol gives
+   * this method four outcomes and all four are `ok: true`. A module that did
+   * not ask for the capability, a call standing in no project and an epic that
+   * is not one of the open project's are all "the host will not".
+   */
+  'parts.set': ({ module, params, root, divide }) => {
+    const asked = params as { epic: string }
+    const declined = (why: string) => nothingToShow('parts.set', { outcome: 'declined', parts: [], id: null, why })
+    if (!divide) return declined('This host was not given anywhere to keep an epic’s parts. Nothing was changed.')
+    if (!divide.may(module, METHODS['parts.set'])) {
+      return declined(
+        `This module’s manifest does not ask for ${METHODS['parts.set']} (declares.uses), so this host does not edit an epic’s parts for it.`,
+      )
+    }
+    if (!root) return declined('This call is standing in no project, so there is no epic whose parts could be edited.')
+    const edit = editIn(params)
+    if (!edit) return declined('parts.set makes one edit: add, rename, move or remove.')
+    return nothingToShow('parts.set', divide.edit(root, asked.epic, edit, module))
+  },
+
+  /**
+   * The record of traffic: the rows after a cursor, with the budgets and, asked with `sample`, the
+   * connections on this host's processes. Held to `traffic:read` above like every method, so only a
+   * module that shows traffic reads it. See `server/traffic.ts`.
+   */
+  'traffic.read': ({ params, traffic }) => {
+    if (!traffic) return notMineToSay('This host keeps no record of traffic to read.')
+    return nothingToShow('traffic.read', traffic.door.read(params as { since: number; limit: number; sample: boolean }))
+  },
+
+  /** A module's own calls, filed under it as the module's report and sanitized again. */
+  'traffic.note': ({ module, params, traffic }) => {
+    if (!traffic) return nothingToShow('traffic.note', { outcome: 'declined', taken: 0, why: 'This host keeps no record of traffic. Nothing was noted.' })
+    const { calls } = params as { calls: TrafficNote[] }
+    return nothingToShow('traffic.note', traffic.door.note(module, traffic.via, calls))
+  },
+
+  /**
+   * The projects this module keeps its own folder in (protocol 2.76.0), held to `agents:message`
+   * above like every method. Never the person's whole list: see `server/projectsMine.ts`.
+   */
+  'projects.mine': ({ module, mine }) => {
+    if (!mine) return notMineToSay('This host was not given the list of projects to answer from.')
+    return nothingToShow('projects.mine', { projects: mine(module) })
+  },
+
+  /**
+   * A write, refused. `ok: true` would cost nothing today and would mean a
+   * module's button turning green over a report that exists nowhere — the
+   * module believes work was filed, the person believes it was filed, and there
+   * is no file. A refusal reaches the author's console with the call in it.
+   */
+  'stage.report': () =>
+    notMineToSay(
+      'This host has no store to file a stage report in. Nothing was recorded — and saying otherwise would have been the more useful lie.',
+    ),
+
+  /**
+   * The refusal that was answered, and the one worth reading the protocol
+   * against. It is not here any more, and this note is what it left behind.
+   *
+   * ## What it used to say, because the reasoning was right
+   *
+   * `events.emit` is how a module sends a notification or a report of its own
+   * calls to whichever other module consumes that format. This host could do
+   * every part of that except the last: it could check the extension was one it
+   * knew, it could validate the payload against the format's own schema, it
+   * knew from each manifest which modules `consume` the name — and then there
+   * was no message to deliver it with. The wire had eight messages and none of
+   * them carried an extension payload from a host to a module. So the honest
+   * answer was a refusal that said what had not happened, and it stood here as
+   * this host's principal piece of feedback on the protocol itself.
+   *
+   * ## What changed
+   *
+   * The protocol grew the ninth message. `kehikot.event` carries an extension
+   * payload from the host into a frame — unanswered, with no correlation id,
+   * because a host that waited for acknowledgement could be hung by a container
+   * nobody is looking at. The gap this refusal named is closed, and the refusal
+   * is gone rather than being left in place with a comment saying it is stale.
+   *
+   * ## Why the answer did not simply appear here instead
+   *
+   * Because delivery is not a thing this half of the host can do. Every frame
+   * on this canvas is a window in the browser, and the server has never held a
+   * window handle. `events.emit` therefore moved to the VIEW — see
+   * `ANSWERED_BY_THE_VIEW` in `src/host/division.ts`, and `src/host/events.ts`
+   * for the deciding — and it is answered in the same place and for the same
+   * reason as `selection.set`: the canvas is what has the frames.
+   *
+   * The two checks moved with it, unchanged, because they were correct. They
+   * travel WITH the sending rather than being left behind as a server-side
+   * pre-flight, so that the thing that validates and the thing that delivers
+   * are one thing and cannot drift into disagreeing about what is deliverable.
+   * A call arriving here now is the canvas having forwarded something it should
+   * have kept, and the guard at the top of `answer` says exactly that.
+   */
+
+  /**
+   * Messages between agent sessions (protocol 2.41.0) are a SESSION's, sent and
+   * read by the module that runs it from its server, where `/host/server-ask`
+   * hands them to `server/messageRoutes.ts` before this table is reached. A page
+   * has no session to send from, so it is told so: `declined` for a send, a
+   * refusal for a read (whose answer has no outcome).
+   */
+  'messages.send': () => nothingToShow('messages.send', { outcome: 'declined', why: MESSAGES_FROM_A_PAGE }),
+  'messages.read': () => notMineToSay(MESSAGES_FROM_A_PAGE),
+  /* Protocol 2.50.0: answered from the record by `/host/call` before this
+     table (`pageAnswer` in `server/messageRoutes.ts`); reached only by a
+     caller that gave no record. */
+  'messages.mine': () => notMineToSay(NO_MESSAGES),
+  'messages.post': () => nothingToShow('messages.post', { outcome: 'declined', why: NO_MESSAGES }),
+  /* Protocol 2.54.0: a module's server's notice to the session that asked it;
+     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page is no asker. */
+  'messages.notify': () => nothingToShow('messages.notify', { outcome: 'declined', why: NOTICE_FROM_A_PAGE }),
+  /* Protocol 2.75.0: a module's server's news to the sessions at a place;
+     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page tells no one. */
+  'messages.tell': () => nothingToShow('messages.tell', { outcome: 'declined', why: TELL_FROM_A_PAGE }),
+  /* Protocol 2.81.0: a module's server's notice to one session found by its
+     id; `/host/server-ask` hands it to `server/messageRoutes.ts`. */
+  'messages.notifySession': () => nothingToShow('messages.notifySession', { outcome: 'declined', why: OBSERVED_FROM_A_PAGE }),
+  /* Protocol 2.85.0: answered by `/host/server-ask` (`serverAsk.ts`), which can wait on a module. */
+  'sessions.placeOf': () => notMineToSay(PLACE_FROM_A_PAGE),
+  /* Protocol 2.99.0: answered by `/host/server-ask` (`serverAsk.ts`), for a task this host handed the module. */
+  'tasks.report': () => notMineToSay(TASKS_FROM_A_PAGE),
+  /* Protocol 2.110.0: answered by `/host/server-ask` (`serverAsk.ts`), for a restart this host asked a work queue to hold. */
+  'restart.release': () => notMineToSay(RESTART_FROM_A_PAGE),
+  /* Protocol 2.81.0: who provides a service here, with each descriptor. */
+  'services.find': ({ params, root, services }) => {
+    const { service, kehikko } = params as { service: string; kehikko?: string }
+    return nothingToShow('services.find', { providers: services ? services(service, root, kehikko ?? null) : [] })
+  },
+}
+
+/** The table's entry for a method, through `Object.hasOwn`: a name arrives from somebody else's program (see `params`). */
+const answerFor = (method: string): ((asked: Asked) => Answer) | null =>
+  Object.hasOwn(ANSWERS, method) ? ANSWERS[method as ServerMethod] : null
+
+/**
+ * Answer one call.
+ *
+ * `knownModule` is asked rather than assumed (see `AnswerDeps`). A module the host no longer has is
+ * the ordinary case of somebody removing a registration while a frame was still open, and it earns
+ * `unknown-module` rather than `failed`: "ask again" and "never" are different futures and the
+ * module's code should not have to read English to tell them apart.
+ *
+ * What every call passes is checked here, in order — registered, this half's method, held to the
+ * manifest, params that parse — and the method's own answer is its entry in `ANSWERS`.
+ */
+export function answer(moduleId: string, method: string, rawParams: unknown, deps: AnswerDeps): Answer {
+  const { knownModule, grants = null } = deps
   if (!knownModule(moduleId)) {
     return {
       ok: false,
@@ -321,7 +725,7 @@ export function answer(
   }
 
   /* Before the params are read: what a module did not ask for is not looked
-     at. `parts.set` answers for itself below, because the protocol gives its
+     at. `parts.set` answers for itself in `ANSWERS`, because the protocol gives its
      refusal an outcome (`declined`) rather than a failure. */
   if (method !== 'parts.set') {
     const why = kept(moduleId, method, grants)
@@ -345,386 +749,23 @@ export function answer(
     }
   }
 
-  /**
-   * Where this call's holdings are, if there are any.
-   *
-   * Checked per call rather than once at startup, because a refresh rewrites
-   * those files underneath a running host, because `.kehikot/host/epics` can appear
-   * under a project that did not have it a minute ago, and because which
-   * project is being asked about is now a property of the call rather than of
-   * the process.
-   */
-  const dir = epicsIn(root)
-
-  switch (method) {
-  /**
-   * The list, from the holdings when there are any.
-   *
-   * `{ epics: [] }` rather than `[]`, because the package gives this one answer
-   * a shape and this is it. A host with nowhere to read from still answers the
-   * empty list, and that is still true — it holds no epics, so the list of
-   * epics it holds is empty. This is the one question where emptiness is honest
-   * without a source, and a module can draw "no epics" from it and be right
-   * either way.
-   */
-  case 'epics.list':
-    return nothingToShow('epics.list', { epics: dir ? listEpics(dir) : [] })
-
-  /**
-   * One epic, or a refusal that does not describe its neighbours.
-   *
-   * The slug is not quoted back, and that is the protocol package's argument
-   * rather than a bound: a refusal that names what it could not find is one
-   * step from a refusal that names what it could, and a host whose "no such
-   * epic" lists the epics that do exist has enumerated its holdings in an error
-   * message. The habit of not quoting is what keeps that from being written.
-   */
-  case 'epic.get': {
-    if (!dir) {
-      return notMineToSay('This host holds no epics of its own, so there is nothing here under that name.')
-    }
-    const { epic } = parsed.data as { epic: string }
-    const found = readEpic(dir, epic)
-    if (!found) return notMineToSay('There is no epic here under that name.')
-    return nothingToShow('epic.get', found)
-  }
-
-  /**
-   * An epic's steps — from every module that provides them (protocol 2.21.0).
-   *
-   * A module that keeps steps publishes them in its own `steps.json`, and the
-   * answer is the union: each step and phase saying which module provides it,
-   * and the providers (`stepsListResult`). While the Journeys module has not
-   * published, its record — or this host's own file — is read as one more
-   * provider, marked `fallback`, so nothing changes for anybody mid-move. See
-   * `server/plans.ts`.
-   *
-   * An epic nobody has written steps for is `{ steps: [], … }`: the host
-   * looked, and the empty list is the true answer.
-   *
-   * An epic written as a paper is neither. Its record carries `"steps": []`
-   * and a `stepsFrom`, the steps are the paper's sections, and this host
-   * cannot read a paper. Answering `{ steps: [] }` there is the lie this
-   * host has told before — an epic with twenty sections reported as having no
-   * steps — and it is a lie precisely because it is well-formed. So, while no
-   * module provides any, that answer has **no `steps` at all**: `{ stepsFrom:
-   * { projector, where, why } }`, the record's own field under its own name.
-   */
-  case 'steps.list': {
-    if (!dir) {
-      return notMineToSay('This host holds no epics of its own, so there are no steps here to read.')
-    }
-    const { epic } = parsed.data as { epic: string }
-    const said = readStepsAnswer(dir, epic)
-    if (said === null) return notMineToSay('There is no epic here under that name.')
-    return nothingToShow('steps.list', said)
-  }
-
-  /**
-   * An epic's parts, each with what the modules hold for it (protocol 2.21.0):
-   * the list the page composes `context.parts` from, read by the same
-   * function, with nothing picked — picking is a person's, on one screen.
-   */
-  case 'parts.get': {
-    if (!dir) return notMineToSay('This host holds no epics of its own, so there are no parts here to read.')
-    const { epic } = parsed.data as { epic: string }
-    const parts = readParts(dir, epic)
-    if (parts === null) return notMineToSay('There is no epic here under that name.')
-    return nothingToShow('parts.get', {
-      parts: parts.map((part) => ({
-        id: part.id,
-        heading: part.heading,
-        refs: part.refs,
-        picked: false,
-        ...(part.files?.length ? { files: part.files } : {}),
-        ...(part.documents?.length ? { documents: part.documents } : {}),
-      })),
-    })
-  }
-
-  /**
-   * Why closed refs closed, for the project (protocol 2.21.0): the marks the
-   * page is handed in `context.dispositions`, from the same file. A file that
-   * will not read is no marks, as it is for the page.
-   */
-  case 'dispositions.get': {
-    if (!root) return notMineToSay('This call is standing in no project, so there are no dispositions to read.')
-    return nothingToShow('dispositions.get', { dispositions: marksOf(root) })
-  }
-
-  /**
-   * What the trackers last reported.
-   *
-   * Answered out of `.kehikot/host/state/`, which a refresh writes and nobody edits by
-   * hand — so this host relays a reading rather than making a claim of its own.
-   * `generated` travels with it and is the most important field in the answer:
-   * tracker state with no date on it is last week presented as now.
-   *
-   * With nowhere to read from this stays a refusal rather than becoming an
-   * empty answer. "The trackers reported nothing about this epic" is a claim
-   * about GitHub and GitLab that a host reading no trackers cannot make.
-   */
-  case 'live.get': {
-    if (!dir) {
-      return notMineToSay(
-        'This host does not read the trackers, so what they last reported is not this host\'s to say.',
-      )
-    }
-    const { epic } = parsed.data as { epic: string }
-    /* A compatibility view now: what an outside refresher once wrote into
-       `state/`, with the shared reading laid over it, so a module still asking
-       here sees the same states as one asking `tracker.get`. */
-    const live = overlay(readLive(dir, epic), root && trackers ? trackers.live(root, epic) : null)
-    if (!live) {
-      /* The epic may be real and simply never refreshed. Either way nothing
-         here has read a tracker about it, and empty bags would say they were
-         read and found nothing. */
-      return notMineToSay('Nothing has been read from the trackers for that epic.')
-    }
-    return nothingToShow('live.get', live)
-  }
-
-  /**
-   * A module's own state, kept and handed back at the next greeting.
-   *
-   * The first write this host actually performs, and it is worth noticing how
-   * small the thing being written is. The host does not parse it, does not
-   * validate its contents past a length, and has no name for what is in it —
-   * see `state.set` in the protocol package for why that opacity is the design
-   * rather than laziness. A host that knew a module had "filters" would have
-   * made every module's preferences the protocol's business.
-   *
-   * Keyed by the module that asked, which is the id already checked against the
-   * registry at the top of this function. A module cannot write another's state
-   * because it has no way to name one: the id comes from the registry, not from
-   * the call.
-   *
-   * Protocol 2.51.0: for one CONTAINER, the module on the kehikko the call
-   * names (`kehikko`) — the one the module was last told it is on. `keep`
-   * answers `false` when the module is not on that kehikko: a module names its
-   * own containers and nobody else's.
-   */
-  case 'state.set': {
-    const { state, kehikko } = parsed.data as { state: string; kehikko?: number }
-    const kept = keep(moduleId, state, kehikko ?? null)
-    return nothingToShow('state.set', { kept: kept !== false })
-  }
-
-  /**
-   * A person's verdict on why a ref closed, written into the project.
-   *
-   * The second write this host performs, and the one `stage.report` below is
-   * not: a disposition has a place of its own beside the arrangement, one row
-   * per ref, and nothing about keeping it asks this host to be a tracker. `by`
-   * and `at` are filled in by the writer, never taken from the call — see
-   * `server/dispositions.ts`. A project-less call is refused with a sentence,
-   * because a mark kept nowhere is the green button this file refuses.
-   */
-  case 'disposition.set': {
-    const marking = parsed.data as Marking
-    const done = mark(moduleId, root, marking)
-    if (!done.ok) return notMineToSay(done.why)
-    return nothingToShow('disposition.set', { disposition: done.mark, changed: done.changed })
-  }
-
-  /**
-   * What the trackers last said, from the one reading the host keeps per
-   * project. Answered at once; what is not read yet comes back `pending`, and
-   * `context.tracker` moves when it lands. See `server/trackers/reading.ts`.
-   */
-  case 'tracker.get': {
-    if (!trackers) return notMineToSay('This host was not given a tracker reading to answer from.')
-    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
-    const { detail, parts, ...scope } = parsed.data as { detail: 'summary' | 'detail'; parts?: boolean } & Partial<Record<'refs' | 'epic' | 'project', unknown>>
-    const asked = scopeOf(scope)
-    /* `parts: true` (protocol 2.19.0): the refs the epic's parts hold beside the epic's own, in one answer. */
-    const reading = trackers.get(root, parts === true && 'epic' in asked ? { epic: asked.epic, also: partRefsOf(root, asked.epic) } : asked, detail)
-    if ('refused' in reading) return notMineToSay(reading.refused)
-    return nothingToShow('tracker.get', reading)
-  }
-
-  /**
-   * The boards of the project's sources and their columns, from the same
-   * reading. Answered at once; where each item stands is on its row.
-   */
-  case 'tracker.columns': {
-    if (!trackers?.columns) return notMineToSay('This host was not given a tracker reading to answer from.')
-    if (!root) return notMineToSay('This call is standing in no project, so there is no tracker reading to answer from.')
-    return nothingToShow('tracker.columns', trackers.columns(root))
-  }
-
-  /* Reachable only through `answer` called directly: the server sends this one
-     through `answerCall`, because its answer waits on a tracker. */
-  case 'tracker.refresh':
-    return notMineToSay('tracker.refresh is answered when the read lands; this host asked the wrong half of itself.')
-
-  /**
-   * A module's own material changed, and every container in the project is to
-   * hear. Nothing is written and nothing is read: the host does not open a
-   * module's files to see whether the report is true, any more than it opens
-   * the file a passage points into. A report standing in no project is
-   * refused with a sentence, because told to nobody is not told.
-   */
-  case 'content.changed': {
-    if (!report) return notMineToSay('This host was not given anybody to tell. Nothing was announced.')
-    if (!root) return notMineToSay('This call is standing in no project, so there is nobody to tell that anything changed.')
-    const { epic } = parsed.data as { epic?: string }
-    report(moduleId, root, epic ?? null)
-    return nothingToShow('content.changed', { announced: true })
-  }
-
-  /**
-   * One edit of an epic's list of parts. Every refusal is an ANSWER —
-   * `declined`, with a sentence — and none is a failure: the protocol gives
-   * this method four outcomes and all four are `ok: true`. A module that did
-   * not ask for the capability, a call standing in no project and an epic that
-   * is not one of the open project's are all "the host will not".
-   */
-  case 'parts.set': {
-    const asked = parsed.data as { epic: string }
-    const declined = (why: string) => nothingToShow('parts.set', { outcome: 'declined', parts: [], id: null, why })
-    if (!divide) return declined('This host was not given anywhere to keep an epic’s parts. Nothing was changed.')
-    if (!divide.may(moduleId, METHODS['parts.set'])) {
-      return declined(
-        `This module’s manifest does not ask for ${METHODS['parts.set']} (declares.uses), so this host does not edit an epic’s parts for it.`,
-      )
-    }
-    if (!root) return declined('This call is standing in no project, so there is no epic whose parts could be edited.')
-    const edit = editIn(parsed.data)
-    if (!edit) return declined('parts.set makes one edit: add, rename, move or remove.')
-    return nothingToShow('parts.set', divide.edit(root, asked.epic, edit, moduleId))
-  }
-
-  /**
-   * The record of traffic: the rows after a cursor, with the budgets and, asked with `sample`, the
-   * connections on this host's processes. Held to `traffic:read` above like every method, so only a
-   * module that shows traffic reads it. See `server/traffic.ts`.
-   */
-  case 'traffic.read': {
-    if (!traffic) return notMineToSay('This host keeps no record of traffic to read.')
-    return nothingToShow('traffic.read', traffic.door.read(parsed.data as { since: number; limit: number; sample: boolean }))
-  }
-
-  /** A module's own calls, filed under it as the module's report and sanitized again. */
-  case 'traffic.note': {
-    if (!traffic) return nothingToShow('traffic.note', { outcome: 'declined', taken: 0, why: 'This host keeps no record of traffic. Nothing was noted.' })
-    const { calls } = parsed.data as { calls: TrafficNote[] }
-    return nothingToShow('traffic.note', traffic.door.note(moduleId, traffic.via, calls))
-  }
-
-  /**
-   * The projects this module keeps its own folder in (protocol 2.76.0), held to `agents:message`
-   * above like every method. Never the person's whole list: see `server/projectsMine.ts`.
-   */
-  case 'projects.mine': {
-    if (!mine) return notMineToSay('This host was not given the list of projects to answer from.')
-    return nothingToShow('projects.mine', { projects: mine(moduleId) })
-  }
-
-  /**
-   * A write, refused. `ok: true` would cost nothing today and would mean a
-   * module's button turning green over a report that exists nowhere — the
-   * module believes work was filed, the person believes it was filed, and there
-   * is no file. A refusal reaches the author's console with the call in it.
-   */
-  case 'stage.report':
-    return notMineToSay(
-      'This host has no store to file a stage report in. Nothing was recorded — and saying otherwise would have been the more useful lie.',
-    )
-
-  /**
-   * The refusal that was answered, and the one worth reading the protocol
-   * against. It is not here any more, and this note is what it left behind.
-   *
-   * ## What it used to say, because the reasoning was right
-   *
-   * `events.emit` is how a module sends a notification or a report of its own
-   * calls to whichever other module consumes that format. This host could do
-   * every part of that except the last: it could check the extension was one it
-   * knew, it could validate the payload against the format's own schema, it
-   * knew from each manifest which modules `consume` the name — and then there
-   * was no message to deliver it with. The wire had eight messages and none of
-   * them carried an extension payload from a host to a module. So the honest
-   * answer was a refusal that said what had not happened, and it stood here as
-   * this host's principal piece of feedback on the protocol itself.
-   *
-   * ## What changed
-   *
-   * The protocol grew the ninth message. `kehikot.event` carries an extension
-   * payload from the host into a frame — unanswered, with no correlation id,
-   * because a host that waited for acknowledgement could be hung by a container
-   * nobody is looking at. The gap this refusal named is closed, and the refusal
-   * is gone rather than being left in place with a comment saying it is stale.
-   *
-   * ## Why the answer did not simply appear here instead
-   *
-   * Because delivery is not a thing this half of the host can do. Every frame
-   * on this canvas is a window in the browser, and the server has never held a
-   * window handle. `events.emit` therefore moved to the VIEW — see
-   * `ANSWERED_BY_THE_VIEW` in `src/host/division.ts`, and `src/host/events.ts`
-   * for the deciding — and it is answered in the same place and for the same
-   * reason as `selection.set`: the canvas is what has the frames.
-   *
-   * The two checks moved with it, unchanged, because they were correct. They
-   * travel WITH the sending rather than being left behind as a server-side
-   * pre-flight, so that the thing that validates and the thing that delivers
-   * are one thing and cannot drift into disagreeing about what is deliverable.
-   * A call arriving here now is the canvas having forwarded something it should
-   * have kept, and the guard at the top of this function says exactly that.
-   */
-
-  /**
-   * Messages between agent sessions (protocol 2.41.0) are a SESSION's, sent and
-   * read by the module that runs it from its server, where `/host/server-ask`
-   * hands them to `server/messageRoutes.ts` before this table is reached. A page
-   * has no session to send from, so it is told so: `declined` for a send, a
-   * refusal for a read (whose answer has no outcome).
-   */
-  case 'messages.send':
-    return nothingToShow('messages.send', { outcome: 'declined', why: MESSAGES_FROM_A_PAGE })
-  case 'messages.read':
-    return notMineToSay(MESSAGES_FROM_A_PAGE)
-  /* Protocol 2.50.0: answered from the record by `/host/call` before this
-     table (`pageAnswer` in `server/messageRoutes.ts`); reached only by a
-     caller that gave no record. */
-  case 'messages.mine':
-    return notMineToSay(NO_MESSAGES)
-  case 'messages.post':
-    return nothingToShow('messages.post', { outcome: 'declined', why: NO_MESSAGES })
-  /* Protocol 2.54.0: a module's server's notice to the session that asked it;
-     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page is no asker. */
-  case 'messages.notify':
-    return nothingToShow('messages.notify', { outcome: 'declined', why: NOTICE_FROM_A_PAGE })
-  /* Protocol 2.75.0: a module's server's news to the sessions at a place;
-     `/host/server-ask` hands it to `server/messageRoutes.ts`. A page tells no one. */
-  case 'messages.tell':
-    return nothingToShow('messages.tell', { outcome: 'declined', why: TELL_FROM_A_PAGE })
-  /* Protocol 2.81.0: a module's server's notice to one session found by its
-     id; `/host/server-ask` hands it to `server/messageRoutes.ts`. */
-  case 'messages.notifySession':
-    return nothingToShow('messages.notifySession', { outcome: 'declined', why: OBSERVED_FROM_A_PAGE })
-  /* Protocol 2.85.0: answered by `/host/server-ask` (`serverAsk.ts`), which can wait on a module. */
-  case 'sessions.placeOf':
-    return notMineToSay(PLACE_FROM_A_PAGE)
-  /* Protocol 2.99.0: answered by `/host/server-ask` (`serverAsk.ts`), for a task this host handed the module. */
-  case 'tasks.report':
-    return notMineToSay(TASKS_FROM_A_PAGE)
-  /* Protocol 2.110.0: answered by `/host/server-ask` (`serverAsk.ts`), for a restart this host asked a work queue to hold. */
-  case 'restart.release':
-    return notMineToSay(RESTART_FROM_A_PAGE)
-  /* Protocol 2.81.0: who provides a service here, with each descriptor. */
-  case 'services.find': {
-    const { service, kehikko } = parsed.data as { service: string; kehikko?: string }
-    return nothingToShow('services.find', { providers: services ? services(service, root, kehikko ?? null) : [] })
-  }
-
-  default:
-    /* Unreachable: `answeredHere` and this switch are the same list, and the
-       load-time assertion above fails the process if they drift from the
-       protocol's. Present because a `default` that throws would turn a rename
-       into a crash in a request handler. */
-    return notMineToSay('This host claims to answer that method and does not.')
-  }
+  const answerIt = answerFor(method)
+  if (!answerIt) return notMineToSay(UNANSWERED)
+  const root = deps.root ?? null
+  return answerIt({
+    module: moduleId,
+    params: parsed.data,
+    dir: epicsIn(root),
+    root,
+    keep: deps.keep ?? (() => {}),
+    mark: deps.mark ?? markNowhere,
+    trackers: deps.trackers ?? null,
+    report: deps.report ?? null,
+    divide: deps.divide ?? null,
+    traffic: deps.traffic ?? null,
+    mine: deps.mine ?? null,
+    services: deps.services ?? null,
+  })
 }
 
 /**
@@ -795,43 +836,30 @@ function overlay(
  * is answered here after the same checks `answer` makes, and everything else
  * is handed straight to it.
  */
-export async function answerCall(
-  moduleId: string,
-  method: string,
-  rawParams: unknown,
-  knownModule: (id: string) => boolean,
-  keep: (module: string, state: string, kehikko: number | null) => boolean | void,
-  root: string | null,
-  mark: (module: string, root: string | null, marking: Marking) => Marked,
-  trackers: TrackerDoor | null,
-  report: ((module: string, root: string, epic: string | null) => void) | null = null,
-  divide: PartsDoor | null = null,
-  grants: Grants | null = null,
-  traffic: { door: TrafficDoor; via: TrafficVia } | null = null,
-  mine: ((module: string) => PickedProject[]) | null = null,
-  services: ((service: string, root: string | null, kehikko: string | null) => ServiceProvider[]) | null = null,
-): Promise<Answer> {
+export async function answerCall(moduleId: string, method: string, rawParams: unknown, deps: AnswerDeps): Promise<Answer> {
+  const { knownModule, grants = null, trackers = null } = deps
+  const root = deps.root ?? null
   if (method === 'tracker.image' && knownModule(moduleId)) {
     /* A picture is fetched with the person's sign-in, which only this process holds: answered here,
        and declined (never an error) in the protocol's own words when it cannot be. */
     const why = kept(moduleId, method, grants)
     if (why) return notMineToSay(why)
     const asked = params.get(method)!.safeParse(rawParams ?? {})
-    if (!asked.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
+    if (!asked.success) return answer(moduleId, method, rawParams, deps)
     if (!trackers?.image) return notMineToSay('This host was not given a tracker reading to fetch a picture through.')
     if (!root) return nothingToShow('tracker.image', { outcome: 'declined', why: 'host' })
     const { ref, url } = asked.data as { ref: string; url: string }
     return nothingToShow('tracker.image', await trackers.image(root, ref, url))
   }
   if (method !== 'tracker.refresh' || !knownModule(moduleId)) {
-    return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants, traffic, mine, services)
+    return answer(moduleId, method, rawParams, deps)
   }
   /* A refresh spends the person's rate limit for everybody: declined, in the
      outcome the protocol gives it, for a module that did not ask. */
   const why = kept(moduleId, method, grants)
   if (why) return nothingToShow('tracker.refresh', { outcome: 'declined', at: null, why })
   const parsed = params.get(method)!.safeParse(rawParams ?? {})
-  if (!parsed.success) return answer(moduleId, method, rawParams, knownModule, keep, root, mark, trackers, report, divide, grants)
+  if (!parsed.success) return answer(moduleId, method, rawParams, deps)
   if (!trackers) return notMineToSay('This host was not given a tracker reading to refresh.')
   if (!root) {
     return nothingToShow('tracker.refresh', {

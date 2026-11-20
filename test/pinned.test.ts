@@ -14,11 +14,11 @@ import { toWireContext, whileFrozen } from '@/host/context.ts'
 
 const webapp = { id: 1, name: 'webapp', path: '/w/webapp', epics: true, git: true, shared: false }
 
-const held = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, null)
+const held = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark')
 
 describe('what a pinned container is still told', () => {
   test('a changed theme gets through', () => {
-    const told = toWireContext({ epic: 'something-else', project: webapp }, 'light', [], null, null)
+    const told = toWireContext({ epic: 'something-else', project: webapp }, 'light')
     const sent = whileFrozen(held, told)
     expect(sent?.theme).toBe('light')
   })
@@ -28,7 +28,7 @@ describe('what a pinned container is still told', () => {
      would be the pin quietly ending the first time somebody changed the
      lighting. */
   test('and the frozen subject is not disturbed by it', () => {
-    const told = toWireContext({ epic: 'something-else', project: null }, 'light', [], null, null)
+    const told = toWireContext({ epic: 'something-else', project: null }, 'light')
     const sent = whileFrozen(held, told)
     expect(sent?.epic).toBe('modes-are-modules')
     expect(sent?.project).toBe('webapp')
@@ -39,7 +39,7 @@ describe('what a pinned container is still told', () => {
      — the identical-broadcast problem the memo in `ModuleFrame` exists to
      avoid. */
   test('an unchanged theme is silence, however much else moved', () => {
-    const told = toWireContext({ epic: 'something-else', project: null }, 'dark', [], null, null)
+    const told = toWireContext({ epic: 'something-else', project: null }, 'dark')
     expect(whileFrozen(held, told)).toBeNull()
   })
 
@@ -47,13 +47,13 @@ describe('what a pinned container is still told', () => {
      nothing to substitute a theme into. Sending the live context here would
      hand a pinned container the canvas's current subject as its first word. */
   test('a container that has been told nothing is told nothing', () => {
-    const told = toWireContext({ epic: 'anything', project: webapp }, 'light', [], null, null)
+    const told = toWireContext({ epic: 'anything', project: webapp }, 'light')
     expect(whileFrozen(null, told)).toBeNull()
   })
 
   test('and it works in both directions', () => {
-    const lit = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'light', [], null, null)
-    const back = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark', [], null, null)
+    const lit = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'light')
+    const back = toWireContext({ epic: 'modes-are-modules', project: webapp }, 'dark')
     expect(whileFrozen(lit, back)?.theme).toBe('dark')
   })
 })
@@ -68,10 +68,10 @@ describe('a pinned container after its project was relinked', () => {
   const uid = '6f1c2a9e-0b7d-4c55-9a3e-2d8f1b4c7e10'
   const before = { ...webapp, uid }
   const after = { ...webapp, name: 'webapp-renamed', path: '/w/webapp-renamed', uid }
-  const pinnedOn = toWireContext({ epic: 'modes-are-modules', project: before }, 'dark', [], null, null)
+  const pinnedOn = toWireContext({ epic: 'modes-are-modules', project: before }, 'dark')
 
   test('is told the new path, and keeps what it was pinned on', () => {
-    const told = toWireContext({ epic: 'something-else', project: after }, 'dark', [], null, null)
+    const told = toWireContext({ epic: 'something-else', project: after }, 'dark')
     const sent = whileFrozen(pinnedOn, told)
     expect(sent?.projectPath).toBe('/w/webapp-renamed')
     expect(sent?.project).toBe('webapp-renamed')
@@ -80,8 +80,8 @@ describe('a pinned container after its project was relinked', () => {
   })
 
   test('and still hears the marks, the tracker and the content on the new path', () => {
-    const relinked = whileFrozen(pinnedOn, toWireContext({ epic: 'something-else', project: after }, 'dark', [], null, null))!
-    const live = toWireContext({ epic: 'something-else', project: after }, 'dark', [], null, null)
+    const relinked = whileFrozen(pinnedOn, toWireContext({ epic: 'something-else', project: after }, 'dark'))!
+    const live = toWireContext({ epic: 'something-else', project: after }, 'dark')
     const dispositions = [{ ref: '#1', value: 'done' }] as unknown as typeof live.dispositions
     const tracker = { ...(live.tracker ?? {}), at: 'later' } as unknown as typeof live.tracker
     const content = { ...(live.content ?? {}), changed: ['x'] } as unknown as typeof live.content
@@ -93,14 +93,14 @@ describe('a pinned container after its project was relinked', () => {
   })
 
   test('once told, the same place is silence', () => {
-    const live = toWireContext({ epic: 'something-else', project: after }, 'dark', [], null, null)
+    const live = toWireContext({ epic: 'something-else', project: after }, 'dark')
     const relinked = whileFrozen(pinnedOn, live)!
     expect(whileFrozen(relinked, live)).toBeNull()
   })
 
   test('another project with another id is still not this one', () => {
     const other = { ...webapp, name: 'other', path: '/w/other', uid: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }
-    const live = toWireContext({ epic: 'x', project: other }, 'dark', [], null, null)
+    const live = toWireContext({ epic: 'x', project: other }, 'dark')
     const dispositions = [{ ref: '#1', value: 'done' }] as unknown as typeof live.dispositions
     expect(whileFrozen(pinnedOn, { ...live, dispositions })).toBeNull()
   })
