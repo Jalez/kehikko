@@ -351,9 +351,16 @@ describe('what the grid animates', () => {
 
   test('in motion only for a drag or resize in hand, a glide after it, and a fold', () => {
     expect(app).toContain("className={moving !== null || gliding ? 'min-h-full in-motion' : 'min-h-full'}")
-    /* A switch never sets either: `moving` is the hand's, `gliding` a release's or a fold's. */
-    const gliding = [...app.matchAll(/setGliding\(\(n\) => n \+ 1\)/g)].length
+    /* A switch never sets either: `moving` is the hand's, `gliding` a release's or a fold's. The
+       hand's are in `useDragResize` (a drag let go of, a corner let go of, and `glide`, which the
+       page calls for a fold and for nothing else). */
+    const hand = readFileSync(new URL('../src/app/useDragResize.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const gliding = [...hand.matchAll(/setGliding\(\(n\) => n \+ 1\)/g)].length
     expect(gliding).toBe(3)
+    expect(hand).toContain('const glide = useCallback(() => setGliding((n) => n + 1), [])')
+    expect(app).not.toContain('setGliding')
+    expect([...app.matchAll(/\bglide\(\)/g)].length).toBe(1)
+    expect(app).toMatch(/foldsOnlyChanged\(foldsSeen\.placements, placements\)\) glide\(\)/)
   })
 
   test('the grid is told its width, so it is never born at the 1280 pixels it would guess', () => {
